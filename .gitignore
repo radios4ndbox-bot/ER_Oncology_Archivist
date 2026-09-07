@@ -1,0 +1,17 @@
+# dipendenze e output di build
+node_modules/
+dist/
+out/
+
+# dati clinici: non devono MAI finire nel repository
+ps_onco_data.json
+ps_onco.lock
+psonco-config.json
+*.xlsx
+*.csv
+
+# varie
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
