@@ -915,6 +915,7 @@ function saveWizard() {
   const wasEditing = !!editingId;
   editingId = null;
   scheduleSave();
+  refreshViews();   // riscontro immediato, senza attendere l'esito del salvataggio
   resetWizard();
   notify(wasEditing ? 'Esame aggiornato.' : 'Esame salvato.');
 }
