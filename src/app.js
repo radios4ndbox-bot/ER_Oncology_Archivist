@@ -1810,7 +1810,7 @@ function renderStats() {
     { label: 'Esami negativi', value: Math.max(0, tot - onco - sospetti), color: '#C8C6BE' },
     { label: 'Diagnosi oncologiche', value: onco, color: '#6B1A7A', opacity: 0.85 },
     { label: 'Sospetti', value: sospetti, color: '#E8A020' },
-    { label: 'Primo riscontro', value: primo, color: '#1A4F8A' },
+    { label: 'Primo riscontro', value: primo, color: '#C2185B' },
     { label: 'Metastasi', value: meta, color: '#8B1A1A', opacity: 0.7 }
   ].filter((s) => s.value > 0), 'esami');
 
