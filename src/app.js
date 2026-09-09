@@ -63,6 +63,7 @@ let saveTimer = null;
 let lockInterval = null;
 let pollInterval = null;
 let saveChain = Promise.resolve();
+let appInfo = {};
 
 // ══════════════════════════════════════════════════════════════════
 //  UTILITÀ
@@ -343,10 +344,14 @@ async function checkServer() {
     return;
   }
   try {
+    appInfo = await API.info();
+  } catch (_) { appInfo = {}; }
+  try {
     dataFolder = await API.getDataFolder();
   } catch (e) {
     dataFolder = null;
   }
+  refreshSettingsInfo();
   if (dataFolder) {
     await activateFolder();
   } else {
@@ -356,6 +361,7 @@ async function checkServer() {
 
 async function activateFolder() {
   storageReady = true;
+  refreshSettingsInfo();
   readOnly = false;
   renderBanners('file');
   await loadFromFile();
@@ -624,40 +630,57 @@ function refreshViews() {
   renderStats();
 }
 
-function showView(name, btn) {
-  const target = el('view-' + name);
-  if (!target || target.classList.contains('active')) return;
-  pageWipeTransition(() => {
-    document.querySelectorAll('.view').forEach((e) => e.classList.remove('active'));
-    document.querySelectorAll('.nav-tab').forEach((e) => e.classList.remove('active'));
-    target.classList.add('active');
-    if (btn) btn.classList.add('active');
-    window.scrollTo(0, 0);
-    if (name === 'stats') renderStats();
-    if (name === 'db') applyFilters();
-  });
+const VIEW_ORDER = ['wizard', 'db', 'stats'];
+let currentView = 'wizard';
+
+function showView(name) {
+  if (VIEW_ORDER.indexOf(name) === -1 || name === currentView) return;
+  currentView = name;
+  applyViewState();
+  window.scrollTo(0, 0);
+  if (name === 'stats') renderStats();
+  if (name === 'db') applyFilters();
 }
 
-function pageWipeTransition(swapFn) {
-  const overlay = el('modeTransitionOverlay');
-  const logo = el('modeTransitionLogo');
-  if (!overlay || !logo) { swapFn(); return; }
+/** Sposta il binario e allinea schede, aria e highlight. */
+function applyViewState() {
+  const idx = VIEW_ORDER.indexOf(currentView);
+  const track = el('viewsTrack');
+  if (track) track.style.transform = 'translateX(' + (-idx * 100) + '%)';
 
-  overlay.style.transition = 'none';
-  overlay.style.opacity = '0';
-  logo.style.transition = 'none';
-  logo.style.opacity = '0';
-  void overlay.offsetWidth;
-  overlay.style.transition = 'opacity .45s var(--splash-ease)';
-  logo.style.transition = 'opacity .45s var(--splash-ease)';
-  overlay.style.opacity = '1';
-  logo.style.opacity = '1';
-  setTimeout(() => {
-    try { swapFn(); } finally {
-      overlay.style.opacity = '0';
-      logo.style.opacity = '0';
+  VIEW_ORDER.forEach((v, i) => {
+    const view = el('view-' + v);
+    if (!view) return;
+    if (i === idx) {
+      view.classList.add('active');
+      view.removeAttribute('aria-hidden');
+    } else {
+      view.classList.remove('active');
+      // le viste fuori campo non devono essere raggiungibili da tastiera
+      view.setAttribute('aria-hidden', 'true');
     }
-  }, 620);
+  });
+
+  document.querySelectorAll('.nav-tab').forEach((t) => {
+    const suo = t.getAttribute('data-view') === currentView;
+    t.classList.toggle('active', suo);
+    t.setAttribute('aria-selected', suo ? 'true' : 'false');
+  });
+
+  moveTabHighlight();
+}
+
+/** Il pannello luminoso scivola sotto la scheda attiva. */
+function moveTabHighlight() {
+  const hl = el('navTabHighlight');
+  const active = document.querySelector('.nav-tab.active');
+  if (!hl || !active || !hl.parentElement) return;
+  const base = hl.parentElement.getBoundingClientRect();
+  const r = active.getBoundingClientRect();
+  if (!r.width) return;
+  hl.style.width = r.width + 'px';
+  hl.style.transform = 'translateX(' + (r.left - base.left) + 'px)';
+  hl.classList.add('ready');
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -971,11 +994,7 @@ function loadIntoWizard(id) {
   updateAge();
   liveValidate2();
 
-  document.querySelectorAll('.view').forEach((e) => e.classList.remove('active'));
-  document.querySelectorAll('.nav-tab').forEach((e) => e.classList.remove('active'));
-  el('view-wizard').classList.add('active');
-  const firstTab = document.querySelector('.nav-tab');
-  if (firstTab) firstTab.classList.add('active');
+  showView('wizard');
   goStep(1);
   notify('Esame caricato per la modifica.');
 }
@@ -1909,6 +1928,90 @@ function renderTableSede(sediSorted, sediPrima, sediMeta, onco, sospetti, prima,
 }
 
 // ══════════════════════════════════════════════════════════════════
+//  PREFERENZE E MENÙ IMPOSTAZIONI
+//  Vivono in localStorage: sono scelte della postazione, non dati del
+//  paziente. Nessun dato clinico esce mai dal file condiviso.
+// ══════════════════════════════════════════════════════════════════
+const PREFS_KEY = 'psonco-prefs';
+const PREFS_DEFAULT = { dense: false, reduceMotion: false, skipIntro: false };
+let PREFS = Object.assign({}, PREFS_DEFAULT);
+
+function loadPrefs() {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    if (saved && typeof saved === 'object') {
+      Object.keys(PREFS_DEFAULT).forEach((k) => {
+        if (typeof saved[k] === 'boolean') PREFS[k] = saved[k];
+      });
+    }
+  } catch (_) { /* profilo nuovo o storage negato: si usano i default */ }
+}
+
+function savePrefs() {
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(PREFS)); } catch (_) {}
+}
+
+function applyPrefs() {
+  document.body.classList.toggle('dense', PREFS.dense);
+  document.body.classList.toggle('reduce-motion', PREFS.reduceMotion);
+  document.querySelectorAll('[data-act="pref"]').forEach((btn) => {
+    const chiave = btn.getAttribute('data-pref');
+    btn.setAttribute('aria-checked', PREFS[chiave] ? 'true' : 'false');
+  });
+}
+
+function togglePref(chiave) {
+  if (!(chiave in PREFS_DEFAULT)) return;
+  PREFS[chiave] = !PREFS[chiave];
+  savePrefs();
+  applyPrefs();
+  if (chiave === 'dense') moveTabHighlight();
+}
+
+function toggleSettings(forza) {
+  const menu = el('settingsMenu');
+  const btn = el('settingsBtn');
+  if (!menu || !btn) return;
+  const apri = typeof forza === 'boolean' ? forza : !menu.classList.contains('open');
+  menu.classList.toggle('open', apri);
+  btn.setAttribute('aria-expanded', apri ? 'true' : 'false');
+  if (apri) refreshSettingsInfo();
+}
+
+function refreshSettingsInfo() {
+  const info = el('smInfo');
+  if (!info) return;
+  const righe = ['ER Oncology Archivist ' + (appInfo.version || '')];
+  if (IS_ELECTRON) {
+    righe.push(dataFolder ? 'Cartella: ' + dataFolder : 'Cartella dati non ancora scelta');
+    if (readOnly) righe.push('Sola lettura');
+  } else {
+    righe.push('Modalità browser — i dati non vengono salvati');
+  }
+  info.textContent = '';
+  righe.forEach((r) => {
+    const d = document.createElement('div');
+    d.textContent = r;
+    info.appendChild(d);
+  });
+}
+
+/** In modalità browser le voci che toccano il file non hanno senso. */
+function setupSettings() {
+  loadPrefs();
+  applyPrefs();
+  if (!IS_ELECTRON) {
+    ['smFolder', 'smReload'].forEach((id) => {
+      const b = el(id);
+      if (b) { b.disabled = true; b.title = 'Disponibile solo nell’applicazione desktop'; }
+    });
+  }
+  refreshSettingsInfo();
+}
+
+// ══════════════════════════════════════════════════════════════════
 //  SPLASH E TRANSIZIONI
 // ══════════════════════════════════════════════════════════════════
 // Ritardi della sequenza. Il totale e' volutamente contenuto: e' uno
@@ -1928,6 +2031,15 @@ function runIntro() {
   const stage = el('splashStage');
   const screen = el('splashScreen');
   if (!stage || !screen) return;
+
+  // Chi apre il programma venti volte al giorno l'intro non la vuole.
+  if (PREFS.skipIntro || PREFS.reduceMotion) {
+    screen.classList.add('closing');
+    stage.classList.add('settled');
+    if (el('navLogo')) el('navLogo').classList.add('landed');
+    introClosed = true;
+    return;
+  }
 
   // Logo: pathLength=1 normalizza la lunghezza del tracciato a 1, cosi'
   // stroke-dashoffset funziona su qualunque geometria. E' anche cio' che
@@ -1980,30 +2092,45 @@ function closeIntro() {
 
   const screen = el('splashScreen');
   const logoBtn = el('splashLogo');
+  const logoWrap = document.querySelector('.splash-logo-svg-wrap');
   const navLogo = el('navLogo');
   if (screen) screen.removeEventListener('click', closeIntro);
 
-  // L'interfaccia entra a cascata, come i blocchi dell'hero di animate-ui.
+  // ── FLIP, misurato PRIMA di far entrare l'interfaccia ──
+  // La nav e' il bersaglio dell'atterraggio: misurarla mentre e' gia'
+  // spostata dalla propria animazione d'ingresso manderebbe il logo
+  // dove la nav si trova a meta' corsa, non dove finisce.
+  let volo = null;
+  if (logoBtn && logoWrap && navLogo) {
+    const btn = logoBtn.getBoundingClientRect();
+    const wrap = logoWrap.getBoundingClientRect();
+    const to = navLogo.getBoundingClientRect();
+    if (wrap.width > 0 && to.width > 0) {
+      const scala = to.width / wrap.width;
+      // Il logo visibile e' il wrap, ma la transform va sul contenitore
+      // (il wrap ha gia' la sua): si compensa lo scarto fra i due.
+      volo = {
+        dx: to.left - btn.left - (wrap.left - btn.left) * scala,
+        dy: to.top - btn.top - (wrap.top - btn.top) * scala,
+        scala: scala
+      };
+    }
+  }
+
+  // ── ora l'interfaccia puo' entrare ──
   document.querySelectorAll('[data-pop]').forEach((e) => {
     const rank = parseInt(e.getAttribute('data-pop'), 10) || 0;
     e.style.setProperty('--pop-delay', (POP_BASE + POP_STEP * rank) + 'ms');
   });
   document.body.classList.add('app-entering');
 
-  if (!screen || !logoBtn || !navLogo) { finishIntro(); return; }
+  if (!screen || !volo) { finishIntro(); return; }
 
   screen.classList.add('exiting');
-
-  // FLIP: si misura dove il logo sta adesso e dove deve atterrare, e si
-  // anima la sola differenza. Una transform, nessun ricalcolo di layout.
-  const from = logoBtn.getBoundingClientRect();
-  const to = navLogo.getBoundingClientRect();
-  if (from.width > 0 && to.width > 0) {
-    logoBtn.classList.add('flying');
-    logoBtn.style.transform =
-      'translate(' + (to.left - from.left) + 'px, ' + (to.top - from.top) + 'px)' +
-      ' scale(' + (to.width / from.width) + ')';
-  }
+  logoBtn.classList.add('flying');
+  logoBtn.style.transform =
+    'translate(' + volo.dx.toFixed(2) + 'px, ' + volo.dy.toFixed(2) + 'px)' +
+    ' scale(' + volo.scala.toFixed(4) + ')';
 
   setTimeout(finishIntro, INTRO_FLIGHT);
 }
@@ -2049,19 +2176,11 @@ function cloneLogoSvg(original, newId) {
   return clone;
 }
 
-/** Il clone del logo per l'overlay di transizione fra viste. */
-function setupModeTransitionLogo() {
-  const original = document.querySelector('.splash-logo-svg-wrap svg');
-  const container = el('modeTransitionLogo');
-  if (!original || !container || container.childNodes.length) return;
-  container.appendChild(cloneLogoSvg(original, 'splashGradLogoIconTrans'));
-}
-
 // ══════════════════════════════════════════════════════════════════
 //  EVENTI (delega: nessun gestore inline, la CSP resta rigida)
 // ══════════════════════════════════════════════════════════════════
 const CLICK_ACTIONS = {
-  'view': (t) => showView(t.getAttribute('data-view'), t),
+  'view': (t) => showView(t.getAttribute('data-view')),
   'step': (t) => goStep(parseInt(t.getAttribute('data-step'), 10)),
   'save-wizard': () => saveWizard(),
   'reset-wizard': () => { resetWizard(); notify('Modulo azzerato.'); },
@@ -2071,6 +2190,8 @@ const CLICK_ACTIONS = {
   'set-class': (t) => setClassTumore(t.getAttribute('data-val')),
   'set-sottocat': (t) => setSottocat(t.getAttribute('data-val')),
   'set-meta': (t) => setMetastasi(t.getAttribute('data-val')),
+  'settings-toggle': () => toggleSettings(),
+  'pref': (t) => togglePref(t.getAttribute('data-pref')),
   'reset-filters': () => resetFilters(),
   'reset-stats': () => resetStatsFilters(),
   'sort': (t) => sortBy(t.getAttribute('data-key')),
@@ -2086,8 +2207,8 @@ const CLICK_ACTIONS = {
   'export-csv': (t) => { closeOverlay('modExport'); exportCSV(t.getAttribute('data-anon') === '1'); },
   'export-pdf': () => { closeOverlay('modExport'); exportPDF(); },
   'welcome-select': () => welcomeSelectFolder(),
-  'select-folder': () => selectFolder(),
-  'reload': () => { if (IS_ELECTRON && dataFolder) activateFolder(); },
+  'select-folder': () => { toggleSettings(false); selectFolder(); },
+  'reload': () => { toggleSettings(false); if (IS_ELECTRON && dataFolder) activateFolder(); },
   'pick': (t) => {
     const target = el(t.getAttribute('data-target'));
     if (target) { target.value = t.getAttribute('data-value') || ''; }
@@ -2131,9 +2252,15 @@ function wireEvents() {
 
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') {
+      toggleSettings(false);
       document.querySelectorAll('.overlay.open').forEach((m) => m.classList.remove('open'));
     }
   });
+
+  document.addEventListener('click', (ev) => {
+    if (!ev.target.closest('.settings-wrap')) toggleSettings(false);
+  });
+  window.addEventListener('resize', moveTabHighlight);
 
   window.addEventListener('beforeunload', releaseLock);
   window.addEventListener('pagehide', releaseLock);
@@ -2143,10 +2270,11 @@ function wireEvents() {
 //  AVVIO — dopo che tutte le dichiarazioni globali esistono
 // ══════════════════════════════════════════════════════════════════
 function boot() {
-  setupNavLogo();              // prima di runIntro: i cloni devono essere "puliti"
-  setupModeTransitionLogo();
+  setupNavLogo();
+  setupSettings();              // prima di runIntro: i cloni devono essere "puliti"
   runIntro();
   wireEvents();
+  applyViewState();
   buildProgress();
   renderFUList();
   liveValidate1();

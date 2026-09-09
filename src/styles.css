@@ -25,10 +25,11 @@ nav{background:var(--text);height:52px;display:flex;align-items:center;justify-c
 .nav-logo svg{display:block;width:100%;height:100%;}
 .nav-logo.landed{opacity:1;transition:opacity .18s ease;}
 .nav-sub{font-size:11px;color:#888;font-family:var(--mono);}
-.nav-tabs{display:flex;gap:2px;}
+.nav-tabs{display:flex;gap:2px;position:relative;}
 .nav-tab{background:none;border:none;color:#999;font-family:var(--sans);font-size:13px;font-weight:500;padding:6px 14px;border-radius:4px;cursor:pointer;transition:background .1s,color .1s;}
-.nav-tab:hover{background:#2A2A25;color:#fff;}
-.nav-tab.active{background:#2A2A25;color:#fff;}
+.nav-tab:hover{background:rgba(255,255,255,.06);color:#fff;}
+.nav-tab.active{background:transparent;color:#fff;}
+.nav-tab{position:relative;z-index:1;}
 .nav-right{display:flex;gap:8px;align-items:center;}
 .save-status{font-family:var(--mono);font-size:11px;padding:3px 10px;border-radius:3px;}
 .save-status.saved{background:#1A6040;color:#fff;}
@@ -144,8 +145,7 @@ nav{background:var(--text);height:52px;display:flex;align-items:center;justify-c
 }
 
 /* ══════════════ VIEWS ══════════════ */
-.view{display:none;padding:2rem;max-width:1600px;margin:0 auto;}
-.view.active{display:block;}
+.view{display:block;padding:2rem;max-width:1600px;margin:0 auto;}
 
 /* ══════════════ MODE BANNER ══════════════ */
 .mode-banner{display:flex;align-items:center;gap:10px;padding:.7rem 1rem;border-radius:6px;font-size:12px;margin-bottom:1.2rem;}
@@ -486,20 +486,6 @@ td.mono{font-family:var(--mono);font-size:12px;}
   }
 
 
-  /* ════ Transizione a dissolvenza tra viste ════ */
-  #modeTransitionOverlay {
-    position: fixed; inset: 0; z-index: 1500;
-    pointer-events: none;
-    background: linear-gradient(160deg, #FCEEF3 0%, #F7E2EC 45%, #F6EDF7 100%);
-    opacity: 0;
-  }
-  #modeTransitionLogo {
-    position: fixed; top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    width: min(150px, 18vw); z-index: 1501;
-    opacity: 0;
-  }
-  #modeTransitionLogo svg { display: block; width: 100%; height: auto; }
 
 /* ══════════════════════════════════════════════════════════════════
    CLASSI AGGIUNTIVE
@@ -783,8 +769,139 @@ body.app-entering [data-pop] {
   transform: translateY(-22px) scale(.94);
   animation: splashMotionEffect .72s cubic-bezier(.22,1.15,.36,1) var(--pop-delay, 0ms) forwards;
 }
+/* La nav e' dove atterra il logo: deve stare ferma, altrimenti il
+   bersaglio si muove mentre il logo e' in volo. Solo dissolvenza. */
+body.app-entering nav[data-pop] {
+  transform: none;
+  animation-name: splashFadeIn;
+}
+@keyframes splashFadeIn { to { opacity: 1; } }
 
 @media (prefers-reduced-motion: reduce) {
   .splash-logo-btn.flying { transition-duration: .01ms; }
   body.app-entering [data-pop] { animation-duration: .01ms; animation-delay: 0ms; }
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   Cambio vista in stile Tabs di animate-ui
+   (registry/primitives/animate/tabs)
+
+   · le tre viste stanno affiancate su un binario che scorre
+   · un pannello luminoso scivola sotto la scheda attiva
+   · la vista che esce sfoca, come il loro filter: blur(4px)
+
+   Differenza voluta: loro animano anche l'altezza del contenitore.
+   Qui le viste vanno da ~900px (wizard) a oltre 3000px (statistiche):
+   interpolare quell'altezza costa un ricalcolo di layout per fotogramma
+   e visivamente e' uno stiramento sgradevole. L'altezza si assesta
+   subito, scorre solo il binario.
+   ══════════════════════════════════════════════════════════════════ */
+.views-port { overflow: hidden; }
+.views-track {
+  display: flex; align-items: flex-start;
+  /* molla animate-ui: stiffness 300, damping 30, senza rimbalzo */
+  transition: transform .52s cubic-bezier(.32,.72,0,1);
+  will-change: transform;
+}
+.views-track > .view {
+  flex: 0 0 100%; width: 100%; min-width: 0;
+}
+/* le viste non attive restano sfocate e non raggiungibili da tastiera */
+.views-track > .view[aria-hidden="true"] {
+  filter: blur(4px);
+  pointer-events: none;
+  transition: filter .4s ease;
+}
+.views-track > .view:not([aria-hidden="true"]) {
+  filter: none;
+  transition: filter .4s ease;
+}
+
+.nav-tab-highlight {
+  position: absolute; left: 0; top: 0;
+  height: 100%; width: 0;
+  background: #2A2A25; border-radius: 4px;
+  z-index: 0; opacity: 0;
+  transition: transform .42s cubic-bezier(.32,.72,0,1),
+              width .42s cubic-bezier(.32,.72,0,1),
+              opacity .2s ease;
+  pointer-events: none;
+}
+.nav-tab-highlight.ready { opacity: 1; }
+
+body.reduce-motion .views-track,
+body.reduce-motion .nav-tab-highlight { transition: none; }
+body.reduce-motion .views-track > .view[aria-hidden="true"] { filter: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .views-track, .nav-tab-highlight { transition: none; }
+  .views-track > .view[aria-hidden="true"] { filter: none; }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Menù impostazioni — apertura in stile dropdown di animate-ui:
+   scala dall'angolo in alto a destra con dissolvenza.
+   ══════════════════════════════════════════════════════════════════ */
+.settings-wrap { position: relative; }
+
+.settings-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0;
+  background: transparent; border: 1px solid #3A3A34; border-radius: 6px;
+  color: #B9B7B0; cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.settings-btn svg { width: 16px; height: 16px; }
+.settings-btn:hover { background: #2A2A25; color: #fff; border-color: #55534B; }
+.settings-btn[aria-expanded="true"] { background: #2A2A25; color: #fff; border-color: var(--accent); }
+
+.settings-menu {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 200;
+  min-width: 244px; padding: 6px;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 12px 32px -8px rgba(0,0,0,.28), 0 2px 6px rgba(0,0,0,.08);
+  transform-origin: top right;
+  opacity: 0; transform: scale(.94) translateY(-6px); pointer-events: none;
+  transition: opacity .16s ease, transform .22s cubic-bezier(.22,1.15,.36,1);
+}
+.settings-menu.open { opacity: 1; transform: scale(1) translateY(0); pointer-events: auto; }
+
+.sm-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--faint); padding: 7px 10px 4px;
+}
+.sm-item {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 7px 10px; border: none; border-radius: 6px;
+  background: transparent; color: var(--text);
+  font-family: var(--sans); font-size: 13px; text-align: left; cursor: pointer;
+  transition: background .12s;
+}
+.sm-item:hover { background: var(--accent-bg); }
+.sm-item:disabled { opacity: .4; cursor: not-allowed; }
+.sm-item:disabled:hover { background: transparent; }
+.sm-ico { width: 15px; text-align: center; color: var(--muted); flex-shrink: 0; }
+.sm-check {
+  width: 15px; text-align: center; flex-shrink: 0;
+  color: var(--accent); opacity: 0; transition: opacity .12s;
+}
+.sm-item[aria-checked="true"] .sm-check { opacity: 1; }
+.sm-item[aria-checked="true"] { color: var(--accent); font-weight: 500; }
+.sm-sep { height: 1px; background: var(--border); margin: 5px 4px; }
+.sm-info {
+  padding: 6px 10px 4px; font-size: 10px; line-height: 1.55;
+  color: var(--faint); font-family: var(--mono); word-break: break-all;
+}
+
+/* ── Tabella compatta ── */
+body.dense .view { padding: 1.2rem; }
+body.dense table td { padding-top: 4px; padding-bottom: 4px; }
+body.dense .stats-row { margin-bottom: 10px; }
+body.dense .sc { padding: 8px 12px; }
+
+/* ── Animazioni ridotte: si spengono anche i filtri costosi ── */
+body.reduce-motion .splash-glyph,
+body.reduce-motion [data-pop],
+body.reduce-motion .settings-menu { animation: none !important; transition: none !important; }
+body.reduce-motion .splash-glyph { opacity: 1; filter: none; }

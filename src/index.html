@@ -8,11 +8,6 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Transizione dissolvenza tra viste -->
-  <div id="modeTransitionOverlay">
-    <div id="modeTransitionLogo"></div>
-  </div>
-
   <!-- ════ SPLASH — ER Oncology Archivist ════ -->
   <div id="splashScreen">
     <div class="splash-blob-bg"></div>
@@ -215,13 +210,48 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
     <div class="nav-title"><span class="nav-logo" id="navLogo"></span><span>ER Oncology Archivist</span></div>
     <div class="nav-sub" id="navSub">raccolta dati pronto soccorso</div>
   </div>
-  <div class="nav-tabs">
+  <div class="nav-tabs"><span class="nav-tab-highlight" id="navTabHighlight" aria-hidden="true"></span>
     <button type="button" class="nav-tab active" data-act="view" data-view="wizard">+ Nuovo esame</button>
     <button type="button" class="nav-tab" data-act="view" data-view="db">Archivio</button>
     <button type="button" class="nav-tab" data-act="view" data-view="stats">Statistiche</button>
   </div>
   <div class="nav-right">
     <span class="save-status offline" id="saveStatus">&#9679; avvio...</span>
+    <div class="settings-wrap">
+      <button type="button" class="settings-btn" id="settingsBtn" data-act="settings-toggle"
+              aria-haspopup="menu" aria-expanded="false" aria-label="Impostazioni" title="Impostazioni">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </button>
+
+      <div class="settings-menu" id="settingsMenu" role="menu" aria-labelledby="settingsBtn">
+        <div class="sm-label">Archivio</div>
+        <button type="button" class="sm-item" role="menuitem" data-act="select-folder" id="smFolder">
+          <span class="sm-ico">&#128193;</span><span>Cambia cartella dati&hellip;</span>
+        </button>
+        <button type="button" class="sm-item" role="menuitem" data-act="reload" id="smReload">
+          <span class="sm-ico">&#8635;</span><span>Ricarica dall'archivio</span>
+        </button>
+
+        <div class="sm-sep"></div>
+        <div class="sm-label">Aspetto</div>
+        <button type="button" class="sm-item" role="menuitemcheckbox" data-act="pref" data-pref="dense" aria-checked="false">
+          <span class="sm-check">&#10003;</span><span>Tabella compatta</span>
+        </button>
+        <button type="button" class="sm-item" role="menuitemcheckbox" data-act="pref" data-pref="reduceMotion" aria-checked="false">
+          <span class="sm-check">&#10003;</span><span>Riduci le animazioni</span>
+        </button>
+        <button type="button" class="sm-item" role="menuitemcheckbox" data-act="pref" data-pref="skipIntro" aria-checked="false">
+          <span class="sm-check">&#10003;</span><span>Salta l'intro all'avvio</span>
+        </button>
+
+        <div class="sm-sep"></div>
+        <div class="sm-info" id="smInfo"></div>
+      </div>
+    </div>
   </div>
 </nav>
 
@@ -234,6 +264,8 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
 <!-- ═══════════════════════════════════════
      WIZARD
 ════════════════════════════════════════ -->
+<!-- Le tre viste vivono affiancate: lo switch le fa scorrere -->
+<div class="views-port" id="viewsPort"><div class="views-track" id="viewsTrack">
 <div class="view active" id="view-wizard">
 <div class="wizard-wrap" data-pop="1">
   <div id="modeBanner"></div>
@@ -684,6 +716,8 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
     </div>
   </div>
 </div>
+
+</div></div>
 
 <!-- MODALI -->
 <div class="overlay" id="modDetail">

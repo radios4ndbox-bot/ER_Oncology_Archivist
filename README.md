@@ -126,6 +126,36 @@ A intro conclusa i filtri SVG vengono spenti: 51 filtri `blur` attivi
 costerebbero frame per nulla sulle postazioni di reparto. La sequenza
 rispetta anche `prefers-reduced-motion`.
 
+## Cambio vista
+
+Le tre viste (Nuovo esame, Archivio, Statistiche) stanno affiancate su un
+binario che scorre orizzontalmente, con un pannello luminoso che scivola
+sotto la scheda attiva e la vista uscente che si sfoca — è il
+comportamento dei `Tabs` di animate-ui, riscritto in CSS.
+
+Una differenza voluta: animate-ui interpola anche l'altezza del
+contenitore. Qui le viste vanno da ~900 px (wizard) a oltre 3000 px
+(statistiche): interpolare quell'altezza costa un ricalcolo di layout per
+fotogramma e visivamente è uno stiramento sgradevole. L'altezza si
+assesta subito, scorre solo il binario.
+
+## Impostazioni
+
+Menù a tendina in alto a destra, con le voci che servono davvero su una
+postazione di reparto:
+
+| voce | effetto |
+|---|---|
+| Cambia cartella dati… | rifà la scelta della condivisione |
+| Ricarica dall'archivio | rilegge il file, utile dopo modifiche dell'altra postazione |
+| Tabella compatta | righe più fitte, più esami a schermo |
+| Riduci le animazioni | spegne intro, scorrimenti e filtri: utile su PC lenti |
+| Salta l'intro all'avvio | per chi apre il programma decine di volte al giorno |
+
+Le preferenze stanno in `localStorage`, sotto la chiave `psonco-prefs`.
+Sono scelte della postazione — nessun dato clinico: quelli vivono solo
+nel file condiviso.
+
 ## Primo avvio su una postazione
 
 Alla prima apertura l'app chiede la cartella dati. Selezionare la
