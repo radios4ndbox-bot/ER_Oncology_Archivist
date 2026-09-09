@@ -236,7 +236,14 @@ function normalizeRecord(raw) {
   return rec;
 }
 
-function parseStore(text) {
+/** Notepad e PowerShell 5.1 scrivono UTF-8 con BOM: senza questo, un file
+ *  dati toccato a mano manderebbe l'app in sola lettura. */
+function stripBom(text) {
+  return (typeof text === 'string' && text.charCodeAt(0) === 0xFEFF) ? text.slice(1) : text;
+}
+
+function parseStore(input) {
+  const text = stripBom(input);
   if (text == null || !String(text).trim()) return { records: [], deleted: {} };
   let raw;
   try {

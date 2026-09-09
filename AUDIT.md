@@ -267,9 +267,43 @@ Applicazione caricata e pilotata da browser; tutti i controlli passati.
 | Unione: stesso record modificato da entrambe | vince il più recente, in entrambi gli ordini |
 | Unione: cancellazione contro modifica | tombstone rispettato; modifica successiva prevale |
 | Tombstone oltre la TTL | applicato prima della potatura (difetto trovato e corretto in corso di verifica) |
+| Config o file dati con BOM UTF-8 | letto correttamente (difetto trovato e corretto in corso di verifica, vedi sotto) |
 | Formato legacy (array puro) | letto e convertito |
 | Record malformati dal file di rete | normalizzati, mai eseguiti |
 | JSON corrotto | eccezione → sola lettura, nessuna scrittura |
+
+### Verifiche sull'applicazione Electron compilata
+
+Eseguite sul processo reale via DevTools Protocol, non in un browser.
+
+| verifica | esito |
+|---|---|
+| `window.require` / `window.process` / `window.module` nel renderer | tutti `undefined`: contextIsolation e sandbox attivi |
+| Superficie del bridge | esattamente 9 metodi, nessun canale extra |
+| `psApi.readText('../../../Windows/win.ini')` | rifiutato: "Nome file non consentito" |
+| `psApi.readText('C:/Windows/win.ini')` | rifiutato: "Nome file non consentito" |
+| Stato globale nel renderer | `currentStep` numero, `DB` oggetto — il bug originale non si ripresenta |
+| Errori JavaScript all'avvio | zero |
+| Database nomi caricato | 19.153 maschili + 18.249 femminili |
+| Ciclo salvataggio su cartella reale | file scritto, stato "salvato", nessun `.tmp` orfano |
+| Seconda postazione simulata che scrive sul file | modifiche recuperate e unite, nessuna perdita |
+| Cancellazione | tombstone scritto sul file, record rimosso da entrambe |
+
+### Difetto introdotto e corretto: BOM UTF-8
+
+Durante la verifica il file di configurazione scritto da PowerShell 5.1 non
+veniva letto: `Out-File -Encoding utf8` in Windows PowerShell antepone un
+BOM (`EF BB BF`) e `JSON.parse` lo rifiuta. L'app ripartiva chiedendo di
+nuovo la cartella dati.
+
+Lo stesso sarebbe successo al **file dati** se qualcuno dell'IT lo avesse
+aperto e risalvato con Notepad o con uno script PowerShell: `parseStore`
+avrebbe lanciato un'eccezione e l'app sarebbe entrata in sola lettura,
+apparentemente senza motivo.
+
+Corretto in `main.js` e `src/app.js` con uno `stripBom()` prima di ogni
+`JSON.parse`. Verificato riscrivendo la configurazione **con** BOM: letta
+correttamente.
 
 ## Cosa resta da decidere con il reparto
 

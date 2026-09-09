@@ -60,7 +60,9 @@ jobs:
           node-version: 24
 
       - name: Installazione dipendenze
-        run: npm install --no-audit --no-fund
+        # npm ci usa package-lock.json: stesse versioni esatte della build
+        # locale, nessuna sorpresa da un aggiornamento a monte.
+        run: npm ci --no-audit --no-fund
 
       - name: Build portable + installer
         run: npx electron-builder --win portable nsis --publish never

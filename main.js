@@ -41,9 +41,15 @@ function configPath() {
   return path.join(app.getPath('userData'), CONFIG_FILE);
 }
 
+/** Notepad e PowerShell 5.1 scrivono UTF-8 con BOM: senza questo,
+ *  un file toccato a mano diventa illeggibile per JSON.parse. */
+function stripBom(text) {
+  return (typeof text === 'string' && text.charCodeAt(0) === 0xFEFF) ? text.slice(1) : text;
+}
+
 function readConfig() {
   try {
-    const raw = fs.readFileSync(configPath(), 'utf8');
+    const raw = stripBom(fs.readFileSync(configPath(), 'utf8'));
     const cfg = JSON.parse(raw);
     if (cfg && typeof cfg === 'object' && typeof cfg.dataFolder === 'string') return cfg;
   } catch (_) { /* config assente o illeggibile: si riparte da zero */ }
