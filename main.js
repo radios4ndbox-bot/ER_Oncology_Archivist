@@ -28,6 +28,10 @@ const CONFIG_FILE = 'psonco-config.json';
 const MAX_TEXT_BYTES = 64 * 1024 * 1024;   // 64 MB
 const MAX_EXPORT_CHARS = 96 * 1024 * 1024; // 96 MB di base64
 const IS_DEV = !app.isPackaged;
+/** Modalità sviluppo: si attiva SOLO con `npm run dev` su un'app non
+ *  impacchettata. Nel .exe distribuito app.isPackaged è true, quindi
+ *  niente di quanto segue può attivarsi. */
+const DEV_MODE = IS_DEV && process.argv.indexOf('--dev') !== -1;
 
 // ── Stato del solo processo principale ────────────────────────────
 let mainWindow = null;
@@ -149,7 +153,10 @@ function createWindow() {
     }
   });
 
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    if (DEV_MODE) mainWindow.webContents.openDevTools({ mode: 'detach' });
+  });
   mainWindow.on('closed', () => { mainWindow = null; });
 
   // loadURL + url.format: loadFile non risolve correttamente nel
@@ -343,6 +350,59 @@ function descrizioneErrore(err) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+//  SVILUPPO — ricarica automatica e cartella dati dedicata
+//  Tutto quanto segue gira solo con `npm run dev`.
+// ══════════════════════════════════════════════════════════════════
+
+/** Ricarica la finestra a ogni salvataggio dentro src/. */
+function watchSources() {
+  const dir = path.join(__dirname, 'src');
+  let timer = null;
+  try {
+    fs.watch(dir, { recursive: true }, (_evt, file) => {
+      if (!file || !/\.(html|css|js)$/i.test(file)) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          console.log('[dev] ' + file + ' → ricarico la finestra');
+          mainWindow.webContents.reloadIgnoringCache();
+        }
+      }, 160);
+    });
+    console.log('[dev] in ascolto su src/');
+  } catch (err) {
+    console.error('[dev] watcher non attivo:', err.message);
+  }
+
+  // main.js e preload.js girano nel processo principale: per quelli
+  // serve riavviare, la ricarica della finestra non basta.
+  try {
+    fs.watch(__dirname, (_evt, file) => {
+      if (file === 'main.js' || file === 'preload.js') {
+        console.log('[dev] ' + file + ' modificato → riavvia: Ctrl+C, poi npm run dev');
+      }
+    });
+  } catch (_) {}
+}
+
+/** In sviluppo si usa dev-data/ senza chiedere nulla, e senza scriverlo
+ *  in configurazione: un normale avvio continua a chiedere la cartella. */
+function useDevDataFolder() {
+  const dir = path.join(__dirname, 'dev-data');
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (err) {
+    console.error('[dev] non riesco a creare dev-data:', err.message);
+    return;
+  }
+  const ok = validateFolder(dir);
+  if (ok) {
+    dataFolder = ok;
+    console.log('[dev] cartella dati:', ok);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 //  AVVIO
 // ══════════════════════════════════════════════════════════════════
 if (!app.requestSingleInstanceLock()) {
@@ -376,7 +436,9 @@ if (!app.requestSingleInstanceLock()) {
     });
 
     dataFolder = validateFolder(readConfig().dataFolder);
+    if (DEV_MODE && !dataFolder) useDevDataFolder();
     createWindow();
+    if (DEV_MODE) watchSources();
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

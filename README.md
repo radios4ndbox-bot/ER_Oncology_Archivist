@@ -59,13 +59,48 @@ Il tag deve corrispondere alla `version` di `package.json`: se non
 combaciano la pipeline si ferma, per non pubblicare una release `v2.1.0`
 che contiene eseguibili `2.0.0`.
 
-### In locale (dove npm funziona)
+### Sviluppo in locale
+
+**Non serve passare da GitHub per provare una modifica.** Electron è già
+installato in `node_modules`: l'app parte in un paio di secondi.
 
 ```bash
-npm install
-npm start                                    # avvia l'app
-npx electron-builder --win portable nsis     # produce dist/
+npm install     # una volta sola
+npm run seed    # riempie dev-data/ con 120 esami finti
+npm run dev     # avvia con ricarica automatica
 ```
+
+`npm run dev` fa tre cose in più rispetto a `npm start`:
+
+* usa **`dev-data/`** come cartella dati, senza chiedere nulla — niente
+  finestra di selezione ad ogni avvio, e la cartella vera resta intoccata
+* **ricarica la finestra** ad ogni salvataggio dentro `src/`: si modifica
+  un file, si guarda il risultato, senza riavviare
+* apre i **DevTools** in una finestra separata
+
+Modificando `main.js` o `preload.js` serve invece riavviare: girano nel
+processo principale, la ricarica della finestra non li tocca. Il terminale
+lo ricorda da solo.
+
+`npm run seed -- 500` per un archivio più grande. I dati sono generati in
+modo deterministico: rilanciandolo si ottengono gli stessi, così i
+confronti fra una modifica e l'altra restano validi.
+
+```bash
+npm run check   # gli stessi controlli della pipeline, in un secondo
+npm start       # avvio normale, come lo vedrà il reparto
+npm run dist    # produce dist/ con portable e installer
+```
+
+`npm run check` verifica sintassi, assenza di gestori inline e risorse
+remote, impostazioni di sicurezza, tag bilanciati, `data-act` senza
+gestore, id inesistenti, caratteri di controllo e allineamento della
+versione col lockfile. Conviene lanciarlo prima di ogni push: la
+pipeline fa gli stessi controlli, ma ci mette minuti.
+
+La modalità sviluppo è subordinata a `app.isPackaged`: nel `.exe`
+distribuito non può attivarsi, nemmeno passando `--dev`.
+`dev-data/` è escluso dal repository.
 
 ### Icona
 

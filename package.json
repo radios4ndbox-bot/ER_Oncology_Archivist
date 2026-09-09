@@ -8,6 +8,9 @@
   "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
+    "dev": "electron . --dev",
+    "seed": "node scripts/seed-dev-data.js",
+    "check": "node scripts/check.js",
     "dist": "electron-builder --win portable nsis"
   },
   "devDependencies": {

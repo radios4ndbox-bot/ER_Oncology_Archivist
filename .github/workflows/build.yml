@@ -16,39 +16,10 @@ jobs:
         with:
           node-version: 24
 
-      - name: Sintassi JavaScript
-        run: |
-          node --check main.js
-          node --check preload.js
-          node --check src/app.js
-          node --check src/xlsx.js
-          node --check src/names.js
-
-      - name: Nessun gestore inline nell'HTML
-        # La CSP vieta 'unsafe-inline' per gli script: un onclick="" nel
-        # markup smetterebbe semplicemente di funzionare. Meglio fallire qui.
-        run: |
-          if grep -nE 'on(click|change|input|load|error|submit|focus|blur)=' src/index.html; then
-            echo "::error::gestore di evento inline trovato in src/index.html"
-            exit 1
-          fi
-          echo "OK: nessun gestore inline"
-
-      - name: Nessuna risorsa remota
-        # L'app deve funzionare offline dietro il proxy ospedaliero.
-        run: |
-          if grep -nE '(src|href)="https?://' src/index.html; then
-            echo "::error::risorsa remota referenziata in src/index.html"
-            exit 1
-          fi
-          echo "OK: nessuna risorsa remota"
-
-      - name: Impostazioni di sicurezza Electron
-        run: |
-          for chiave in "contextIsolation: true" "nodeIntegration: false" "sandbox: true"; do
-            grep -q "$chiave" main.js || { echo "::error::manca $chiave in main.js"; exit 1; }
-          done
-          echo "OK: webPreferences irrobustite"
+      - name: Controlli
+        # Gli stessi che si lanciano in locale con `npm run check`:
+        # una sola fonte di verita', niente pipeline che diverge.
+        run: node scripts/check.js
 
       - name: Tag coerente con la versione
         # Evita release chiamate v2.1.0 che contengono eseguibili 2.0.0.
