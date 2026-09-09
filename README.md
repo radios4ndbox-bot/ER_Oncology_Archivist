@@ -91,6 +91,31 @@ scaricato:
 Get-FileHash .\ER-Oncology-Archivist-2.0.0-portable.exe -Algorithm SHA256
 ```
 
+## Intro
+
+All'avvio parte una sequenza automatica di circa 2,6 secondi: il logo si
+disegna, il titolo entra a fuoco lettera per lettera, il sottotitolo
+compare, poi la schermata si dissolve da sola. **Nessun pulsante da
+premere.** Un click o un tasto qualsiasi la salta subito.
+
+Le tecniche di animazione sono ispirate a
+[animate-ui](https://github.com/imskyleen/animate-ui) (Elliot Sutton,
+MIT + Commons Clause) — `components/logo.tsx`, `texts/splitting`,
+`effects/effect`. **Nessun codice di quel progetto è stato copiato**: è
+React + Framer Motion e qui non sarebbe utilizzabile (nessun bundler, CSP
+`script-src 'self'`, tutto deve funzionare offline). Le tre animazioni
+sono state riscritte da zero in CSS:
+
+| animate-ui | qui |
+|---|---|
+| `logo.tsx` — `pathLength` 0→1 + `fillOpacity` | `pathLength="1"` + `stroke-dashoffset`, keyframes `splashDrawLogo` |
+| `texts/splitting` — blur+fade sfalsato per carattere | keyframes `splashRevealGlyph` sui 51 path del titolo |
+| `effects/effect` — fade + slide + zoom con molla | keyframes `splashMotionEffect`, molla approssimata con `cubic-bezier` |
+
+A intro conclusa i filtri SVG vengono spenti: 51 filtri `blur` attivi
+costerebbero frame per nulla sulle postazioni di reparto. La sequenza
+rispetta anche `prefers-reduced-motion`.
+
 ## Primo avvio su una postazione
 
 Alla prima apertura l'app chiede la cartella dati. Selezionare la

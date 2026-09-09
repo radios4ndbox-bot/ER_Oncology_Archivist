@@ -1911,41 +1911,71 @@ function renderTableSede(sediSorted, sediPrima, sediMeta, onco, sospetti, prima,
 // ══════════════════════════════════════════════════════════════════
 //  SPLASH E TRANSIZIONI
 // ══════════════════════════════════════════════════════════════════
-function setupSplash() {
-  document.querySelectorAll('.splash-glyph').forEach((p) => {
-    try {
-      const len = p.getTotalLength();
-      if (len && isFinite(len)) {
-        p.style.setProperty('--len', len);
-        p.style.strokeDasharray = len;
-      }
-    } catch (_) { /* i path compositi restano in fade-in */ }
-  });
+// Ritardi della sequenza. Il totale e' volutamente contenuto: e' uno
+// strumento che si apre molte volte per turno, un'intro lunga e' attrito.
+const INTRO_TITLE_DELAY = 580;    // quando parte il primo glifo
+const INTRO_GLYPH_STAGGER = 17;   // sfalsamento fra un glifo e il successivo
+const INTRO_HOLD = 2650;          // quando parte la dissolvenza di uscita
+const INTRO_FADE = 700;           // durata della dissolvenza
 
-  const logoBtn = el('splashLogo');
+let introTimer = null;
+let introClosed = false;
+
+/** Intro automatica: nessun click richiesto, ma interrompibile. */
+function runIntro() {
   const stage = el('splashStage');
-  if (!logoBtn || !stage) return;
+  const screen = el('splashScreen');
+  if (!stage || !screen) return;
 
-  logoBtn.addEventListener('click', () => {
-    if (stage.classList.contains('playing')) return;
-    const first = logoBtn.getBoundingClientRect();
-    stage.classList.add('playing');
-    const last = logoBtn.getBoundingClientRect();
-    const deltaX = first.left - last.left;
-    if (Math.abs(deltaX) > 0.5) {
-      logoBtn.style.transition = 'none';
-      logoBtn.style.transform = 'translateX(' + deltaX + 'px)';
-      void logoBtn.offsetWidth;
-      logoBtn.style.transition = 'transform .85s var(--splash-ease)';
-      logoBtn.style.transform = 'translateX(0)';
-      setTimeout(() => { logoBtn.style.transition = ''; logoBtn.style.transform = ''; }, 900);
-    }
+  // Logo: pathLength=1 normalizza la lunghezza del tracciato a 1, cosi'
+  // stroke-dashoffset funziona su qualunque geometria. E' anche cio' che
+  // rende superfluo getTotalLength(), che sui tracciati compositi (le
+  // lettere con i fori) restituiva valori sbagliati.
+  document.querySelectorAll('.splash-logo-svg-wrap path').forEach((path) => {
+    path.setAttribute('pathLength', '1');
+    path.classList.add('splash-logo-path');
   });
+
+  // Titolo: i --d originali andavano da destra a sinistra. Si riordinano
+  // per far entrare le lettere nel verso di lettura.
+  const glyphs = Array.prototype.slice.call(document.querySelectorAll('.splash-glyph'));
+  glyphs
+    .map((g) => ({ g: g, d: parseFloat(g.style.getPropertyValue('--d')) || 0 }))
+    .sort((a, b) => b.d - a.d)
+    .forEach((item, i) => {
+      item.g.style.setProperty('--d', (INTRO_TITLE_DELAY + i * INTRO_GLYPH_STAGGER) + 'ms');
+    });
+
+  // Un reflow forzato fissa lo stato iniziale, poi si parte subito.
+  // requestAnimationFrame qui sarebbe fragile: non scatta finche' la
+  // finestra non e' visibile, ed Electron la crea con show:false.
+  void stage.offsetWidth;
+  stage.classList.add('playing');
+
+  introTimer = setTimeout(closeIntro, INTRO_HOLD);
+  screen.addEventListener('click', closeIntro);
+  document.addEventListener('keydown', introKeyHandler);
 }
 
-function splashEnter() {
-  const s = el('splashScreen');
-  if (s) s.classList.add('closing');
+function introKeyHandler(ev) {
+  if (ev.key === 'Escape' || ev.key === 'Enter' || ev.key === ' ') closeIntro();
+}
+
+function closeIntro() {
+  if (introClosed) return;
+  introClosed = true;
+  clearTimeout(introTimer);
+  document.removeEventListener('keydown', introKeyHandler);
+
+  const screen = el('splashScreen');
+  const stage = el('splashStage');
+  if (screen) {
+    screen.removeEventListener('click', closeIntro);
+    screen.classList.add('closing');
+  }
+  // Chiusa l'intro si spengono i filtri: restare con 51 filtri SVG vivi
+  // costa frame senza dare piu' nulla.
+  setTimeout(() => { if (stage) stage.classList.add('settled'); }, INTRO_FADE);
 }
 
 /** Il clone del logo per l'overlay di transizione va costruito a DOM
@@ -1956,6 +1986,11 @@ function setupModeTransitionLogo() {
   if (!original || !container || container.childNodes.length) return;
 
   const clone = original.cloneNode(true);
+  // Il clone vive fuori da .splash-stage.playing: senza questo resterebbe
+  // con stroke-dashoffset:1 e fill-opacity:0, cioe' invisibile.
+  clone.querySelectorAll('.splash-logo-path').forEach((path) => {
+    path.classList.remove('splash-logo-path');
+  });
   const grad = clone.querySelector('#splashGradLogoIcon');
   if (grad) {
     const newId = 'splashGradLogoIconTrans';
@@ -1976,7 +2011,6 @@ function setupModeTransitionLogo() {
 //  EVENTI (delega: nessun gestore inline, la CSP resta rigida)
 // ══════════════════════════════════════════════════════════════════
 const CLICK_ACTIONS = {
-  'splash-enter': () => splashEnter(),
   'view': (t) => showView(t.getAttribute('data-view'), t),
   'step': (t) => goStep(parseInt(t.getAttribute('data-step'), 10)),
   'save-wizard': () => saveWizard(),
@@ -2059,8 +2093,8 @@ function wireEvents() {
 //  AVVIO — dopo che tutte le dichiarazioni globali esistono
 // ══════════════════════════════════════════════════════════════════
 function boot() {
-  setupSplash();
-  setupModeTransitionLogo();
+  setupModeTransitionLogo();   // prima di runIntro: il clone dev'essere "pulito"
+  runIntro();
   wireEvents();
   buildProgress();
   renderFUList();

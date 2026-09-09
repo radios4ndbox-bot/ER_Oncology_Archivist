@@ -404,7 +404,7 @@ td.mono{font-family:var(--mono);font-size:12px;}
   .splash-logo-svg-wrap {
     width: min(150px, 18vw);
     transform: scale(2.133); transform-origin: center;
-    transition: transform .85s var(--splash-ease);
+    transition: transform .6s var(--splash-ease);
     filter: drop-shadow(0 8px 30px rgba(79,140,255,.15));
   }
   .splash-stage.playing .splash-logo-svg-wrap { transform: scale(1); }
@@ -413,57 +413,73 @@ td.mono{font-family:var(--mono);font-size:12px;}
     display: flex; align-items: center; overflow: hidden;
     width: 0; max-width: 68vw;
     padding-left: 14px; box-sizing: border-box;
-    transition: width .85s var(--splash-ease);
+    transition: width .6s var(--splash-ease);
   }
   .splash-stage.playing .splash-title-wrap { width: min(500px, 68vw); }
   .splash-title-svg { width: 100%; height: auto; overflow: visible; flex-shrink: 0; display: block; }
+  /* ════════════════════════════════════════════════════════════
+     Intro automatica.
+
+     Tecniche isolate da animate-ui (github.com/imskyleen/animate-ui)
+     e riscritte in CSS: la libreria e' React + Framer Motion, qui non
+     e' utilizzabile (nessun bundler, CSP script-src 'self', tutto
+     deve funzionare offline).
+
+     · logo    → components/logo.tsx        pathLength 0→1 + fill
+     · titolo  → texts/splitting            blur+fade sfalsato
+     · sottot. → effects/effect             fade + slide + zoom
+     ════════════════════════════════════════════════════════════ */
+
+  /* ── logo: il tracciato si disegna, poi entra il riempimento ── */
+  .splash-logo-path {
+    stroke: url(#splashGradLogoIcon);
+    stroke-width: 30; stroke-linecap: round; stroke-linejoin: round;
+    stroke-dasharray: 1; stroke-dashoffset: 1;
+    fill-opacity: 0;
+  }
+  .splash-stage.playing .splash-logo-path {
+    animation: splashDrawLogo .8s var(--splash-ease) forwards,
+               splashFillLogo .5s ease-out .3s forwards;
+  }
+  @keyframes splashDrawLogo { to { stroke-dashoffset: 0; } }
+  @keyframes splashFillLogo { to { fill-opacity: 1; stroke-width: 0; } }
+
+  /* ── titolo: ogni glifo entra a fuoco, sfalsato da sinistra ── */
   .splash-glyph {
-    fill: none; stroke: url(#splashGradText); stroke-width: 1;
-    stroke-linecap: round; stroke-linejoin: round;
-    stroke-dashoffset: 0; opacity: 0;
+    fill: url(#splashGradText); stroke: none;
+    opacity: 0; filter: blur(9px);
   }
   .splash-stage.playing .splash-glyph {
-    animation: splashDrawGlyph .4s var(--splash-ease) var(--d) forwards,
-               splashFillGlyph .001s linear calc(var(--d) + 400ms) forwards;
+    animation: splashRevealGlyph .42s cubic-bezier(.16,1,.3,1) var(--d) forwards;
   }
-  @keyframes splashDrawGlyph { 0% { opacity: 1; stroke-dashoffset: var(--len); } 100% { opacity: 1; stroke-dashoffset: 0; } }
-  @keyframes splashFillGlyph { to { fill: url(#splashGradText); stroke-width: 0; } }
-  .splash-glyph-fill { stroke-width: 0 !important; }
-  .splash-stage.playing .splash-glyph-fill {
-    animation: splashFadeGlyph .35s var(--splash-ease) var(--d) forwards;
+  @keyframes splashRevealGlyph {
+    from { opacity: 0; filter: blur(9px); }
+    to   { opacity: 1; filter: blur(0px); }
   }
-  @keyframes splashFadeGlyph { 0% { opacity: 0; fill: url(#splashGradText); } 100% { opacity: 1; fill: url(#splashGradText); } }
-  .splash-hint {
-    margin-top: 56px; font-size: 12px; color: #7A5E6B;
-    transition: opacity .5s var(--splash-ease);
+  /* a intro finita si toglie il filtro: 51 filtri SVG attivi pesano
+     inutilmente sulle postazioni di reparto */
+  .splash-stage.settled .splash-glyph { filter: none; animation: none; opacity: 1; }
+
+  /* ── sottotitolo: fade + slide + zoom, con il rimbalzo della molla ── */
+  .splash-sub {
+    margin-top: 52px;
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: .22em; text-transform: uppercase;
+    color: #9A7A88;
+    opacity: 0; transform: translateY(-26px) scale(.85);
   }
-  .splash-stage.playing .splash-hint { opacity: 0; pointer-events: none; }
-  .splash-enter-wrap {
-    margin-top: 40px; opacity: 0; pointer-events: none;
-    transform: translateY(10px) scale(.94);
-    transition: opacity .55s var(--splash-ease) .3s, transform .55s var(--splash-ease) .3s;
+  .splash-stage.playing .splash-sub {
+    animation: splashMotionEffect .8s cubic-bezier(.22,1.15,.36,1) 1.55s forwards;
   }
-  .splash-stage.playing .splash-enter-wrap {
-    opacity: 1; pointer-events: auto; transform: translateY(0) scale(1);
+  @keyframes splashMotionEffect {
+    to { opacity: 1; transform: translateY(0) scale(1); }
   }
-  button.splash-enter-btn {
-    padding: 14px 32px; border: unset; border-radius: 15px;
-    color: #E8C8D6; background: #2A1A26;
-    font-weight: 700; font-size: 14px;
-    font-family: 'IBM Plex Mono', monospace;
-    letter-spacing: .08em; text-transform: uppercase;
-    box-shadow: 4px 8px 24px -3px rgba(0,0,0,.45), 0 0 0 1px rgba(255,77,109,.16);
-    transition: all 250ms; overflow: hidden; position: relative;
-    cursor: pointer; outline: none; z-index: 1;
+
+  @media (prefers-reduced-motion: reduce) {
+    .splash-stage.playing .splash-logo-path,
+    .splash-stage.playing .splash-glyph,
+    .splash-stage.playing .splash-sub { animation-duration: .01ms; animation-delay: 0ms; }
   }
-  button.splash-enter-btn::before {
-    content: ""; position: absolute; top: 0; left: 0;
-    height: 100%; width: 0; border-radius: 15px;
-    background: linear-gradient(110deg, #FF4D6D 0%, #A855D0 100%);
-    z-index: -1; transition: all 250ms;
-  }
-  button.splash-enter-btn:hover { color: #fff; }
-  button.splash-enter-btn:hover::before { width: 100%; }
 
 
   /* ════ Transizione a dissolvenza tra viste ════ */
