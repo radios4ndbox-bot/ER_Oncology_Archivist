@@ -237,50 +237,6 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
   </div>
   <div class="nav-right">
     <span class="save-status offline" id="saveStatus">&#9679; avvio...</span>
-    <div class="settings-wrap">
-      <button type="button" class="settings-btn" id="settingsBtn" data-act="settings-toggle"
-              aria-haspopup="menu" aria-expanded="false" aria-label="Impostazioni" title="Impostazioni">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
-          <circle cx="12" cy="12" r="3"/>
-        </svg>
-      </button>
-
-      <div class="settings-menu" id="settingsMenu" role="menu" aria-labelledby="settingsBtn">
-        <div class="sm-label">Archivio</div>
-        <button type="button" class="sm-item" role="menuitem" data-act="select-folder" id="smFolder">
-          <span class="sm-ico">&#128193;</span><span>Cambia cartella dati&hellip;</span>
-        </button>
-        <button type="button" class="sm-item" role="menuitem" data-act="reload" id="smReload">
-          <span class="sm-ico">&#8635;</span><span>Ricarica dall'archivio</span>
-        </button>
-        <button type="button" class="sm-item" role="menuitem" data-act="safety-net" id="smSafety">
-          <span class="sm-ico">&#128190;</span><span>Safety net &mdash; copia su USB</span>
-        </button>
-
-        <div class="sm-sep"></div>
-        <div class="sm-label">Configurazione</div>
-        <button type="button" class="sm-item" role="menuitem" data-act="tipi-apri">
-          <span class="sm-ico">&#9881;</span><span>Modalità di esame&hellip;</span>
-        </button>
-
-        <div class="sm-sep"></div>
-        <div class="sm-label">Aspetto</div>
-        <button type="button" class="sm-item" role="menuitemcheckbox" data-act="pref" data-pref="dense" aria-checked="false">
-          <span class="sm-check">&#10003;</span><span>Tabella compatta</span>
-        </button>
-        <button type="button" class="sm-item" role="menuitemcheckbox" data-act="pref" data-pref="reduceMotion" aria-checked="false">
-          <span class="sm-check">&#10003;</span><span>Riduci le animazioni</span>
-        </button>
-        <button type="button" class="sm-item" role="menuitemcheckbox" data-act="pref" data-pref="skipIntro" aria-checked="false">
-          <span class="sm-check">&#10003;</span><span>Salta l'intro all'avvio</span>
-        </button>
-
-        <div class="sm-sep"></div>
-        <div class="sm-info" id="smInfo"></div>
-      </div>
-    </div>
   </div>
 </nav>
 
@@ -703,8 +659,8 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
   </div>
   <div class="stats-grid pop-section" id="statsCards"></div>
   <div class="chart-grid pop-section">
-    <div class="chart-card pop-section"><h3>Distribuzione generale</h3><div id="svgDonut" class="donut-wrap"></div></div>
-    <div class="chart-card pop-section"><h3>Diagnosi per sede / organo</h3><div id="svgBarseSede" class="chart-scroll"></div></div>
+    <div class="chart-card pop-section"><h3>Distribuzione generale</h3><div id="svgDonut" class="donut-wrap"></div><div class="chart-nota" id="nota-donut"></div></div>
+    <div class="chart-card pop-section"><h3>Diagnosi per sede / organo</h3><div id="svgBarseSede" class="chart-scroll"></div><div class="chart-nota" id="nota-sede"></div></div>
   </div>
   <div class="chart-card pop-section">
     <h3>Andamento mensile — esami vs diagnosi oncologiche</h3>
@@ -714,6 +670,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
       <span class="legend-item"><span class="legend-dot lg-onco"></span>Oncologici + sospetti</span>
       <span class="legend-item"><span class="legend-dot lg-amber"></span>% (linea)</span>
     </div>
+    <div class="chart-nota" id="nota-mensile"></div>
   </div>
   <div class="chart-card pop-section">
     <h3>Heatmap per tipo di esame &nbsp;<span class="h3-note">n. esami (oncologici) · colore = % hit oncologico</span></h3>
@@ -726,6 +683,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
       <span class="legend-item"><span class="legend-dot hm-4"></span>≥50%</span>
     </div>
   </div>
+    <div class="chart-nota" id="nota-heatmap"></div>
   <div class="panel pop-section">
     <div class="panel-head">
       <h3>Dettaglio mensile per tipo di esame</h3>
@@ -733,6 +691,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
     </div>
     <div class="tbl-scroll"><table class="data-table"><thead><tr id="tableMensileHead"></tr></thead><tbody id="tableMensileBody"></tbody></table></div>
   </div>
+    <div class="chart-nota" id="nota-tabMensile"></div>
   <div class="panel pop-section" id="tableSedeWrap">
     <div class="panel-head">
       <h3>Prevalenza per sede / tipo di diagnosi oncologica</h3>
@@ -750,10 +709,125 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
         <tbody id="tableSedeBody"></tbody>
       </table>
     </div>
+    <div class="chart-nota" id="nota-tabSede"></div>
   </div>
 </div>
 
 </div></div>
+
+<!-- Barra laterale delle impostazioni: rail di icone che si estende
+     nel pannello corrispondente quando se ne seleziona una. -->
+<aside class="side-rail" id="sideRail" aria-label="Impostazioni">
+  <div class="rail-icone" role="tablist" aria-orientation="vertical">
+    <button type="button" class="rail-btn" data-act="rail" data-pan="archivio"
+            role="tab" aria-selected="false" title="Archivio">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 4h5l2 2h9a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/>
+        <path d="M3 10h18"/>
+      </svg>
+      <span class="rail-eco">Archivio</span>
+    </button>
+
+    <button type="button" class="rail-btn" data-act="rail" data-pan="esami"
+            role="tab" aria-selected="false" title="Modalità di esame">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M8 6h13M8 12h13M8 18h13"/>
+        <path d="M3 6h.01M3 12h.01M3 18h.01"/>
+      </svg>
+      <span class="rail-eco">Esami</span>
+    </button>
+
+    <button type="button" class="rail-btn" data-act="rail" data-pan="aspetto"
+            role="tab" aria-selected="false" title="Aspetto">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="3.2"/>
+        <path d="m19.4 15-.6-.3a1.9 1.9 0 0 1-.9-1.6v-2.2c0-.7.3-1.3.9-1.6l.6-.3a1.9 1.9 0 0 0 .7-2.6l-1-1.7a1.9 1.9 0 0 0-2.6-.7l-.5.3a1.9 1.9 0 0 1-1.9 0l-1.9-1.1a1.9 1.9 0 0 1-.9-1.6V2H9.7v.6c0 .7-.4 1.3-1 1.6L6.9 5.3a1.9 1.9 0 0 1-1.9 0l-.5-.3a1.9 1.9 0 0 0-2.6.7"/>
+      </svg>
+      <span class="rail-eco">Aspetto</span>
+    </button>
+
+    <button type="button" class="rail-btn" data-act="rail" data-pan="info"
+            role="tab" aria-selected="false" title="Informazioni sul software">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9.2"/>
+        <path d="M12 16v-5"/>
+        <path d="M12 8h.01"/>
+      </svg>
+      <span class="rail-eco">Info</span>
+    </button>
+  </div>
+
+  <div class="rail-pannello" id="railPannello" role="tabpanel">
+
+    <section class="pan" data-pan="archivio">
+      <h3 class="pan-tit">Archivio</h3>
+      <p class="pan-desc" id="panPercorso"></p>
+      <button type="button" class="pan-voce" data-act="select-folder" id="smFolder">
+        <span class="pan-ico">&#128193;</span>
+        <span><strong>Cambia cartella dati</strong><em>Scegli la condivisione di rete</em></span>
+      </button>
+      <button type="button" class="pan-voce" data-act="reload" id="smReload">
+        <span class="pan-ico">&#8635;</span>
+        <span><strong>Ricarica dall'archivio</strong><em>Rilegge il file condiviso</em></span>
+      </button>
+      <button type="button" class="pan-voce" data-act="safety-net" id="smSafety">
+        <span class="pan-ico">&#128190;</span>
+        <span><strong>Safety net</strong><em>Copia di sicurezza su chiavetta USB</em></span>
+      </button>
+    </section>
+
+    <section class="pan" data-pan="esami">
+      <h3 class="pan-tit">Modalità di esame</h3>
+      <p class="pan-desc">I tipi elencati qui compaiono nel menu <strong>Tipo di esame</strong>.
+      L'elenco sta nel file condiviso: vale per entrambe le postazioni.</p>
+      <div class="tipi-lista" id="tipiLista"></div>
+      <div class="tipi-aggiungi">
+        <input id="tipiNuovo" type="text" placeholder="es. TC addome con e senza mdc"
+               autocomplete="off" maxlength="200">
+        <button type="button" class="btn btn-primary btn-sm" data-act="tipi-aggiungi">Aggiungi</button>
+      </div>
+      <button type="button" class="pan-voce pan-voce-sm" data-act="tipi-ripristina">
+        <span class="pan-ico">&#8634;</span><span><strong>Ripristina predefiniti</strong></span>
+      </button>
+    </section>
+
+    <section class="pan" data-pan="aspetto">
+      <h3 class="pan-tit">Aspetto</h3>
+      <p class="pan-desc">Scelte di questa postazione. Non contengono dati clinici.</p>
+      <button type="button" class="pan-voce pan-toggle" data-act="pref" data-pref="dense" aria-checked="false">
+        <span><strong>Tabella compatta</strong><em>Righe più fitte, più esami a schermo</em></span>
+        <span class="pan-pill" aria-hidden="true"></span>
+      </button>
+      <button type="button" class="pan-voce pan-toggle" data-act="pref" data-pref="reduceMotion" aria-checked="false">
+        <span><strong>Riduci le animazioni</strong><em>Utile sui PC più lenti</em></span>
+        <span class="pan-pill" aria-hidden="true"></span>
+      </button>
+      <button type="button" class="pan-voce pan-toggle" data-act="pref" data-pref="skipIntro" aria-checked="false">
+        <span><strong>Salta l'intro all'avvio</strong><em>Apre subito l'archivio</em></span>
+        <span class="pan-pill" aria-hidden="true"></span>
+      </button>
+    </section>
+
+    <section class="pan" data-pan="info">
+      <h3 class="pan-tit">Informazioni</h3>
+      <div class="info-blocco" id="smInfo"></div>
+      <p class="pan-desc">
+        Raccolta dati del Pronto Soccorso Oncologico — Radiologia d'Urgenza.
+        Funziona completamente offline: nessun dato lascia la rete dell'ospedale.
+      </p>
+      <p class="pan-desc">
+        L'archivio è un unico file JSON sulla cartella condivisa, letto e
+        riscritto con unione automatica fra le due postazioni.
+      </p>
+      <p class="pan-nota">&copy; 2026 StructuRad. All rights reserved.<br>Powered by RadioPako.</p>
+    </section>
+
+  </div>
+</aside>
 
 <!-- MODALI -->
 <div class="overlay" id="modDetail">
@@ -780,26 +854,6 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
       <div class="field"><label for="mfuText">Referto *</label><textarea id="mfuText" placeholder="Risultato del follow-up…"></textarea></div>
     </div>
     <div class="modal-foot"><div class="spacer"></div><button type="button" class="btn btn-outline" data-act="close" data-target="modFU">Annulla</button><button type="button" class="btn btn-primary" data-act="save-fu">Salva</button></div>
-  </div>
-</div>
-
-<div class="overlay" id="modTipi">
-  <div class="modal modal-sm">
-    <div class="modal-head"><span class="modal-title">Modalità di esame</span><button type="button" class="xbtn" data-act="close" data-target="modTipi">&times;</button></div>
-    <div class="modal-body">
-      <p class="export-note">I tipi elencati qui compaiono nel menu <strong>Tipo di esame</strong>.
-      L'elenco sta nel file condiviso: vale per entrambe le postazioni.</p>
-      <div class="tipi-lista" id="tipiLista"></div>
-      <div class="tipi-aggiungi">
-        <input id="tipiNuovo" type="text" placeholder="es. TC addome con e senza mdc" autocomplete="off" maxlength="200">
-        <button type="button" class="btn btn-primary btn-sm" data-act="tipi-aggiungi">Aggiungi</button>
-      </div>
-    </div>
-    <div class="modal-foot">
-      <button type="button" class="btn btn-outline btn-sm" data-act="tipi-ripristina">Ripristina predefiniti</button>
-      <div class="spacer"></div>
-      <button type="button" class="btn btn-primary" data-act="close" data-target="modTipi">Chiudi</button>
-    </div>
   </div>
 </div>
 
@@ -852,6 +906,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
 
 <div class="app-footer">&copy; 2026 StructuRad. All rights reserved. Powered by RadioPako.</div>
 <div class="cal-panel" id="calPanel" role="dialog" aria-label="Scegli una data"></div>
+<div class="rulli-panel" id="rulliPanel" role="dialog" aria-label="Scegli la data di nascita"></div>
 <div class="notif" id="notif"></div>
 <div id="printRoot"></div>
 

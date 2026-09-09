@@ -72,7 +72,9 @@ const idsJs = new Set([
   ...[...app.matchAll(/\bel\('([A-Za-z_]\w*)'\)/g)].map((m) => m[1]),
   ...[...app.matchAll(/\b(?:val|rawVal|setHtml)\('([A-Za-z_]\w*)'/g)].map((m) => m[1])
 ]);
-const mancanti = [...idsJs].filter((id) => !idsHtml.has(id));
+// id creati dal JavaScript stesso, non presenti nel markup statico
+const idsDinamici = new Set(['notaEdit']);
+const mancanti = [...idsJs].filter((id) => !idsHtml.has(id) && !idsDinamici.has(id));
 esito(mancanti.length === 0, 'ogni id usato dal JS esiste', mancanti.join(', '));
 
 // 8. nessun carattere di controllo nei sorgenti

@@ -41,6 +41,7 @@ const SESSION_ID = Math.random().toString(36).slice(2) + Date.now().toString(36)
 let DB = [];                 // record normalizzati
 let deletedIds = {};         // id → timestamp cancellazione (tombstone)
 let tipiEsame = { lista: [], updatedAt: 0 };   // tassonomia condivisa
+let noteGrafici = { updatedAt: 0 };           // descrizioni corrette a mano
 let filtered = [];
 let selected = new Set();
 let sortKey = 'data';
@@ -145,7 +146,9 @@ function fmtMeseBreve(m) {
 function pct(n, d, dec) {
   if (!d) return '—';
   const v = n / d * 100;
-  return (dec ? v.toFixed(dec) : String(Math.round(v))) + '%';
+  // separatore decimale italiano: su un referto "27.6" si legge male
+  const testo = dec ? v.toFixed(dec).replace('.', ',') : String(Math.round(v));
+  return testo + '%';
 }
 
 function notify(msg) {
@@ -262,10 +265,20 @@ function parseStore(input) {
   let list = [];
   const deleted = {};
   let tipi = { lista: [], updatedAt: 0 };
+  let note = { updatedAt: 0 };
   if (Array.isArray(raw)) {
     list = raw;
   } else if (raw && typeof raw === 'object') {
     list = Array.isArray(raw.records) ? raw.records : [];
+    if (raw.note && typeof raw.note === 'object') {
+      note = { updatedAt: num(raw.note.updatedAt) };
+      Object.keys(raw.note).forEach((k) => {
+        const v = raw.note[k];
+        if (v && typeof v === 'object' && typeof v.testo === 'string') {
+          note[k] = { testo: str(v.testo, 1200), updatedAt: num(v.updatedAt) };
+        }
+      });
+    }
     if (raw.tipiEsame && typeof raw.tipiEsame === 'object' && Array.isArray(raw.tipiEsame.lista)) {
       tipi = {
         lista: raw.tipiEsame.lista.map((t) => str(t, 200)).filter(Boolean).slice(0, 200),
@@ -286,7 +299,7 @@ function parseStore(input) {
     const rec = normalizeRecord(r);
     if (rec) records.push(rec);
   });
-  return { records: records, deleted: deleted, tipi: tipi };
+  return { records: records, deleted: deleted, tipi: tipi, note: note };
 }
 
 function serializeStore(store) {
@@ -295,7 +308,8 @@ function serializeStore(store) {
     savedAt: new Date().toISOString(),
     records: store.records,
     deleted: store.deleted,
-    tipiEsame: store.tipi || { lista: [], updatedAt: 0 }
+    tipiEsame: store.tipi || { lista: [], updatedAt: 0 },
+    note: store.note || { updatedAt: 0 }
   }, null, 2);
 }
 
@@ -330,7 +344,11 @@ function mergeStores(a, b) {
   const tipiB = b.tipi || { lista: [], updatedAt: 0 };
   const tipi = tipiB.updatedAt > tipiA.updatedAt ? tipiB : tipiA;
 
-  return { records: records, deleted: deleted, tipi: tipi };
+  const noteA = a.note || { updatedAt: 0 };
+  const noteB = b.note || { updatedAt: 0 };
+  const note = noteB.updatedAt > noteA.updatedAt ? noteB : noteA;
+
+  return { records: records, deleted: deleted, tipi: tipi, note: note };
 }
 
 function storeSignature(store) {
@@ -431,6 +449,7 @@ async function loadFromFile() {
     DB = store.records;
     deletedIds = store.deleted;
     tipiEsame = store.tipi || tipiEsame;
+    noteGrafici = store.note || noteGrafici;
     aggiornaSelettoreTipo();
     setStatus('saved', '● file locale');
   } catch (e) {
@@ -472,13 +491,14 @@ async function doPersist() {
   try {
     for (let attempt = 0; attempt < 3; attempt++) {
       const remote = parseStore(await API.readText(DATA_FILE));
-      const merged = mergeStores(remote, { records: DB, deleted: deletedIds, tipi: tipiEsame });
+      const merged = mergeStores(remote, { records: DB, deleted: deletedIds, tipi: tipiEsame, note: noteGrafici });
       await API.writeText(DATA_FILE, serializeStore(merged));
 
       const check = parseStore(await API.readText(DATA_FILE));
       DB = merged.records;
       deletedIds = merged.deleted;
       tipiEsame = merged.tipi || tipiEsame;
+      noteGrafici = merged.note || noteGrafici;
       if (storeContains(check, merged)) {
         setStatus('saved', '● salvato');
         refreshViews();
@@ -499,12 +519,13 @@ async function refreshFromRemote() {
   try {
     const remote = parseStore(await API.readText(DATA_FILE));
     const before = storeSignature({ records: DB, deleted: deletedIds });
-    const merged = mergeStores(remote, { records: DB, deleted: deletedIds, tipi: tipiEsame });
+    const merged = mergeStores(remote, { records: DB, deleted: deletedIds, tipi: tipiEsame, note: noteGrafici });
     const after = storeSignature(merged);
     if (before === after) return;
     DB = merged.records;
     deletedIds = merged.deleted;
     tipiEsame = merged.tipi || tipiEsame;
+    noteGrafici = merged.note || noteGrafici;
     aggiornaSelettoreTipo();
     refreshViews();
     notify('Archivio aggiornato con le modifiche dell’altra postazione.');
@@ -2132,6 +2153,7 @@ function renderStats() {
   drawHeatmap('svgHeatmap', mesiSorted, tipi, set);
   renderTableMensile(mesiSorted, tipi, set, mesiTot, mesiOnco);
   renderTableSede(sediSorted, sediPrima, sediMeta, onco, sospetti, prima, meta);
+  renderNote(set);
 }
 
 function renderTableMensile(mesi, tipi, set, mesiTot, mesiOnco) {
@@ -2353,9 +2375,7 @@ function modalitaTipoLibera(libera) {
 
 // ── finestra di gestione ──────────────────────────────────────────
 function apriTipiEsame() {
-  renderTipiEsame();
-  const m = el('modTipi');
-  if (m) m.classList.add('open');
+  toggleRail('esami');
 }
 
 function renderTipiEsame() {
@@ -2424,6 +2444,405 @@ function ripristinaTipiEsame() {
   if (!confirm('Ripristinare l’elenco predefinito dei tipi di esame?')) return;
   salvaTipiEsame(TIPI_PREDEFINITI.slice());
   notify('Elenco ripristinato.');
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  DESCRIZIONI DEI GRAFICI
+//  Sotto ogni grafico una frase costruita dai numeri effettivi del
+//  periodo. Sono un punto di partenza, non una verità: chi legge i
+//  referti può correggerle, e il testo corretto vive nel file condiviso
+//  così vale per entrambe le postazioni e finisce nei report.
+// ══════════════════════════════════════════════════════════════════
+const NOTE_CHIAVI = ['donut', 'sede', 'mensile', 'heatmap', 'tabMensile', 'tabSede'];
+let notaInModifica = null;
+
+function elenca(voci, congiunzione) {
+  if (!voci.length) return '';
+  if (voci.length === 1) return voci[0];
+  return voci.slice(0, -1).join(', ') + ' ' + (congiunzione || 'e') + ' ' + voci[voci.length - 1];
+}
+
+/** Conteggi per sede, riusati da più descrizioni. */
+function conteggiSede(set) {
+  const tot = {}, meta = {};
+  set.filter((r) => (r.onco === 'si' || r.onco === 'sospetto') && r.sede).forEach((r) => {
+    tot[r.sede] = (tot[r.sede] || 0) + 1;
+    if (r.metastasi === 'si') meta[r.sede] = (meta[r.sede] || 0) + 1;
+  });
+  const ordinate = Object.keys(tot).map((k) => [k, tot[k]]).sort((a, b) => b[1] - a[1]);
+  return { tot: tot, meta: meta, ordinate: ordinate };
+}
+
+function conteggiMese(set) {
+  const tot = {}, onco = {};
+  set.forEach((r) => {
+    if (!r.data) return;
+    const m = r.data.slice(0, 7);
+    tot[m] = (tot[m] || 0) + 1;
+    if (r.onco === 'si' || r.onco === 'sospetto') onco[m] = (onco[m] || 0) + 1;
+  });
+  return { tot: tot, onco: onco, mesi: Object.keys(tot).sort() };
+}
+
+function conteggiTipo(set) {
+  const tot = {}, onco = {};
+  set.forEach((r) => {
+    if (!r.tipo_esame) return;
+    tot[r.tipo_esame] = (tot[r.tipo_esame] || 0) + 1;
+    if (r.onco === 'si' || r.onco === 'sospetto') onco[r.tipo_esame] = (onco[r.tipo_esame] || 0) + 1;
+  });
+  return { tot: tot, onco: onco };
+}
+
+/** Testo generato dai numeri del periodo. */
+function generaNota(chiave, set) {
+  const tot = set.length;
+  if (!tot) return 'Nessun esame nel periodo selezionato.';
+
+  const onco = set.filter((r) => r.onco === 'si').length;
+  const sosp = set.filter((r) => r.onco === 'sospetto').length;
+  const primo = set.filter((r) => r.primo_riscontro).length;
+  const meta = set.filter((r) => r.metastasi === 'si').length;
+  const oncoTot = onco + sosp;
+
+  if (chiave === 'donut') {
+    let t = 'Nel periodo sono stati registrati ' + tot + ' esami. ' +
+      onco + ' hanno prodotto una diagnosi oncologica (' + pct(onco, tot, 1) + ')';
+    t += sosp ? ' e ' + sosp + ' sono risultati sospetti (' + pct(sosp, tot, 1) + ').' : '.';
+    if (oncoTot) {
+      const parti = [];
+      if (primo) parti.push(primo + ' sono primi riscontri (' + pct(primo, oncoTot, 0) + ' delle diagnosi)');
+      if (meta) parti.push(meta + ' presentano metastasi (' + pct(meta, oncoTot, 0) + ')');
+      if (parti.length) t += ' Fra queste, ' + elenca(parti) + '.';
+    }
+    return t;
+  }
+
+  if (chiave === 'sede') {
+    const c = conteggiSede(set);
+    if (!c.ordinate.length) return 'Nessuna diagnosi oncologica con sede indicata nel periodo.';
+    const prima = c.ordinate[0];
+    let t = 'Le diagnosi con sede indicata si distribuiscono su ' + c.ordinate.length +
+      (c.ordinate.length === 1 ? ' sede.' : ' sedi. ');
+    if (c.ordinate.length > 1) {
+      t += 'La più rappresentata è ' + prima[0] + ' con ' + prima[1] +
+        (prima[1] === 1 ? ' caso' : ' casi') + ' (' + pct(prima[1], oncoTot, 1) + ' delle diagnosi)';
+      const seguito = c.ordinate.slice(1, 3).map((e) => e[0] + ' (' + e[1] + ')');
+      t += seguito.length ? ', seguita da ' + elenca(seguito) + '.' : '.';
+    }
+    const conMeta = c.ordinate.filter((e) => c.meta[e[0]]);
+    if (conMeta.length) {
+      const top = conMeta.sort((a, b) => c.meta[b[0]] - c.meta[a[0]])[0];
+      t += ' Le metastasi si concentrano su ' + top[0] + ' (' + c.meta[top[0]] +
+           ' su ' + c.tot[top[0]] + ').';
+    }
+    return t;
+  }
+
+  if (chiave === 'mensile') {
+    const c = conteggiMese(set);
+    if (!c.mesi.length) return 'Nessun esame con data valida nel periodo.';
+    if (c.mesi.length === 1) {
+      const m = c.mesi[0];
+      return 'Un solo mese nel periodo: ' + fmtMese(m) + ', con ' + c.tot[m] +
+        ' esami e ' + (c.onco[m] || 0) + ' diagnosi oncologiche o sospette (' +
+        pct(c.onco[m] || 0, c.tot[m], 1) + ').';
+    }
+    const volumi = c.mesi.map((m) => c.tot[m]);
+    const minV = Math.min.apply(null, volumi);
+    const maxV = Math.max.apply(null, volumi);
+    const meseMax = c.mesi[volumi.indexOf(maxV)];
+    // mese con la quota oncologica più alta, fra quelli con almeno 3 esami
+    const significativi = c.mesi.filter((m) => c.tot[m] >= 3);
+    let t = 'Il volume mensile va da ' + minV + ' a ' + maxV + ' esami, con il massimo a ' +
+      fmtMese(meseMax) + '. ';
+    if (significativi.length) {
+      const quote = significativi.map((m) => ({ m: m, q: (c.onco[m] || 0) / c.tot[m] }));
+      quote.sort((a, b) => b.q - a.q);
+      t += 'La quota oncologica più alta è a ' + fmtMese(quote[0].m) + ' (' +
+        pct(c.onco[quote[0].m] || 0, c.tot[quote[0].m], 1) + ')';
+      if (quote.length > 1) {
+        t += ', la più bassa a ' + fmtMese(quote[quote.length - 1].m) + ' (' +
+          pct(c.onco[quote[quote.length - 1].m] || 0, c.tot[quote[quote.length - 1].m], 1) + ')';
+      }
+      t += '. ';
+    }
+    // confronto fra prima e seconda metà del periodo
+    if (c.mesi.length >= 4) {
+      const meta1 = c.mesi.slice(0, Math.floor(c.mesi.length / 2));
+      const meta2 = c.mesi.slice(Math.floor(c.mesi.length / 2));
+      const somma = (arr, dove) => arr.reduce((s, m) => s + (dove[m] || 0), 0);
+      const q1 = somma(meta1, c.onco) / Math.max(1, somma(meta1, c.tot));
+      const q2 = somma(meta2, c.onco) / Math.max(1, somma(meta2, c.tot));
+      const delta = (q2 - q1) * 100;
+      if (Math.abs(delta) >= 3) {
+        t += 'Nella seconda metà del periodo la quota oncologica ' +
+          (delta > 0 ? 'sale' : 'scende') + ' di ' + Math.abs(delta).toFixed(1) +
+          ' punti rispetto alla prima.';
+      } else {
+        t += 'La quota oncologica resta sostanzialmente stabile lungo il periodo.';
+      }
+    }
+    return t.trim();
+  }
+
+  if (chiave === 'heatmap') {
+    const c = conteggiTipo(set);
+    const tipi = Object.keys(c.tot).filter((k) => c.tot[k] >= 3);
+    if (!tipi.length) return 'Troppo pochi esami per tipo per un confronto significativo.';
+    const rese = tipi.map((k) => ({ k: k, r: (c.onco[k] || 0) / c.tot[k], n: c.tot[k] }));
+    rese.sort((a, b) => b.r - a.r);
+    const alto = rese[0];
+    let t = 'Considerando i tipi con almeno 3 esami, la resa oncologica più alta è di ' +
+      alto.k + ': ' + (c.onco[alto.k] || 0) + ' su ' + alto.n + ' (' +
+      pct(c.onco[alto.k] || 0, alto.n, 1) + ').';
+    if (rese.length > 1) {
+      const basso = rese[rese.length - 1];
+      t += ' La più bassa è di ' + basso.k + ' (' + pct(c.onco[basso.k] || 0, basso.n, 1) +
+           ' su ' + basso.n + ' esami).';
+    }
+    return t;
+  }
+
+  if (chiave === 'tabMensile') {
+    const c = conteggiMese(set);
+    const tipi = Object.keys(conteggiTipo(set).tot).length;
+    return 'Conteggi mese per mese incrociati con ' + tipi +
+      (tipi === 1 ? ' tipo di esame' : ' tipi di esame') + ', su ' + c.mesi.length +
+      (c.mesi.length === 1 ? ' mese' : ' mesi') +
+      '. Fra parentesi i casi oncologici o sospetti; l’ultima colonna è la loro quota sul mese.';
+  }
+
+  if (chiave === 'tabSede') {
+    const c = conteggiSede(set);
+    if (!c.ordinate.length) return 'Nessuna diagnosi oncologica con sede indicata nel periodo.';
+    const primeTre = c.ordinate.slice(0, 3);
+    const somma = primeTre.reduce((s, e) => s + e[1], 0);
+    return 'Su ' + oncoTot + ' diagnosi oncologiche o sospette, ' + c.ordinate.length +
+      (c.ordinate.length === 1 ? ' sede è rappresentata' : ' sedi sono rappresentate') +
+      '. Le prime ' + primeTre.length + ' (' + elenca(primeTre.map((e) => e[0])) +
+      ') coprono il ' + pct(somma, oncoTot, 1) + ' del totale.';
+  }
+
+  return '';
+}
+
+/** Testo effettivo: quello corretto a mano se c'è, altrimenti il generato. */
+function testoNota(chiave, set) {
+  const salvata = noteGrafici[chiave];
+  if (salvata && salvata.testo) return { testo: salvata.testo, manuale: true };
+  return { testo: generaNota(chiave, set), manuale: false };
+}
+
+function renderNote(set) {
+  NOTE_CHIAVI.forEach((chiave) => {
+    const host = el('nota-' + chiave);
+    if (!host) return;
+    if (notaInModifica === chiave) return;   // non si sovrascrive mentre si scrive
+    const n = testoNota(chiave, set);
+    host.className = 'chart-nota' + (n.manuale ? ' manuale' : '');
+    host.innerHTML =
+      '<p class="nota-testo">' + esc(n.testo) + '</p>' +
+      '<div class="nota-azioni">' +
+        (n.manuale ? '<span class="nota-badge" title="Testo corretto a mano">modificata</span>' : '') +
+        '<button type="button" class="nota-btn" data-act="nota-modifica" data-nota="' + chiave +
+          '" title="Correggi la descrizione">Modifica</button>' +
+        (n.manuale ? '<button type="button" class="nota-btn" data-act="nota-auto" data-nota="' +
+          chiave + '" title="Torna al testo generato">Rigenera</button>' : '') +
+      '</div>';
+  });
+}
+
+function modificaNota(chiave) {
+  const host = el('nota-' + chiave);
+  if (!host) return;
+  notaInModifica = chiave;
+  const n = testoNota(chiave, getStatsSubset());
+  host.className = 'chart-nota in-modifica';
+  host.innerHTML =
+    '<textarea class="nota-edit" id="notaEdit" rows="3" maxlength="1200"></textarea>' +
+    '<div class="nota-azioni">' +
+      '<button type="button" class="nota-btn" data-act="nota-annulla" data-nota="' + chiave + '">Annulla</button>' +
+      '<button type="button" class="nota-btn nota-ok" data-act="nota-salva" data-nota="' + chiave + '">Salva</button>' +
+    '</div>';
+  const ta = el('notaEdit');
+  if (ta) { ta.value = n.testo; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+}
+
+function salvaNota(chiave) {
+  const ta = el('notaEdit');
+  if (!ta) return;
+  const testo = String(ta.value || '').trim().slice(0, 1200);
+  const auto = generaNota(chiave, getStatsSubset());
+  notaInModifica = null;
+  if (!testo || testo === auto) {
+    delete noteGrafici[chiave];      // uguale al generato: non vale la pena fissarlo
+  } else {
+    noteGrafici[chiave] = { testo: testo, updatedAt: Date.now() };
+  }
+  noteGrafici.updatedAt = Date.now();
+  scheduleSave();
+  renderNote(getStatsSubset());
+  notify('Descrizione aggiornata.');
+}
+
+function annullaNota() {
+  notaInModifica = null;
+  renderNote(getStatsSubset());
+}
+
+function rigeneraNota(chiave) {
+  delete noteGrafici[chiave];
+  noteGrafici.updatedAt = Date.now();
+  notaInModifica = null;
+  scheduleSave();
+  renderNote(getStatsSubset());
+  notify('Descrizione rigenerata dai dati.');
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  SELETTORE A RULLI — data di nascita
+//  Per una data di nascita il calendario a mese è scomodo: servono
+//  decine di click per arrivare al 1948. Qui si scorrono tre colonne,
+//  giorno · mese · anno, e si conferma.
+// ══════════════════════════════════════════════════════════════════
+let rulliCampo = null;
+let rulliScelta = { g: 1, m: 1, a: 1970 };
+
+const ANNO_MIN = 1900;
+
+function annoMax() { return new Date().getFullYear(); }
+
+function giorniNelMese(m, a) { return new Date(a, m, 0).getDate(); }
+
+function apriRulli(campo) {
+  const pannello = el('rulliPanel');
+  if (!pannello || !campo) return;
+  chiudiCalendario();
+  rulliCampo = campo;
+
+  const iso = campo.getAttribute('data-iso') || '';
+  if (iso) {
+    const p = iso.split('-');
+    rulliScelta = { g: parseInt(p[2], 10), m: parseInt(p[1], 10), a: parseInt(p[0], 10) };
+  } else {
+    rulliScelta = { g: 1, m: 1, a: 1960 };
+  }
+
+  renderRulli();
+  pannello.classList.add('open');
+
+  const r = campo.getBoundingClientRect();
+  const larghezza = pannello.offsetWidth || 268;
+  const altezza = pannello.offsetHeight || 300;
+  let x = r.left;
+  let y = r.bottom + 6;
+  if (x + larghezza > window.innerWidth - 12) x = window.innerWidth - larghezza - 12;
+  if (y + altezza > window.innerHeight - 12) y = Math.max(12, r.top - altezza - 6);
+  pannello.style.left = Math.max(12, x) + 'px';
+  pannello.style.top = y + 'px';
+
+  // ogni colonna si posiziona sulla voce scelta
+  requestAnimationFrame(() => {
+    pannello.querySelectorAll('.rullo').forEach((rullo) => {
+      const sel = rullo.querySelector('.rullo-voce.scelta');
+      if (sel) rullo.scrollTop = sel.offsetTop - rullo.clientHeight / 2 + sel.offsetHeight / 2;
+    });
+  });
+}
+
+function chiudiRulli() {
+  const p = el('rulliPanel');
+  if (p) p.classList.remove('open');
+  rulliCampo = null;
+}
+
+function renderRulli() {
+  const pannello = el('rulliPanel');
+  if (!pannello) return;
+
+  const maxG = giorniNelMese(rulliScelta.m, rulliScelta.a);
+  if (rulliScelta.g > maxG) rulliScelta.g = maxG;
+
+  const colonna = (tipo, voci, scelto, etichetta) =>
+    '<div class="rullo-col"><div class="rullo-tit">' + etichetta + '</div>' +
+    '<div class="rullo" data-tipo="' + tipo + '">' +
+    voci.map((v) =>
+      '<button type="button" class="rullo-voce' + (v.val === scelto ? ' scelta' : '') +
+      '" data-act="rullo-scegli" data-tipo="' + tipo + '" data-val="' + v.val + '">' +
+      esc(v.txt) + '</button>').join('') +
+    '</div></div>';
+
+  const giorni = [];
+  for (let i = 1; i <= maxG; i++) giorni.push({ val: i, txt: String(i).padStart(2, '0') });
+  const mesi = MESI_LUNGHI.map((n, i) => ({ val: i + 1, txt: n }));
+  const anni = [];
+  for (let a = annoMax(); a >= ANNO_MIN; a--) anni.push({ val: a, txt: String(a) });
+
+  const eta = calcAge(isoRulli());
+  pannello.innerHTML =
+    '<div class="rulli-head">Data di nascita</div>' +
+    '<div class="rulli-corpo">' +
+      colonna('g', giorni, rulliScelta.g, 'Giorno') +
+      colonna('m', mesi, rulliScelta.m, 'Mese') +
+      colonna('a', anni, rulliScelta.a, 'Anno') +
+    '</div>' +
+    '<div class="rulli-piede">' +
+      '<span class="rulli-eco">' + esc(fmtDate(isoRulli())) +
+        (eta !== null ? ' · ' + eta + ' anni' : '') + '</span>' +
+      '<button type="button" class="cal-azione" data-act="rulli-annulla">Annulla</button>' +
+      '<button type="button" class="cal-azione rulli-ok" data-act="rulli-conferma">Conferma</button>' +
+    '</div>';
+}
+
+function isoRulli() {
+  const due = (n) => String(n).padStart(2, '0');
+  return rulliScelta.a + '-' + due(rulliScelta.m) + '-' + due(rulliScelta.g);
+}
+
+function scegliRullo(tipo, valore) {
+  const n = parseInt(valore, 10);
+  if (!isFinite(n)) return;
+  if (tipo === 'g') rulliScelta.g = n;
+  else if (tipo === 'm') rulliScelta.m = n;
+  else if (tipo === 'a') rulliScelta.a = n;
+
+  // conserva la posizione delle colonne: ridisegnare e ripartire da capo
+  // farebbe perdere il punto in cui si stava scorrendo
+  const pannello = el('rulliPanel');
+  const posizioni = {};
+  if (pannello) {
+    pannello.querySelectorAll('.rullo').forEach((r) => { posizioni[r.getAttribute('data-tipo')] = r.scrollTop; });
+  }
+  renderRulli();
+  if (pannello) {
+    pannello.querySelectorAll('.rullo').forEach((r) => {
+      const t = r.getAttribute('data-tipo');
+      if (posizioni[t] != null && t !== tipo) r.scrollTop = posizioni[t];
+      else {
+        const sel = r.querySelector('.rullo-voce.scelta');
+        if (sel) r.scrollTop = sel.offsetTop - r.clientHeight / 2 + sel.offsetHeight / 2;
+      }
+    });
+  }
+}
+
+function confermaRulli() {
+  if (!rulliCampo) return;
+  const campo = rulliCampo;
+  setDateField(campo, isoRulli());
+  chiudiRulli();
+  campo.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+/** Digitazione: le barre le mette il programma, si scrivono solo cifre. */
+function formattaDigitazioneData(campo) {
+  const cifre = String(campo.value || '').replace(/[^0-9]/g, '').slice(0, 8);
+  let testo = cifre;
+  if (cifre.length > 4) testo = cifre.slice(0, 2) + '/' + cifre.slice(2, 4) + '/' + cifre.slice(4);
+  else if (cifre.length > 2) testo = cifre.slice(0, 2) + '/' + cifre.slice(2);
+  campo.value = testo;
+  return cifre.length === 8 ? parseDataItaliana(testo) : '';
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -2698,13 +3117,23 @@ function setupCalendari() {
     campo.setAttribute('inputmode', 'numeric');
     if (!campo.hasAttribute('data-iso')) campo.setAttribute('data-iso', '');
 
-    campo.addEventListener('focus', () => apriCalendario(campo));
-    campo.addEventListener('click', () => apriCalendario(campo));
-    // digitando a mano, il valore ISO si allinea a ogni carattere valido
+    // La data di nascita usa i rulli: sul calendario a mese servirebbero
+    // decine di click per arrivare agli anni Quaranta.
+    const conRulli = campo.id === 'w_dob';
+    const apri = () => (conRulli ? apriRulli(campo) : apriCalendario(campo));
+    campo.addEventListener('focus', apri);
+    campo.addEventListener('click', apri);
+
+    // Digitando si scrivono solo cifre: le barre le mette il programma.
     campo.addEventListener('input', () => {
-      const iso = parseDataItaliana(campo.value);
+      const iso = formattaDigitazioneData(campo);
       campo.setAttribute('data-iso', iso);
-      if (iso) {
+      if (!iso) return;
+      if (conRulli) {
+        const p = iso.split('-');
+        rulliScelta = { g: +p[2], m: +p[1], a: +p[0] };
+        if (rulliCampo === campo) renderRulli();
+      } else {
         calMese = new Date(iso + 'T00:00:00');
         calMese.setDate(1);
         if (calCampo === campo) renderCalendario();
@@ -2720,16 +3149,18 @@ function setupCalendari() {
       }
     });
     campo.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Escape') { chiudiCalendario(); campo.blur(); }
-      if (ev.key === 'Enter') { chiudiCalendario(); }
+      if (ev.key === 'Escape') { chiudiCalendario(); chiudiRulli(); campo.blur(); }
+      if (ev.key === 'Enter') { chiudiCalendario(); chiudiRulli(); }
     });
   });
 
   document.addEventListener('click', (ev) => {
-    if (ev.target.closest('#calPanel') || ev.target.closest('input[data-date]')) return;
+    if (ev.target.closest('#calPanel') || ev.target.closest('#rulliPanel') ||
+        ev.target.closest('input[data-date]')) return;
     chiudiCalendario();
+    chiudiRulli();
   });
-  window.addEventListener('resize', chiudiCalendario);
+  window.addEventListener('resize', () => { chiudiCalendario(); chiudiRulli(); });
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -2765,6 +3196,8 @@ function applyPrefs() {
     const chiave = btn.getAttribute('data-pref');
     btn.setAttribute('aria-checked', PREFS[chiave] ? 'true' : 'false');
   });
+  // il pannello cambia larghezza: il fondino delle schede va riallineato
+  setTimeout(moveTabHighlight, 60);
 }
 
 function togglePref(chiave) {
@@ -2775,34 +3208,60 @@ function togglePref(chiave) {
   if (chiave === 'dense') moveTabHighlight();
 }
 
+let railAperto = null;
+
+/** Apre o chiude il pannello laterale. Cliccando l'icona già attiva si
+ *  richiude, e il contenuto della pagina torna a larghezza piena. */
+function toggleRail(pan) {
+  const chiudi = !pan || railAperto === pan;
+  railAperto = chiudi ? null : pan;
+
+  document.body.classList.toggle('rail-aperto', !chiudi);
+  document.querySelectorAll('.rail-btn').forEach((b) => {
+    b.setAttribute('aria-selected', b.getAttribute('data-pan') === railAperto ? 'true' : 'false');
+  });
+  document.querySelectorAll('.pan').forEach((sez) => {
+    const suo = sez.getAttribute('data-pan') === railAperto;
+    sez.classList.remove('attivo');
+    if (suo) { void sez.offsetWidth; sez.classList.add('attivo'); }
+  });
+
+  if (railAperto === 'info' || railAperto === 'archivio') refreshSettingsInfo();
+  if (railAperto === 'esami') renderTipiEsame();
+  // il fondino della scheda attiva e il dock si spostano con il layout
+  setTimeout(moveTabHighlight, 460);
+}
+
+/** Compatibilità con i vecchi punti di chiamata: chiudere il menu. */
 function toggleSettings(forza) {
-  const menu = el('settingsMenu');
-  const btn = el('settingsBtn');
-  if (!menu || !btn) return;
-  const apri = typeof forza === 'boolean' ? forza : !menu.classList.contains('open');
-  menu.classList.toggle('open', apri);
-  btn.setAttribute('aria-expanded', apri ? 'true' : 'false');
-  if (apri) refreshSettingsInfo();
+  if (forza === false) toggleRail(null);
 }
 
 function refreshSettingsInfo() {
   const info = el('smInfo');
-  if (!info) return;
-  const righe = ['ER Oncology Archivist ' + (appInfo.version || '')];
+  const percorso = el('panPercorso');
+  const righe = ['ER Oncology Archivist ' + (appInfo.version || ''),
+                 'Electron ' + (appInfo.electron || '—')];
   if (IS_ELECTRON) {
     righe.push(dataFolder ? 'Cartella: ' + dataFolder : 'Cartella dati non ancora scelta');
     if (readOnly) righe.push('Sola lettura');
   } else {
     righe.push('Modalità browser — i dati non vengono salvati');
   }
-  info.textContent = '';
-  righe.forEach((r) => {
-    const d = document.createElement('div');
-    d.textContent = r;
-    info.appendChild(d);
-  });
+  if (info) {
+    info.textContent = '';
+    righe.forEach((r) => {
+      const d = document.createElement('div');
+      d.textContent = r;
+      info.appendChild(d);
+    });
+  }
+  if (percorso) {
+    percorso.textContent = IS_ELECTRON
+      ? (dataFolder ? 'Cartella corrente: ' + dataFolder : 'Nessuna cartella dati configurata.')
+      : 'Modalità browser: i dati non vengono salvati.';
+  }
 }
-
 
 /** Copia di sicurezza dell'archivio su chiavetta USB.
  *  La ricerca dell'unità, la conferma e la scrittura avvengono nel
@@ -3011,10 +3470,24 @@ function popSections(view) {
  *  vola, così a fine volo la dissolvenza parte senza scatti. */
 function buildHexVeil() {
   const veil = el('hexReveal');
+  const navLogo = el('navLogo');
   if (!veil || PREFS.reduceMotion) return null;
   veil.classList.remove('revealing');
+
+  // L'origine si fissa subito, sul punto in cui il logo sta per
+  // atterrare: così la maschera è già centrata sul logo dal primo
+  // fotogramma e l'apertura non "salta" da un altro punto.
+  if (navLogo) {
+    const r = navLogo.getBoundingClientRect();
+    if (r.width) impostaOrigineVelo(veil, r.left + r.width / 2, r.top + r.height / 2);
+  }
   veil.classList.add('armed');
   return true;
+}
+
+function impostaOrigineVelo(veil, x, y) {
+  veil.style.setProperty('--velo-x', (x / window.innerWidth * 100).toFixed(2) + '%');
+  veil.style.setProperty('--velo-y', (y / window.innerHeight * 100).toFixed(2) + '%');
 }
 
 /** Apre il velo dal punto indicato, con bordo sfumato. */
@@ -3023,10 +3496,7 @@ function revealFromHex(_celle, origineX, origineY) {
   const alone = el('veloAlone');
   if (!veil) return 0;
 
-  const x = (origineX / window.innerWidth * 100).toFixed(2) + '%';
-  const y = (origineY / window.innerHeight * 100).toFixed(2) + '%';
-  veil.style.setProperty('--velo-x', x);
-  veil.style.setProperty('--velo-y', y);
+  impostaOrigineVelo(veil, origineX, origineY);
 
   if (alone) {
     alone.style.left = (origineX - 6) + 'px';
@@ -3090,13 +3560,19 @@ const CLICK_ACTIONS = {
   'set-class': (t) => setClassTumore(t.getAttribute('data-val')),
   'set-sottocat': (t) => setSottocat(t.getAttribute('data-val')),
   'set-meta': (t) => setMetastasi(t.getAttribute('data-val')),
-  'settings-toggle': () => toggleSettings(),
+  'rail': (t) => toggleRail(t.getAttribute('data-pan')),
   'pref': (t) => togglePref(t.getAttribute('data-pref')),
+  'nota-modifica': (t) => modificaNota(t.getAttribute('data-nota')),
+  'nota-salva': (t) => salvaNota(t.getAttribute('data-nota')),
+  'nota-annulla': () => annullaNota(),
+  'nota-auto': (t) => rigeneraNota(t.getAttribute('data-nota')),
+  'rullo-scegli': (t) => scegliRullo(t.getAttribute('data-tipo'), t.getAttribute('data-val')),
+  'rulli-conferma': () => confermaRulli(),
+  'rulli-annulla': () => chiudiRulli(),
   'cal-pick': (t) => scegliData(t.getAttribute('data-iso')),
   'cal-mese': (t) => { if (!calMese) return; calMese.setMonth(calMese.getMonth() + (parseInt(t.getAttribute('data-delta'), 10) || 0)); renderCalendario(); },
   'cal-oggi': () => scegliData(isoDiOggi()),
   'cal-vuota': () => scegliData(''),
-  'tipi-apri': () => { toggleSettings(false); apriTipiEsame(); },
   'tipi-aggiungi': () => aggiungiTipoEsame(),
   'tipi-su': (t) => spostaTipoEsame(parseInt(t.getAttribute('data-idx'), 10), -1),
   'tipi-giu': (t) => spostaTipoEsame(parseInt(t.getAttribute('data-idx'), 10), 1),
@@ -3119,9 +3595,9 @@ const CLICK_ACTIONS = {
   'export-pdf': () => { closeOverlay('modExport'); exportPDF(); },
   'export-pptx': () => { closeOverlay('modExport'); exportPPTX(); },
   'welcome-select': () => welcomeSelectFolder(),
-  'select-folder': () => { toggleSettings(false); selectFolder(); },
-  'reload': () => { toggleSettings(false); if (IS_ELECTRON && dataFolder) activateFolder(); },
-  'safety-net': () => { toggleSettings(false); safetyNet(); },
+  'select-folder': () => selectFolder(),
+  'reload': () => { if (IS_ELECTRON && dataFolder) activateFolder(); },
+  'safety-net': () => safetyNet(),
   'pick': (t) => {
     const target = el(t.getAttribute('data-target'));
     if (target) { target.value = t.getAttribute('data-value') || ''; }
@@ -3171,14 +3647,11 @@ function wireEvents() {
 
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') {
-      toggleSettings(false);
+      toggleRail(null);
       document.querySelectorAll('.overlay.open').forEach((m) => m.classList.remove('open'));
     }
   });
 
-  document.addEventListener('click', (ev) => {
-    if (!ev.target.closest('.settings-wrap')) toggleSettings(false);
-  });
   window.addEventListener('resize', moveTabHighlight);
 
   window.addEventListener('beforeunload', releaseLock);
