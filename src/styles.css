@@ -844,7 +844,6 @@ body.dense .sc { padding: 8px 12px; }
 /* ── Animazioni ridotte: si spengono anche i filtri costosi ── */
 body.reduce-motion .splash-glyph,
 body.reduce-motion [data-pop],
-body.reduce-motion .settings-menu { animation: none !important; transition: none !important; }
 body.reduce-motion .splash-glyph { opacity: 1; filter: none; }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -1016,69 +1015,63 @@ body.reduce-motion .cal-panel.open { animation: none; opacity: 1; transform: non
    Il raggio si anima con @property: senza registrare la variabile come
    <percentage> il browser la interpolerebbe come stringa, cioè a scatti.
    ══════════════════════════════════════════════════════════════════ */
-@property --velo-raggio {
-  syntax: '<percentage>';
-  inherits: false;
-  initial-value: 0%;
-}
+/* ══════════════════════════════════════════════════════════════════
+   Rivelazione: la banda risale e diventa la barra
 
+   A logo atterrato il velo che copre l'applicazione si ritira dal basso
+   verso l'alto. La sua ultima riga si ferma esattamente sull'altezza
+   della barra di navigazione, vira al nero e si dissolve: sotto c'e'
+   gia' la barra vera, quindi il passaggio non si vede.
+   ══════════════════════════════════════════════════════════════════ */
 #hexReveal {
   position: fixed; inset: 0; z-index: 1900;
   pointer-events: none;
-  /* stesso fondo dello splash: il passaggio di consegne fra i due non
-     deve produrre nessuno stacco di tinta */
-  background:
-    radial-gradient(60% 60% at var(--velo-x, 4%) var(--velo-y, 3%),
-      rgba(255,77,109,.09) 0%, rgba(168,85,208,.05) 38%, rgba(0,0,0,0) 70%),
-    radial-gradient(1200px 700px at 50% 35%, #211526 0%, #120B14 65%);
+  /* il fondo e' il colore della barra: quando il gradiente sopra si
+     dissolve resta esattamente la tinta della nav */
+  background-color: var(--text);
   opacity: 0; visibility: hidden;
-  --velo-raggio: 0%;
 }
 #hexReveal.armed { opacity: 1; visibility: visible; }
 
-/* Il buco cresce dal logo; i due stop distanti danno il bordo soffuso. */
-#hexReveal.armed {
-  -webkit-mask-image: radial-gradient(circle at var(--velo-x, 4%) var(--velo-y, 3%),
-    transparent 0%,
-    transparent var(--velo-raggio),
-    #000 calc(var(--velo-raggio) + 26%));
-  mask-image: radial-gradient(circle at var(--velo-x, 4%) var(--velo-y, 3%),
-    transparent 0%,
-    transparent var(--velo-raggio),
-    #000 calc(var(--velo-raggio) + 26%));
-}
-#hexReveal.revealing {
-  animation: veloApri 1.15s cubic-bezier(.4,0,.25,1) forwards;
-}
-@keyframes veloApri {
-  from { --velo-raggio: 0%; opacity: 1; }
-  70%  { opacity: 1; }
-  to   { --velo-raggio: 125%; opacity: 0; }
+.velo-sfondo {
+  position: absolute; inset: 0;
+  background: radial-gradient(1200px 700px at 50% 35%, #211526 0%, #120B14 65%);
 }
 
-/* Alone tenue che precede il fronte: dà profondità senza disturbare. */
-#veloAlone {
-  position: fixed; z-index: 1901; pointer-events: none;
-  width: 12px; height: 12px; border-radius: 50%;
+/* riga luminosa sul bordo che sale: e' il fronte dell'onda */
+.velo-fronte {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: linear-gradient(90deg, #FF4D6D, #A855D0);
+  box-shadow: 0 0 26px 6px rgba(255,77,109,.45), 0 0 70px 18px rgba(168,85,208,.22);
   opacity: 0;
-  box-shadow: 0 0 90px 60px rgba(255,77,109,.16),
-              0 0 220px 160px rgba(168,85,208,.10);
-}
-#hexReveal.revealing ~ #veloAlone,
-#veloAlone.acceso {
-  animation: aloneApri 1.15s cubic-bezier(.4,0,.25,1) forwards;
-}
-@keyframes aloneApri {
-  0%   { opacity: 0; transform: scale(.4); }
-  22%  { opacity: 1; }
-  to   { opacity: 0; transform: scale(9); }
 }
 
-body.reduce-motion #hexReveal,
-body.reduce-motion #veloAlone { display: none; }
-@media (prefers-reduced-motion: reduce) {
-  #hexReveal, #veloAlone { display: none; }
+#hexReveal.revealing { animation: veloSale .95s cubic-bezier(.65,0,.2,1) forwards; }
+#hexReveal.revealing .velo-sfondo { animation: veloSfondoVia .95s cubic-bezier(.65,0,.2,1) forwards; }
+#hexReveal.revealing .velo-fronte { animation: veloFronte .95s cubic-bezier(.65,0,.2,1) forwards; }
+
+/* --velo-barra e' la quota della barra in percentuale dell'altezza
+   della finestra: la banda si ferma li' invece di sparire del tutto */
+@keyframes veloSale {
+  0%   { clip-path: inset(0 0 0 0); opacity: 1; }
+  62%  { clip-path: inset(0 0 var(--velo-barra, 94%) 0); opacity: 1; }
+  100% { clip-path: inset(0 0 var(--velo-barra, 94%) 0); opacity: 0; }
 }
+@keyframes veloSfondoVia {
+  0%   { opacity: 1; }
+  52%  { opacity: 1; }
+  70%  { opacity: 0; }
+  100% { opacity: 0; }
+}
+@keyframes veloFronte {
+  0%   { opacity: 0; }
+  8%   { opacity: 1; }
+  58%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+body.reduce-motion #hexReveal { display: none; }
+@media (prefers-reduced-motion: reduce) { #hexReveal { display: none; } }
 
 /* ══════════════════════════════════════════════════════════════════
    Toggle — molla dello switch di Uiverse (JkHuger)
@@ -1341,20 +1334,23 @@ body { padding-right: var(--rail-w); transition: padding-right .45s cubic-bezier
 body.rail-aperto { padding-right: calc(var(--rail-w) + var(--pan-w)); }
 nav { padding-right: calc(2rem + 8px); }
 
+/* Il rail resta sempre largo 56px. Il pannello NON sta nel suo flusso:
+   se ci stesse, i suoi 340px spingerebbero la colonna di icone fuori
+   dallo schermo a pannello chiuso, ed e' esattamente quello che
+   succedeva. Sta fisso alla sinistra del rail e scorre da fuori campo. */
 .side-rail {
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 300;
-  display: flex; align-items: stretch;
   width: var(--rail-w);
-  transition: width .45s cubic-bezier(.32,.72,0,1);
 }
-body.rail-aperto .side-rail { width: calc(var(--rail-w) + var(--pan-w)); }
 
 .rail-icone {
-  order: 2; width: var(--rail-w); flex-shrink: 0;
+  position: absolute; top: 0; right: 0; bottom: 0;
+  width: var(--rail-w);
   display: flex; flex-direction: column; gap: 4px;
   padding: 10px 6px; box-sizing: border-box;
   background: var(--text);
   border-left: 1px solid rgba(255,255,255,.07);
+  z-index: 2;
 }
 .rail-btn {
   position: relative;
@@ -1376,17 +1372,20 @@ body.rail-aperto .side-rail { width: calc(var(--rail-w) + var(--pan-w)); }
 }
 
 .rail-pannello {
-  order: 1; width: var(--pan-w); flex: 0 0 var(--pan-w);
+  position: fixed; top: 0; bottom: 0; right: var(--rail-w);
+  width: var(--pan-w); z-index: 1;
   overflow-y: auto; overflow-x: hidden;
   background: var(--surface);
   border-left: 1px solid var(--border);
   box-shadow: -14px 0 34px -22px rgba(0,0,0,.45);
   padding: 18px 18px 26px;
   box-sizing: border-box;
-  opacity: 0; pointer-events: none;
-  transition: opacity .28s ease;
+  /* traslato della propria larghezza: finisce sotto al rail, fuori campo */
+  transform: translateX(100%);
+  pointer-events: none;
+  transition: transform .45s cubic-bezier(.32,.72,0,1);
 }
-body.rail-aperto .rail-pannello { opacity: 1; pointer-events: auto; }
+body.rail-aperto .rail-pannello { transform: translateX(0); pointer-events: auto; }
 
 .pan { display: none; }
 .pan.attivo {
@@ -1448,8 +1447,8 @@ body.rail-aperto .rail-pannello { opacity: 1; pointer-events: auto; }
 .app-footer { right: calc(var(--rail-w) + 1rem); transition: right .45s cubic-bezier(.32,.72,0,1); }
 body.rail-aperto .app-footer { right: calc(var(--rail-w) + var(--pan-w) + 1rem); }
 
-body.reduce-motion body,
-body.reduce-motion .side-rail,
+body.reduce-motion,
+body.reduce-motion .rail-pannello,
 body.reduce-motion .rail-pannello,
 body.reduce-motion .pan.attivo { transition: none; animation: none; }
 

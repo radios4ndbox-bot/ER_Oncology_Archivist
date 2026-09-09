@@ -3467,53 +3467,34 @@ function popSections(view) {
 
 
 /** Arma il velo che copre l'applicazione. Si prepara mentre il logo
- *  vola, così a fine volo la dissolvenza parte senza scatti. */
+ *  vola, così a fine volo la risalita parte senza scatti. */
 function buildHexVeil() {
   const veil = el('hexReveal');
-  const navLogo = el('navLogo');
   if (!veil || PREFS.reduceMotion) return null;
   veil.classList.remove('revealing');
-
-  // L'origine si fissa subito, sul punto in cui il logo sta per
-  // atterrare: così la maschera è già centrata sul logo dal primo
-  // fotogramma e l'apertura non "salta" da un altro punto.
-  if (navLogo) {
-    const r = navLogo.getBoundingClientRect();
-    if (r.width) impostaOrigineVelo(veil, r.left + r.width / 2, r.top + r.height / 2);
-  }
   veil.classList.add('armed');
   return true;
 }
 
-function impostaOrigineVelo(veil, x, y) {
-  veil.style.setProperty('--velo-x', (x / window.innerWidth * 100).toFixed(2) + '%');
-  veil.style.setProperty('--velo-y', (y / window.innerHeight * 100).toFixed(2) + '%');
-}
-
-/** Apre il velo dal punto indicato, con bordo sfumato. */
-function revealFromHex(_celle, origineX, origineY) {
+/** La banda risale dal bordo inferiore e si ferma sull'altezza della
+ *  barra di navigazione, dove vira al nero e si dissolve: sotto c'è
+ *  già la barra vera, quindi il passaggio non si vede.
+ *  L'origine resta nella firma per compatibilità: qui il movimento è
+ *  verticale e parte sempre dal basso. */
+function revealFromHex(_celle, _origineX, _origineY) {
   const veil = el('hexReveal');
-  const alone = el('veloAlone');
   if (!veil) return 0;
 
-  impostaOrigineVelo(veil, origineX, origineY);
-
-  if (alone) {
-    alone.style.left = (origineX - 6) + 'px';
-    alone.style.top = (origineY - 6) + 'px';
-    alone.classList.remove('acceso');
-    void alone.offsetWidth;
-    alone.classList.add('acceso');
-  }
+  const nav = document.querySelector('nav');
+  const altezzaNav = nav ? nav.getBoundingClientRect().height : 52;
+  const quota = 100 - (altezzaNav / window.innerHeight * 100);
+  veil.style.setProperty('--velo-barra', quota.toFixed(2) + '%');
 
   void veil.offsetWidth;
   veil.classList.add('revealing');
 
-  const totale = 1250;
-  setTimeout(() => {
-    veil.classList.remove('armed', 'revealing');
-    if (alone) alone.classList.remove('acceso');
-  }, totale);
+  const totale = 1000;
+  setTimeout(() => { veil.classList.remove('armed', 'revealing'); }, totale);
   return totale;
 }
 
