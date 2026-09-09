@@ -40,6 +40,7 @@ const SESSION_ID = Math.random().toString(36).slice(2) + Date.now().toString(36)
 // ══════════════════════════════════════════════════════════════════
 let DB = [];                 // record normalizzati
 let deletedIds = {};         // id → timestamp cancellazione (tombstone)
+let tipiEsame = { lista: [], updatedAt: 0 };   // tassonomia condivisa
 let filtered = [];
 let selected = new Set();
 let sortKey = 'data';
@@ -260,10 +261,17 @@ function parseStore(input) {
   }
   let list = [];
   const deleted = {};
+  let tipi = { lista: [], updatedAt: 0 };
   if (Array.isArray(raw)) {
     list = raw;
   } else if (raw && typeof raw === 'object') {
     list = Array.isArray(raw.records) ? raw.records : [];
+    if (raw.tipiEsame && typeof raw.tipiEsame === 'object' && Array.isArray(raw.tipiEsame.lista)) {
+      tipi = {
+        lista: raw.tipiEsame.lista.map((t) => str(t, 200)).filter(Boolean).slice(0, 200),
+        updatedAt: num(raw.tipiEsame.updatedAt)
+      };
+    }
     if (raw.deleted && typeof raw.deleted === 'object') {
       Object.keys(raw.deleted).forEach((k) => {
         const t = Number(raw.deleted[k]);
@@ -278,7 +286,7 @@ function parseStore(input) {
     const rec = normalizeRecord(r);
     if (rec) records.push(rec);
   });
-  return { records: records, deleted: deleted };
+  return { records: records, deleted: deleted, tipi: tipi };
 }
 
 function serializeStore(store) {
@@ -286,7 +294,8 @@ function serializeStore(store) {
     schema: SCHEMA,
     savedAt: new Date().toISOString(),
     records: store.records,
-    deleted: store.deleted
+    deleted: store.deleted,
+    tipiEsame: store.tipi || { lista: [], updatedAt: 0 }
   }, null, 2);
 }
 
@@ -316,7 +325,12 @@ function mergeStores(a, b) {
   const cutoff = Date.now() - TOMBSTONE_TTL;
   Object.keys(deleted).forEach((id) => { if (deleted[id] < cutoff) delete deleted[id]; });
 
-  return { records: records, deleted: deleted };
+  // la tassonomia segue la stessa regola: vince la più recente
+  const tipiA = a.tipi || { lista: [], updatedAt: 0 };
+  const tipiB = b.tipi || { lista: [], updatedAt: 0 };
+  const tipi = tipiB.updatedAt > tipiA.updatedAt ? tipiB : tipiA;
+
+  return { records: records, deleted: deleted, tipi: tipi };
 }
 
 function storeSignature(store) {
@@ -416,6 +430,8 @@ async function loadFromFile() {
     const store = parseStore(text);
     DB = store.records;
     deletedIds = store.deleted;
+    tipiEsame = store.tipi || tipiEsame;
+    aggiornaSelettoreTipo();
     setStatus('saved', '● file locale');
   } catch (e) {
     enterReadOnly(e.message + ' Archivio aperto in sola lettura: nessuna scrittura verrà eseguita.');
@@ -456,12 +472,13 @@ async function doPersist() {
   try {
     for (let attempt = 0; attempt < 3; attempt++) {
       const remote = parseStore(await API.readText(DATA_FILE));
-      const merged = mergeStores(remote, { records: DB, deleted: deletedIds });
+      const merged = mergeStores(remote, { records: DB, deleted: deletedIds, tipi: tipiEsame });
       await API.writeText(DATA_FILE, serializeStore(merged));
 
       const check = parseStore(await API.readText(DATA_FILE));
       DB = merged.records;
       deletedIds = merged.deleted;
+      tipiEsame = merged.tipi || tipiEsame;
       if (storeContains(check, merged)) {
         setStatus('saved', '● salvato');
         refreshViews();
@@ -482,11 +499,13 @@ async function refreshFromRemote() {
   try {
     const remote = parseStore(await API.readText(DATA_FILE));
     const before = storeSignature({ records: DB, deleted: deletedIds });
-    const merged = mergeStores(remote, { records: DB, deleted: deletedIds });
+    const merged = mergeStores(remote, { records: DB, deleted: deletedIds, tipi: tipiEsame });
     const after = storeSignature(merged);
     if (before === after) return;
     DB = merged.records;
     deletedIds = merged.deleted;
+    tipiEsame = merged.tipi || tipiEsame;
+    aggiornaSelettoreTipo();
     refreshViews();
     notify('Archivio aggiornato con le modifiche dell’altra postazione.');
   } catch (e) { /* transitorio: si riprova al giro successivo */ }
@@ -702,6 +721,14 @@ function buildProgress() {
   for (let i = 1; i <= 4; i++) {
     const step = document.createElement('div');
     step.className = 'wp-step';
+    // Si può tornare indietro liberamente; andare avanti passa dalle
+    // stesse convalide del pulsante Avanti.
+    step.setAttribute('data-act', 'step');
+    step.setAttribute('data-step', String(i));
+    step.setAttribute('role', 'button');
+    step.setAttribute('tabindex', '0');
+    step.setAttribute('title', 'Passo ' + i + ' — ' + STEP_LABELS[i - 1]);
+    if (i === currentStep) step.setAttribute('aria-disabled', 'true');
     const dot = document.createElement('div');
     dot.className = 'wp-dot ' + (i < currentStep ? 'done' : i === currentStep ? 'active' : 'todo');
     dot.textContent = i < currentStep ? '✓' : String(i);
@@ -770,14 +797,26 @@ function liveValidate2() {
   }
 }
 
+/** Apre o chiude una sezione con la molla, invece di accenderla e
+ *  spegnerla di colpo con display. */
+function mostraSezione(id, aperto) {
+  const e = el(id);
+  if (!e) return;
+  if (aperto) {
+    if (e.classList.contains('aperto')) return;
+    e.classList.add('aperto');
+  } else {
+    e.classList.remove('aperto');
+  }
+}
+
 function setOnco(v) {
   wOnco = v;
   toggleClass('tog_onco_si', 'toggle-item', v === 'si' ? ' active-yes' : '');
   toggleClass('tog_onco_sospetto', 'toggle-item', v === 'sospetto' ? ' active-inc' : '');
   toggleClass('pill_onco_si', 'toggle-pill', v === 'si' ? ' on-onco' : '');
   toggleClass('pill_onco_sospetto', 'toggle-pill', v === 'sospetto' ? ' on-amber' : '');
-  const sec = el('oncoSection');
-  if (sec) sec.style.display = (v === 'si' || v === 'sospetto') ? 'block' : 'none';
+  mostraSezione('oncoSection', v === 'si' || v === 'sospetto');
   if (!v) { setClassTumore(null); setMetastasi(null); }
 }
 
@@ -785,8 +824,7 @@ function setClassTumore(v) {
   wPrimo = (v === 'primo');
   toggleClass('tog_primo', 'toggle-item', wPrimo ? ' active-yes' : '');
   toggleClass('pill_primo', 'toggle-pill', wPrimo ? ' on-onco' : '');
-  const sec = el('sottoCategSection');
-  if (sec) sec.style.display = wPrimo ? 'block' : 'none';
+  mostraSezione('sottoCategSection', wPrimo);
   if (!wPrimo) setSottocat(null);
 }
 
@@ -796,8 +834,7 @@ function setSottocat(v) {
     toggleClass('tog_' + k, 'toggle-item', v === k ? ' active-yes' : '');
     toggleClass('pill_' + k, 'toggle-pill', v === k ? ' on-onco' : '');
   });
-  const paf = el('patAssocField');
-  if (paf) paf.style.display = (v === 'associata') ? 'block' : 'none';
+  mostraSezione('patAssocField', v === 'associata');
 }
 
 function setMetastasi(v) {
@@ -806,8 +843,7 @@ function setMetastasi(v) {
   toggleClass('tog_meta_no', 'toggle-item', v === 'no' ? ' active-no' : '');
   toggleClass('pill_meta_si', 'toggle-pill', v === 'si' ? ' on' : '');
   toggleClass('pill_meta_no', 'toggle-pill', v === 'no' ? ' on-green' : '');
-  const ms = el('metaSection');
-  if (ms) ms.style.display = (v === 'si') ? 'block' : 'none';
+  mostraSezione('metaSection', v === 'si');
 }
 
 function toggleClass(id, base, extra) {
@@ -971,7 +1007,11 @@ function resetWizard() {
     const e = el(id);
     if (e) e.style.display = 'none';
   });
+  ['oncoSection', 'sottoCategSection', 'patAssocField', 'metaSection']
+    .forEach((id) => mostraSezione(id, false));
   editingId = null;
+  aggiornaSelettoreTipo();
+  modalitaTipoLibera(false);
   setOnco(null);
   fuItems = [];
   renderFUList();
@@ -993,6 +1033,8 @@ function loadIntoWizard(id) {
   };
   Object.keys(map).forEach((k) => setFieldValue(el(k), map[k] || ''));
 
+  aggiornaSelettoreTipo();
+  modalitaTipoLibera(false);
   fuItems = r.followup.map((f) => ({ date: f.date, type: f.type, text: f.text }));
   renderFUList();
   setOnco(r.onco || null);
@@ -1040,9 +1082,15 @@ function updateSuggests() {
     esc(s) + '">' + esc(s) + '</button>').join(''));
 
   const fTipo = el('fTipo');
-  if (fTipo) fTipo.innerHTML = '<option value="">Tutti</option>' + optionsHtml(tipi, fTipo.value);
+  if (fTipo) {
+    fTipo.innerHTML = '<option value="">Tutti</option>' + optionsHtml(tipi, fTipo.value);
+    refreshSelect('fTipo');
+  }
   const sfTipo = el('sfTipo');
-  if (sfTipo) sfTipo.innerHTML = '<option value="">Tutti i tipi</option>' + optionsHtml(tipi, sfTipo.value);
+  if (sfTipo) {
+    sfTipo.innerHTML = '<option value="">Tutti i tipi</option>' + optionsHtml(tipi, sfTipo.value);
+    refreshSelect('sfTipo');
+  }
 }
 
 function setHtml(id, html) {
@@ -2232,6 +2280,268 @@ function dockTick(ts) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+//  MODALITÀ DI ESAME
+//  L'elenco dei tipi di esame vive nel file condiviso, non nelle
+//  preferenze: è una tassonomia di reparto, deve essere uguale su
+//  entrambe le postazioni. Si unisce come i record, last-write-wins
+//  sul proprio updatedAt.
+// ══════════════════════════════════════════════════════════════════
+const TIPI_PREDEFINITI = [
+  'TC torace', 'TC addome con mdc', 'TC addome senza mdc',
+  'TC total body', 'TC encefalo', 'Ecografia addome',
+  'RMN encefalo', 'RX torace'
+];
+
+/** Elenco effettivo: quello configurato, o i predefiniti se mai toccato,
+ *  più i tipi già presenti in archivio che non fossero in elenco. */
+function tipiEsameCorrenti() {
+  const base = (tipiEsame.lista && tipiEsame.lista.length)
+    ? tipiEsame.lista.slice()
+    : TIPI_PREDEFINITI.slice();
+  const visti = new Set(base.map((t) => t.toLowerCase()));
+  DB.forEach((r) => {
+    if (r.tipo_esame && !visti.has(r.tipo_esame.toLowerCase())) {
+      visti.add(r.tipo_esame.toLowerCase());
+      base.push(r.tipo_esame);
+    }
+  });
+  return base;
+}
+
+function salvaTipiEsame(lista) {
+  tipiEsame = { lista: lista, updatedAt: Date.now() };
+  scheduleSave();
+  aggiornaSelettoreTipo();
+  renderTipiEsame();
+  updateSuggests();
+}
+
+/** Riempie il menu a tendina del passo 2 con l'elenco corrente. */
+function aggiornaSelettoreTipo() {
+  const sel = el('w_tipo_sel');
+  if (!sel) return;
+  const attuale = val('w_tipo_esame');
+  const lista = tipiEsameCorrenti();
+  sel.innerHTML = '<option value="">— seleziona —</option>' +
+    lista.map((t) => '<option value="' + esc(t) + '"' +
+      (t === attuale ? ' selected' : '') + '>' + esc(t) + '</option>').join('');
+  if (attuale && lista.indexOf(attuale) === -1) {
+    // valore scritto a mano e non in elenco: si mostra comunque
+    const extra = document.createElement('option');
+    extra.value = attuale;
+    extra.textContent = attuale + '  (a mano)';
+    extra.selected = true;
+    sel.appendChild(extra);
+  }
+  refreshSelect('w_tipo_sel');
+}
+
+/** Passa fra elenco e scrittura libera. */
+function modalitaTipoLibera(libera) {
+  const host = el('tipoSelHost');
+  const campo = el('w_tipo_esame');
+  const bottone = el('btnTipoModifica');
+  if (!host || !campo || !bottone) return;
+  host.classList.toggle('nascosto', libera);
+  campo.classList.toggle('nascosto', !libera);
+  bottone.textContent = libera ? 'Elenco' : 'Modifica';
+  bottone.title = libera
+    ? 'Torna a scegliere dall’elenco dei tipi di esame'
+    : 'Scrivi un tipo di esame a mano';
+  if (libera) campo.focus();
+}
+
+// ── finestra di gestione ──────────────────────────────────────────
+function apriTipiEsame() {
+  renderTipiEsame();
+  const m = el('modTipi');
+  if (m) m.classList.add('open');
+}
+
+function renderTipiEsame() {
+  const wrap = el('tipiLista');
+  if (!wrap) return;
+  const lista = (tipiEsame.lista && tipiEsame.lista.length)
+    ? tipiEsame.lista
+    : TIPI_PREDEFINITI;
+
+  if (!lista.length) {
+    wrap.innerHTML = '<div class="tipi-vuoto">Nessun tipo in elenco.</div>';
+    return;
+  }
+  wrap.innerHTML = lista.map((t, i) =>
+    '<div class="tipo-voce">' +
+      '<span class="tipo-num">' + (i + 1) + '</span>' +
+      '<span class="tipo-nome">' + esc(t) + '</span>' +
+      '<button type="button" class="tipo-btn" data-act="tipo-su" data-idx="' + i +
+        '" title="Sposta su"' + (i === 0 ? ' disabled' : '') + '>&#8593;</button>' +
+      '<button type="button" class="tipo-btn" data-act="tipo-giu" data-idx="' + i +
+        '" title="Sposta giù"' + (i === lista.length - 1 ? ' disabled' : '') + '>&#8595;</button>' +
+      '<button type="button" class="tipo-btn tipo-del" data-act="tipo-elimina" data-idx="' + i +
+        '" title="Rimuovi">&times;</button>' +
+    '</div>').join('');
+}
+
+function aggiungiTipoEsame() {
+  const campo = el('tipiNuovo');
+  if (!campo) return;
+  const nome = String(campo.value || '').trim().slice(0, 200);
+  if (!nome) { notify('Scrivi il nome del tipo di esame.'); return; }
+  const lista = (tipiEsame.lista && tipiEsame.lista.length)
+    ? tipiEsame.lista.slice() : TIPI_PREDEFINITI.slice();
+  if (lista.some((t) => t.toLowerCase() === nome.toLowerCase())) {
+    notify('Questo tipo è già in elenco.');
+    return;
+  }
+  lista.push(nome);
+  campo.value = '';
+  salvaTipiEsame(lista);
+  notify('Aggiunto: ' + nome);
+}
+
+function spostaTipoEsame(i, delta) {
+  const lista = (tipiEsame.lista && tipiEsame.lista.length)
+    ? tipiEsame.lista.slice() : TIPI_PREDEFINITI.slice();
+  const j = i + delta;
+  if (i < 0 || i >= lista.length || j < 0 || j >= lista.length) return;
+  const tmp = lista[i]; lista[i] = lista[j]; lista[j] = tmp;
+  salvaTipiEsame(lista);
+}
+
+function eliminaTipoEsame(i) {
+  const lista = (tipiEsame.lista && tipiEsame.lista.length)
+    ? tipiEsame.lista.slice() : TIPI_PREDEFINITI.slice();
+  if (i < 0 || i >= lista.length) return;
+  const usato = DB.filter((r) => r.tipo_esame === lista[i]).length;
+  if (usato && !confirm('«' + lista[i] + '» è usato in ' + usato +
+      ' esam' + (usato === 1 ? 'e' : 'i') + '.\nRimuoverlo dall’elenco? ' +
+      'Gli esami già registrati non cambiano.')) return;
+  lista.splice(i, 1);
+  salvaTipiEsame(lista);
+}
+
+function ripristinaTipiEsame() {
+  if (!confirm('Ripristinare l’elenco predefinito dei tipi di esame?')) return;
+  salvaTipiEsame(TIPI_PREDEFINITI.slice());
+  notify('Elenco ripristinato.');
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  SELECT PERSONALIZZATI
+//  Ispirati al select di Uiverse (3bdel3ziz-T): freccia che ruota e
+//  opzioni che scendono. Il <select> nativo resta nel DOM e continua a
+//  essere la fonte del valore: val() e gli eventi change non cambiano,
+//  e senza JavaScript il campo funziona comunque.
+// ══════════════════════════════════════════════════════════════════
+let selAperto = null;
+
+function setupSelects() {
+  document.querySelectorAll('select').forEach((nativo) => {
+    if (nativo.closest('.sel-wrap')) return;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'sel-wrap';
+    nativo.parentNode.insertBefore(wrap, nativo);
+    wrap.appendChild(nativo);
+
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'sel-trigger';
+    trigger.setAttribute('aria-haspopup', 'listbox');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.innerHTML = '<span class="sel-valore"></span>' +
+      '<svg class="sel-freccia" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="m6 9 6 6 6-6"/></svg>';
+
+    const lista = document.createElement('div');
+    lista.className = 'sel-opzioni';
+    lista.setAttribute('role', 'listbox');
+
+    wrap.appendChild(trigger);
+    wrap.appendChild(lista);
+
+    trigger.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      toggleSelect(wrap, !wrap.classList.contains('aperto'));
+    });
+    trigger.addEventListener('keydown', (ev) => {
+      if (ev.key === 'ArrowDown' || ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        toggleSelect(wrap, true);
+      } else if (ev.key === 'Escape') {
+        toggleSelect(wrap, false);
+      }
+    });
+
+    // Se il codice cambia il valore da solo (reset filtri, caricamento
+    // di un esame), l'etichetta deve seguirlo.
+    nativo.addEventListener('change', () => syncSelect(wrap));
+    syncSelect(wrap);
+  });
+
+  document.addEventListener('click', () => toggleSelect(null, false));
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') toggleSelect(null, false);
+  });
+}
+
+/** Riallinea etichetta e opzioni al contenuto del select nativo. */
+function syncSelect(wrap) {
+  const nativo = wrap.querySelector('select');
+  const valore = wrap.querySelector('.sel-valore');
+  const lista = wrap.querySelector('.sel-opzioni');
+  if (!nativo || !valore || !lista) return;
+
+  const scelta = nativo.options[nativo.selectedIndex];
+  valore.textContent = scelta ? scelta.textContent : '';
+  valore.classList.toggle('vuoto', !scelta || scelta.value === '');
+
+  lista.textContent = '';
+  Array.prototype.forEach.call(nativo.options, (opt, i) => {
+    const voce = document.createElement('button');
+    voce.type = 'button';
+    voce.className = 'sel-opzione' + (i === nativo.selectedIndex ? ' scelta' : '');
+    voce.setAttribute('role', 'option');
+    voce.setAttribute('aria-selected', i === nativo.selectedIndex ? 'true' : 'false');
+    voce.textContent = opt.textContent;
+    voce.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if (nativo.selectedIndex !== i) {
+        nativo.selectedIndex = i;
+        nativo.dispatchEvent(new Event('change', { bubbles: true }));
+      } else {
+        syncSelect(wrap);
+      }
+      toggleSelect(wrap, false);
+    });
+    lista.appendChild(voce);
+  });
+}
+
+function toggleSelect(wrap, apri) {
+  if (selAperto && selAperto !== wrap) {
+    selAperto.classList.remove('aperto');
+    const t = selAperto.querySelector('.sel-trigger');
+    if (t) t.setAttribute('aria-expanded', 'false');
+    selAperto = null;
+  }
+  if (!wrap) return;
+  wrap.classList.toggle('aperto', !!apri);
+  const t = wrap.querySelector('.sel-trigger');
+  if (t) t.setAttribute('aria-expanded', apri ? 'true' : 'false');
+  selAperto = apri ? wrap : null;
+}
+
+/** Da chiamare quando le opzioni di un select vengono ricostruite. */
+function refreshSelect(id) {
+  const nativo = el(id);
+  if (!nativo) return;
+  const wrap = nativo.closest('.sel-wrap');
+  if (wrap) syncSelect(wrap);
+}
+
+// ══════════════════════════════════════════════════════════════════
 //  CALENDARIO
 //  Il selettore nativo di Chromium non è personalizzabile e mostra la
 //  data nel formato del motore (mm/dd/yyyy): sbagliato per l'Italia e
@@ -2697,60 +3007,42 @@ function popSections(view) {
 }
 
 
-/** Costruisce il favo che copre la finestra. Si prepara mentre il logo
- *  vola, così a fine volo la rivelazione parte senza scatti. */
+/** Arma il velo che copre l'applicazione. Si prepara mentre il logo
+ *  vola, così a fine volo la dissolvenza parte senza scatti. */
 function buildHexVeil() {
   const veil = el('hexReveal');
   if (!veil || PREFS.reduceMotion) return null;
-  veil.textContent = '';
-
-  const W = HEX_SIZE;
-  const H = W * 0.8660;          // altezza di un esagono a punte laterali
-  const passoX = W * 0.75;       // le colonne si incastrano
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const frammento = document.createDocumentFragment();
-  const celle = [];
-
-  for (let col = 0; col * passoX < vw + W; col++) {
-    const offset = (col % 2) ? H / 2 : 0;
-    for (let row = -1; row * H + offset < vh + H; row++) {
-      const x = col * passoX;
-      const y = row * H + offset;
-      const cella = document.createElement('div');
-      cella.className = 'hex-cell';
-      cella.style.left = x + 'px';
-      cella.style.top = y + 'px';
-      cella.style.width = W + 'px';
-      cella.style.height = H + 'px';
-      celle.push({ e: cella, cx: x + W / 2, cy: y + H / 2 });
-      frammento.appendChild(cella);
-    }
-  }
-  veil.appendChild(frammento);
+  veil.classList.remove('revealing');
   veil.classList.add('armed');
-  return celle;
+  return true;
 }
 
-/** Fa sparire il favo a onda, partendo dal punto indicato. */
-function revealFromHex(celle, origineX, origineY) {
+/** Apre il velo dal punto indicato, con bordo sfumato. */
+function revealFromHex(_celle, origineX, origineY) {
   const veil = el('hexReveal');
-  if (!veil || !celle || !celle.length) { if (veil) veil.classList.remove('armed'); return 0; }
+  const alone = el('veloAlone');
+  if (!veil) return 0;
 
-  let ritardoMax = 0;
-  celle.forEach((c) => {
-    const dx = c.cx - origineX;
-    const dy = c.cy - origineY;
-    const ritardo = Math.round(Math.sqrt(dx * dx + dy * dy) / HEX_SPEED);
-    if (ritardo > ritardoMax) ritardoMax = ritardo;
-    c.e.style.setProperty('--hex-delay', ritardo + 'ms');
-  });
+  const x = (origineX / window.innerWidth * 100).toFixed(2) + '%';
+  const y = (origineY / window.innerHeight * 100).toFixed(2) + '%';
+  veil.style.setProperty('--velo-x', x);
+  veil.style.setProperty('--velo-y', y);
+
+  if (alone) {
+    alone.style.left = (origineX - 6) + 'px';
+    alone.style.top = (origineY - 6) + 'px';
+    alone.classList.remove('acceso');
+    void alone.offsetWidth;
+    alone.classList.add('acceso');
+  }
+
+  void veil.offsetWidth;
   veil.classList.add('revealing');
 
-  const totale = ritardoMax + HEX_CELL_MS + 60;
+  const totale = 1250;
   setTimeout(() => {
     veil.classList.remove('armed', 'revealing');
-    veil.textContent = '';
+    if (alone) alone.classList.remove('acceso');
   }, totale);
   return totale;
 }
@@ -2804,6 +3096,13 @@ const CLICK_ACTIONS = {
   'cal-mese': (t) => { if (!calMese) return; calMese.setMonth(calMese.getMonth() + (parseInt(t.getAttribute('data-delta'), 10) || 0)); renderCalendario(); },
   'cal-oggi': () => scegliData(isoDiOggi()),
   'cal-vuota': () => scegliData(''),
+  'tipi-apri': () => { toggleSettings(false); apriTipiEsame(); },
+  'tipi-aggiungi': () => aggiungiTipoEsame(),
+  'tipi-su': (t) => spostaTipoEsame(parseInt(t.getAttribute('data-idx'), 10), -1),
+  'tipi-giu': (t) => spostaTipoEsame(parseInt(t.getAttribute('data-idx'), 10), 1),
+  'tipi-elimina': (t) => eliminaTipoEsame(parseInt(t.getAttribute('data-idx'), 10)),
+  'tipi-ripristina': () => ripristinaTipiEsame(),
+  'tipo-modifica': () => modalitaTipoLibera(el('tipoSelHost').classList.contains('nascosto') ? false : true),
   'reset-filters': () => resetFilters(),
   'reset-stats': () => resetStatsFilters(),
   'sort': (t) => sortBy(t.getAttribute('data-key')),
@@ -2846,6 +3145,12 @@ function wireEvents() {
   on('w_dob', 'change', updateAge);
   on('w_data', 'change', liveValidate2);
   on('w_tipo_esame', 'input', liveValidate2);
+  on('w_tipo_sel', 'change', () => {
+    const campo = el('w_tipo_esame');
+    if (campo) campo.value = val('w_tipo_sel');
+    liveValidate2();
+  });
+  on('tipiNuovo', 'keydown', (ev) => { if (ev.key === 'Enter') aggiungiTipoEsame(); });
   on('w_richiesta', 'input', liveValidate2);
 
   ['fOnco', 'fPrima', 'fClassTumore', 'fMeta', 'fTipo'].forEach((id) => on(id, 'change', applyFilters));
@@ -2884,6 +3189,8 @@ function wireEvents() {
 //  AVVIO — dopo che tutte le dichiarazioni globali esistono
 // ══════════════════════════════════════════════════════════════════
 function boot() {
+  setupSelects();
+  aggiornaSelettoreTipo();
   setupCalendari();
   setupNavLogo();
   setupSettings();

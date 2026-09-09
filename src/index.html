@@ -8,8 +8,9 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Velo che si scompone in esagoni a logo atterrato -->
+  <!-- Velo che si apre a dissolvenza dal logo atterrato -->
   <div id="hexReveal" aria-hidden="true"></div>
+  <div id="veloAlone" aria-hidden="true"></div>
 
   <!-- ════ SPLASH — ER Oncology Archivist ════ -->
   <div id="splashScreen">
@@ -259,6 +260,12 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
         </button>
 
         <div class="sm-sep"></div>
+        <div class="sm-label">Configurazione</div>
+        <button type="button" class="sm-item" role="menuitem" data-act="tipi-apri">
+          <span class="sm-ico">&#9881;</span><span>Modalità di esame&hellip;</span>
+        </button>
+
+        <div class="sm-sep"></div>
         <div class="sm-label">Aspetto</div>
         <button type="button" class="sm-item" role="menuitemcheckbox" data-act="pref" data-pref="dense" aria-checked="false">
           <span class="sm-check">&#10003;</span><span>Tabella compatta</span>
@@ -362,9 +369,16 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
             </div>
           </div>
           <div class="field">
-            <label for="w_tipo_esame">Tipo di esame *</label>
-            <input id="w_tipo_esame" type="text" list="tipoEsameList" placeholder="es. TC torace, Ecografia addome, RMN…" autocomplete="off">
-            <datalist id="tipoEsameList"></datalist>
+            <label for="w_tipo_sel">Tipo di esame *</label>
+            <div class="tipo-riga">
+              <div class="tipo-campo" id="tipoSelHost"><select id="w_tipo_sel"></select></div>
+              <input id="w_tipo_esame" class="tipo-campo nascosto" type="text" list="tipoEsameList"
+                     placeholder="es. TC torace, Ecografia addome, RMN…" autocomplete="off">
+              <datalist id="tipoEsameList"></datalist>
+              <button type="button" class="btn btn-outline btn-sm tipo-modifica" id="btnTipoModifica"
+                      data-act="tipo-modifica" title="Scrivi un tipo di esame a mano">Modifica</button>
+            </div>
+            <div class="field-hint">L'elenco si gestisce da <strong>Impostazioni &rarr; Modalità di esame</strong>.</div>
           </div>
         </div>
         <div class="field">
@@ -408,7 +422,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
           </div>
         </div>
 
-        <div id="oncoSection" style="display:none;">
+        <div id="oncoSection" class="reveal-block">
           <div class="onco-section">
             <div class="onco-section-title">Dettaglio diagnosi</div>
 
@@ -425,7 +439,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
               </div>
             </div>
 
-            <div id="sottoCategSection" style="display:none;">
+            <div id="sottoCategSection" class="reveal-block">
               <div class="sottocat-section">
                 <div class="sottocat-title">Sottocategoria</div>
                 <div class="toggle-group">
@@ -444,7 +458,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
                     <div class="toggle-pill" id="pill_associata"></div>
                   </div>
                 </div>
-                <div id="patAssocField" style="display:none;" class="mt-12">
+                <div id="patAssocField" class="reveal-block mt-12">
                   <div class="field mb-0">
                     <label for="w_pat_assoc">Descrizione patologie associate</label>
                     <textarea id="w_pat_assoc" class="ta-sm" placeholder="es. Diabete mellito tipo 2, cardiopatia ischemica, neoplasia del colon già nota…"></textarea>
@@ -490,7 +504,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
               </div>
             </div>
 
-            <div id="metaSection" style="display:none;">
+            <div id="metaSection" class="reveal-block">
               <div class="meta-section">
                 <div class="meta-section-title">Dettaglio metastasi</div>
                 <div class="field-row">
@@ -766,6 +780,26 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
       <div class="field"><label for="mfuText">Referto *</label><textarea id="mfuText" placeholder="Risultato del follow-up…"></textarea></div>
     </div>
     <div class="modal-foot"><div class="spacer"></div><button type="button" class="btn btn-outline" data-act="close" data-target="modFU">Annulla</button><button type="button" class="btn btn-primary" data-act="save-fu">Salva</button></div>
+  </div>
+</div>
+
+<div class="overlay" id="modTipi">
+  <div class="modal modal-sm">
+    <div class="modal-head"><span class="modal-title">Modalità di esame</span><button type="button" class="xbtn" data-act="close" data-target="modTipi">&times;</button></div>
+    <div class="modal-body">
+      <p class="export-note">I tipi elencati qui compaiono nel menu <strong>Tipo di esame</strong>.
+      L'elenco sta nel file condiviso: vale per entrambe le postazioni.</p>
+      <div class="tipi-lista" id="tipiLista"></div>
+      <div class="tipi-aggiungi">
+        <input id="tipiNuovo" type="text" placeholder="es. TC addome con e senza mdc" autocomplete="off" maxlength="200">
+        <button type="button" class="btn btn-primary btn-sm" data-act="tipi-aggiungi">Aggiungi</button>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn btn-outline btn-sm" data-act="tipi-ripristina">Ripristina predefiniti</button>
+      <div class="spacer"></div>
+      <button type="button" class="btn btn-primary" data-act="close" data-target="modTipi">Chiudi</button>
+    </div>
   </div>
 </div>
 

@@ -982,38 +982,7 @@ body.reduce-motion .overlay.open .modal { animation: none; opacity: 1; transform
   .dock-item { padding: 6px 10px; }
 }
 
-/* ══════════════════════════════════════════════════════════════════
-   Rivelazione a esagoni
 
-   A logo atterrato, il velo che copre l'applicazione si scompone in
-   esagoni che spariscono a onda, partendo dal logo in alto a sinistra.
-   Il ritardo di ogni cella è proporzionale alla distanza dall'origine:
-   il fronte d'onda avanza a velocità costante.
-   ══════════════════════════════════════════════════════════════════ */
-#hexReveal {
-  position: fixed; inset: 0; z-index: 1900;
-  overflow: hidden; pointer-events: none;
-  background: #120B14;
-  opacity: 0; visibility: hidden;
-}
-#hexReveal.armed { opacity: 1; visibility: visible; }
-
-.hex-cell {
-  position: absolute;
-  background: #1B0F20;
-  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
-  will-change: transform, opacity;
-}
-#hexReveal.revealing { background: transparent; }
-#hexReveal.revealing .hex-cell {
-  animation: hexOut .42s cubic-bezier(.5,0,.75,0) var(--hex-delay, 0ms) forwards;
-}
-@keyframes hexOut {
-  to { opacity: 0; transform: scale(.28) rotate(18deg); }
-}
-
-body.reduce-motion #hexReveal { display: none; }
-@media (prefers-reduced-motion: reduce) { #hexReveal { display: none; } }
 
 /* ══════════════════════════════════════════════════════════════════
    Calendario
@@ -1092,3 +1061,223 @@ input[data-date] {
 }
 
 body.reduce-motion .cal-panel.open { animation: none; opacity: 1; transform: none; }
+
+/* ══════════════════════════════════════════════════════════════════
+   Rivelazione a dissolvenza morbida
+
+   A logo atterrato il velo si apre dal logo verso l'esterno. Non è un
+   taglio netto: la maschera radiale ha un bordo sfumato largo, così il
+   confine non si legge mai come una linea.
+
+   Il raggio si anima con @property: senza registrare la variabile come
+   <percentage> il browser la interpolerebbe come stringa, cioè a scatti.
+   ══════════════════════════════════════════════════════════════════ */
+@property --velo-raggio {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
+}
+
+#hexReveal {
+  position: fixed; inset: 0; z-index: 1900;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 120% at var(--velo-x, 4%) var(--velo-y, 3%),
+      rgba(255,77,109,.10) 0%, rgba(168,85,208,.05) 34%, rgba(0,0,0,0) 62%),
+    #120B14;
+  opacity: 0; visibility: hidden;
+  --velo-raggio: 0%;
+}
+#hexReveal.armed { opacity: 1; visibility: visible; }
+
+/* Il buco cresce dal logo; i due stop distanti danno il bordo soffuso. */
+#hexReveal.armed {
+  -webkit-mask-image: radial-gradient(circle at var(--velo-x, 4%) var(--velo-y, 3%),
+    transparent 0%,
+    transparent var(--velo-raggio),
+    #000 calc(var(--velo-raggio) + 26%));
+  mask-image: radial-gradient(circle at var(--velo-x, 4%) var(--velo-y, 3%),
+    transparent 0%,
+    transparent var(--velo-raggio),
+    #000 calc(var(--velo-raggio) + 26%));
+}
+#hexReveal.revealing {
+  animation: veloApri 1.15s cubic-bezier(.4,0,.25,1) forwards;
+}
+@keyframes veloApri {
+  from { --velo-raggio: 0%; opacity: 1; }
+  70%  { opacity: 1; }
+  to   { --velo-raggio: 125%; opacity: 0; }
+}
+
+/* Alone tenue che precede il fronte: dà profondità senza disturbare. */
+#veloAlone {
+  position: fixed; z-index: 1901; pointer-events: none;
+  width: 12px; height: 12px; border-radius: 50%;
+  opacity: 0;
+  box-shadow: 0 0 90px 60px rgba(255,77,109,.16),
+              0 0 220px 160px rgba(168,85,208,.10);
+}
+#hexReveal.revealing ~ #veloAlone,
+#veloAlone.acceso {
+  animation: aloneApri 1.15s cubic-bezier(.4,0,.25,1) forwards;
+}
+@keyframes aloneApri {
+  0%   { opacity: 0; transform: scale(.4); }
+  22%  { opacity: 1; }
+  to   { opacity: 0; transform: scale(9); }
+}
+
+body.reduce-motion #hexReveal,
+body.reduce-motion #veloAlone { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  #hexReveal, #veloAlone { display: none; }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Toggle — molla dello switch di Uiverse (JkHuger)
+   cubic-bezier(.26,2,.46,.71): il pomello supera e rientra.
+   ══════════════════════════════════════════════════════════════════ */
+.toggle-pill {
+  transition: background-color 250ms;
+}
+.toggle-pill::after {
+  transition: transform 500ms cubic-bezier(.26,2,.46,.71), background-color 250ms;
+  left: 3px;
+}
+.toggle-pill.on::after, .toggle-pill.on-onco::after,
+.toggle-pill.on-green::after, .toggle-pill.on-amber::after {
+  left: 3px;
+  transform: translateX(20px);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Passi del wizard: stessa risposta al puntatore delle altre voci
+   ══════════════════════════════════════════════════════════════════ */
+.wp-step { cursor: pointer; padding: 4px 6px; border-radius: 8px;
+  transition: background .15s; }
+.wp-step:hover { background: var(--accent-bg); }
+.wp-step:hover .wp-label { color: var(--accent); }
+.wp-dot { transition: background .2s, transform .28s cubic-bezier(.26,1.6,.46,.9), box-shadow .2s; }
+.wp-step:hover .wp-dot { transform: scale(1.12); }
+.wp-step:hover .wp-dot.todo { border-color: var(--accent); color: var(--accent); }
+.wp-step[aria-disabled="true"] { cursor: default; }
+.wp-step[aria-disabled="true"]:hover { background: transparent; }
+.wp-step[aria-disabled="true"]:hover .wp-dot { transform: none; }
+.wp-step[aria-disabled="true"]:hover .wp-label { color: var(--muted); }
+
+/* Le sezioni che compaiono usando i toggle entrano con la stessa molla */
+.reveal-block { display: none; }
+.reveal-block.aperto {
+  display: block;
+  animation: popSection .38s cubic-bezier(.34,1.28,.64,1) forwards;
+  transform-origin: top center;
+}
+body.reduce-motion .reveal-block.aperto { animation: none; opacity: 1; transform: none; }
+
+/* ══════════════════════════════════════════════════════════════════
+   Select — ispirato al componente di Uiverse (3bdel3ziz-T)
+   Il <select> nativo resta nel DOM ma invisibile: continua a essere la
+   fonte del valore, così senza JavaScript il campo funziona comunque.
+   ══════════════════════════════════════════════════════════════════ */
+.sel-wrap { position: relative; display: block; }
+.sel-wrap select {
+  position: absolute; opacity: 0; pointer-events: none;
+  width: 100%; height: 100%; left: 0; top: 0; margin: 0;
+}
+
+.sel-trigger {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; cursor: pointer; text-align: left;
+  font-family: var(--sans); font-size: 14px;
+  padding: 9px 12px;
+  border: 1.5px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--text);
+  transition: border-color .12s, background .12s;
+}
+.sel-trigger:hover { border-color: var(--border2); }
+.sel-wrap.aperto .sel-trigger,
+.sel-trigger:focus-visible { border-color: var(--accent); background: #fff; outline: none; }
+.sel-valore { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-valore.vuoto { color: var(--faint); }
+
+.sel-freccia {
+  width: 15px; height: 15px; flex-shrink: 0; color: var(--muted);
+  transition: transform 300ms cubic-bezier(.26,1.4,.46,.9), color .15s;
+}
+.sel-wrap.aperto .sel-freccia { transform: rotate(180deg); color: var(--accent); }
+
+.sel-opzioni {
+  position: absolute; left: 0; right: 0; top: calc(100% + 5px); z-index: 400;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 5px; border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--border);
+  box-shadow: 0 12px 28px -10px rgba(0,0,0,.26), 0 2px 5px rgba(0,0,0,.07);
+  max-height: 280px; overflow-y: auto;
+  opacity: 0; transform: translateY(-10px) scale(.97);
+  transform-origin: top center; pointer-events: none;
+  transition: opacity 180ms ease, transform 300ms cubic-bezier(.26,1.3,.46,.9);
+}
+.sel-wrap.aperto .sel-opzioni {
+  opacity: 1; transform: translateY(0) scale(1); pointer-events: auto;
+}
+
+.sel-opzione {
+  padding: 7px 10px; border: none; border-radius: 5px; cursor: pointer;
+  background: transparent; color: var(--text);
+  font-family: var(--sans); font-size: 13px; text-align: left;
+  transition: background .12s, color .12s;
+}
+.sel-opzione:hover { background: var(--accent-bg); color: var(--accent); }
+.sel-opzione.scelta { background: var(--accent); color: #fff; font-weight: 500; }
+.sel-opzione.scelta:hover { background: var(--accent-hover); color: #fff; }
+
+/* nelle barre filtri i controlli sono più compatti */
+.flt .sel-trigger { font-size: 13px; padding: 6px 10px; border-width: 1px;
+  border-radius: 4px; background: var(--surface); min-width: 120px; }
+.flt .sel-opzione { font-size: 12px; padding: 6px 9px; }
+
+body.reduce-motion .sel-opzioni,
+body.reduce-motion .sel-freccia { transition: none; }
+
+/* ══════════════════════════════════════════════════════════════════
+   Tipi di esame
+   ══════════════════════════════════════════════════════════════════ */
+.nascosto { display: none !important; }
+.tipo-riga { display: flex; align-items: stretch; gap: 8px; }
+.tipo-campo { flex: 1 1 auto; min-width: 0; }
+.tipo-modifica { flex-shrink: 0; align-self: stretch; white-space: nowrap; }
+
+.tipi-lista {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 300px; overflow-y: auto; margin-bottom: 12px;
+}
+.tipo-voce {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface2);
+}
+.tipo-num {
+  width: 20px; text-align: center; flex-shrink: 0;
+  font-family: var(--mono); font-size: 10px; color: var(--faint);
+}
+.tipo-nome { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tipo-btn {
+  width: 24px; height: 24px; flex-shrink: 0; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 5px;
+  background: var(--surface); color: var(--muted);
+  font-size: 12px; line-height: 1;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.tipo-btn:hover:not(:disabled) { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+.tipo-btn:disabled { opacity: .3; cursor: default; }
+.tipo-del:hover:not(:disabled) { background: var(--red-bg); color: var(--red); border-color: var(--red); }
+.tipi-vuoto { padding: 1.4rem; text-align: center; color: var(--faint); font-size: 13px; }
+.tipi-aggiungi { display: flex; gap: 8px; }
+.tipi-aggiungi input {
+  flex: 1; font-family: var(--sans); font-size: 13px; padding: 8px 11px;
+  border: 1.5px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--text); outline: none;
+  transition: border-color .12s, background .12s;
+}
+.tipi-aggiungi input:focus { border-color: var(--accent); background: #fff; }
