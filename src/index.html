@@ -8,6 +8,9 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <!-- Velo che si scompone in esagoni a logo atterrato -->
+  <div id="hexReveal" aria-hidden="true"></div>
+
   <!-- ════ SPLASH — ER Oncology Archivist ════ -->
   <div id="splashScreen">
     <div class="splash-blob-bg"></div>
@@ -251,6 +254,9 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
         <button type="button" class="sm-item" role="menuitem" data-act="reload" id="smReload">
           <span class="sm-ico">&#8635;</span><span>Ricarica dall'archivio</span>
         </button>
+        <button type="button" class="sm-item" role="menuitem" data-act="safety-net" id="smSafety">
+          <span class="sm-ico">&#128190;</span><span>Safety net &mdash; copia su USB</span>
+        </button>
 
         <div class="sm-sep"></div>
         <div class="sm-label">Aspetto</div>
@@ -312,7 +318,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
         <div class="field-row">
           <div class="field">
             <label for="w_dob">Data di nascita *</label>
-            <input id="w_dob" type="date">
+            <input id="w_dob" type="text" data-date>
             <div id="ageBox" style="display:none;" class="computed-badge">
               <span class="cb-key">Età:</span>
               <span class="val" id="ageVal">—</span>
@@ -349,7 +355,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
         <div class="field-row">
           <div class="field">
             <label for="w_data">Data esame *</label>
-            <input id="w_data" type="date">
+            <input id="w_data" type="text" data-date>
             <div id="examDayBox" style="display:none;" class="computed-badge">
               <span class="cb-key">Giorno:</span>
               <span class="val" id="examDayVal">—</span>
@@ -533,7 +539,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
           <div class="fu-list" id="fuList"></div>
           <div class="fu-add-box">
             <div class="field-row">
-              <div class="field mb-6"><label for="fuDate">Data</label><input id="fuDate" type="date"></div>
+              <div class="field mb-6"><label for="fuDate">Data</label><input id="fuDate" type="text" data-date></div>
               <div class="field mb-6"><label for="fuType">Tipo esame</label><input id="fuType" type="text" placeholder="es. Re-biopsia, Controllo…" autocomplete="off"></div>
             </div>
             <div class="field mb-0"><label for="fuText">Referto</label><textarea id="fuText" class="ta-xs" placeholder="Risultato del follow-up…"></textarea></div>
@@ -663,8 +669,8 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
 <div class="view" id="view-stats">
   <div id="statsModeBanner"></div>
   <div class="stats-filters pop-section">
-    <div class="flt"><label for="sfDal">Dal</label><input type="date" id="sfDal"></div>
-    <div class="flt"><label for="sfAl">Al</label><input type="date" id="sfAl"></div>
+    <div class="flt"><label for="sfDal">Dal</label><input id="sfDal" type="text" data-date></div>
+    <div class="flt"><label for="sfAl">Al</label><input id="sfAl" type="text" data-date></div>
     <div class="flt"><label for="sfTipo">Tipo esame</label>
       <select id="sfTipo"><option value="">Tutti i tipi</option></select>
     </div>
@@ -754,7 +760,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
     <div class="modal-head"><span class="modal-title">Aggiungi follow-up anat. pat.</span><button type="button" class="xbtn" data-act="close" data-target="modFU">&times;</button></div>
     <div class="modal-body">
       <div class="field-row mb-9">
-        <div class="field"><label for="mfuDate">Data *</label><input id="mfuDate" type="date"></div>
+        <div class="field"><label for="mfuDate">Data *</label><input id="mfuDate" type="text" data-date></div>
         <div class="field"><label for="mfuType">Tipo esame</label><input id="mfuType" type="text" placeholder="es. Re-biopsia" autocomplete="off"></div>
       </div>
       <div class="field"><label for="mfuText">Referto *</label><textarea id="mfuText" placeholder="Risultato del follow-up…"></textarea></div>
@@ -783,7 +789,11 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
         </button>
         <button type="button" class="export-card" data-act="export-pdf">
           <span class="ec-title">PDF — report</span>
-          <span class="ec-desc">Report di presentazione con KPI e grafici del periodo selezionato nelle statistiche.</span>
+          <span class="ec-desc">Tre pagine orizzontali con KPI, tutti i grafici e le tabelle di dettaglio del periodo selezionato nelle statistiche.</span>
+        </button>
+        <button type="button" class="export-card" data-act="export-pptx">
+          <span class="ec-title">PowerPoint — presentazione</span>
+          <span class="ec-desc">Diapositive 16:9 pronte da inserire in una presentazione: sintesi, grafici come immagini e tabella per sede.</span>
         </button>
       </div>
     </div>
@@ -807,11 +817,14 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
 </div>
 
 <div class="app-footer">&copy; 2026 StructuRad. All rights reserved. Powered by RadioPako.</div>
+<div class="cal-panel" id="calPanel" role="dialog" aria-label="Scegli una data"></div>
 <div class="notif" id="notif"></div>
 <div id="printRoot"></div>
 
 <script src="names.js"></script>
+<script src="zip.js"></script>
 <script src="xlsx.js"></script>
+<script src="pptx.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

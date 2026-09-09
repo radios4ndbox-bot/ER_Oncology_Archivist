@@ -20,5 +20,6 @@ contextBridge.exposeInMainWorld('psApi', {
   deleteFile:       (name)         => ipcRenderer.invoke('fs:deleteFile', str(name)),
   exists:           (name)         => ipcRenderer.invoke('fs:exists', str(name)),
   saveExport:       (name, base64) => ipcRenderer.invoke('app:saveExport', str(name), str(base64)),
-  savePdf:          (name)         => ipcRenderer.invoke('app:savePdf', str(name))
+  savePdf:          (name)         => ipcRenderer.invoke('app:savePdf', str(name)),
+  safetyNet:        ()             => ipcRenderer.invoke('app:safetyNet')
 });

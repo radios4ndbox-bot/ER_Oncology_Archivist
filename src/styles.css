@@ -707,8 +707,16 @@ td.mono{font-family:var(--mono);font-size:12px;}
   font-size: 13px; text-transform: uppercase; letter-spacing: .07em;
   color: var(--muted); margin: 18px 0 8px;
 }
-.rep-chart { page-break-inside: avoid; }
-.rep-table table { width: 100%; border-collapse: collapse; }
+.rep-chart { page-break-inside: avoid; text-align: center; }
+.rep-chart svg { max-width: 100%; height: auto; }
+.rep-chart-largo svg { width: 100%; }
+.rep-table table { width: 100%; border-collapse: collapse; font-size: 10px; }
+.rep-table th, .rep-table td { padding: 3px 6px; }
+.rep-page { page-break-after: always; }
+.rep-page:last-child { page-break-after: auto; }
+.rep-due { display: flex; gap: 24px; align-items: flex-start; }
+.rep-due > div { flex: 1 1 0; min-width: 0; }
+.rep-nota { margin-top: 14px; font-size: 11px; color: var(--muted); }
 
 body.printing #printRoot { display: block; }
 
@@ -973,3 +981,114 @@ body.reduce-motion .overlay.open .modal { animation: none; opacity: 1; transform
   .dock-label { display: none; }
   .dock-item { padding: 6px 10px; }
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   Rivelazione a esagoni
+
+   A logo atterrato, il velo che copre l'applicazione si scompone in
+   esagoni che spariscono a onda, partendo dal logo in alto a sinistra.
+   Il ritardo di ogni cella è proporzionale alla distanza dall'origine:
+   il fronte d'onda avanza a velocità costante.
+   ══════════════════════════════════════════════════════════════════ */
+#hexReveal {
+  position: fixed; inset: 0; z-index: 1900;
+  overflow: hidden; pointer-events: none;
+  background: #120B14;
+  opacity: 0; visibility: hidden;
+}
+#hexReveal.armed { opacity: 1; visibility: visible; }
+
+.hex-cell {
+  position: absolute;
+  background: #1B0F20;
+  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+  will-change: transform, opacity;
+}
+#hexReveal.revealing { background: transparent; }
+#hexReveal.revealing .hex-cell {
+  animation: hexOut .42s cubic-bezier(.5,0,.75,0) var(--hex-delay, 0ms) forwards;
+}
+@keyframes hexOut {
+  to { opacity: 0; transform: scale(.28) rotate(18deg); }
+}
+
+body.reduce-motion #hexReveal { display: none; }
+@media (prefers-reduced-motion: reduce) { #hexReveal { display: none; } }
+
+/* ══════════════════════════════════════════════════════════════════
+   Calendario
+   Il pannello nativo di Chromium non si può disegnare e mostra la data
+   in mm/dd/yyyy. Qui i campi sono caselle di testo in gg/mm/aaaa e il
+   pannello segue lo stile del tool, con la stessa molla delle sezioni.
+   ══════════════════════════════════════════════════════════════════ */
+.cal-panel {
+  position: fixed; z-index: 600;
+  width: 272px; padding: 10px;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 14px 34px -10px rgba(0,0,0,.3), 0 2px 6px rgba(0,0,0,.08);
+  opacity: 0; transform: scale(.9); transform-origin: top left;
+  pointer-events: none;
+}
+.cal-panel.open {
+  pointer-events: auto;
+  animation: popSection .3s cubic-bezier(.34,1.28,.64,1) forwards;
+}
+
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.cal-titolo {
+  font-family: var(--mono); font-size: 12px; font-weight: 500;
+  text-transform: uppercase; letter-spacing: .05em;
+}
+.cal-nav {
+  width: 26px; height: 26px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface2);
+  color: var(--muted); font-size: 15px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.cal-nav:hover { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+
+.cal-settimana, .cal-griglia {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px;
+}
+.cal-settimana span {
+  text-align: center; font-size: 10px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--faint); padding-bottom: 4px;
+}
+.cal-day {
+  height: 30px; border: none; border-radius: 6px; cursor: pointer;
+  background: transparent; color: var(--text);
+  font-family: var(--mono); font-size: 12px;
+  transition: background .12s, color .12s;
+}
+.cal-day:hover { background: var(--accent-bg); color: var(--accent); }
+.cal-day.fuori { color: var(--faint); }
+.cal-day.oggi { box-shadow: inset 0 0 0 1px var(--border2); }
+.cal-day.scelto { background: var(--accent); color: #fff; font-weight: 600; }
+.cal-day.scelto:hover { background: var(--accent-hover); color: #fff; }
+
+.cal-piede {
+  display: flex; gap: 6px; margin-top: 8px;
+  padding-top: 8px; border-top: 1px solid var(--border);
+}
+.cal-azione {
+  flex: 1; padding: 5px 8px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface2);
+  color: var(--muted); font-family: var(--sans); font-size: 11px;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.cal-azione:hover { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+
+/* il campo data ora è testo: stessa resa degli altri campi, con
+   l'icona del calendario al posto del widget nativo */
+input[data-date] {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236B6A62' stroke-width='1.8' stroke-linecap='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2'/%3E%3Cpath d='M16 2v4M8 2v4M3 10h18'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 15px 15px;
+  padding-right: 34px;
+  font-family: var(--mono);
+}
+
+body.reduce-motion .cal-panel.open { animation: none; opacity: 1; transform: none; }

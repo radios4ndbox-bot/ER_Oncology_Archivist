@@ -17,6 +17,7 @@ const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
 const url = require('url');
+const { execFile } = require('child_process');
 
 // ── Costanti ──────────────────────────────────────────────────────
 const DATA_FILE = 'ps_onco_data.json';
@@ -317,13 +318,120 @@ register('app:savePdf', async (defaultName) => {
   if (res.canceled || !res.filePath) return null;
   const pdf = await mainWindow.webContents.printToPDF({
     printBackground: true,
-    landscape: false,
+    landscape: true,          // il report riprende l'impaginazione a schermo
     pageSize: 'A4',
-    margins: { top: 0.4, bottom: 0.4, left: 0.4, right: 0.4 }
+    margins: { top: 0.35, bottom: 0.35, left: 0.35, right: 0.35 }
   });
   await fsp.writeFile(res.filePath, pdf);
   return res.filePath;
 });
+
+// ══════════════════════════════════════════════════════════════════
+//  SAFETY NET — copia di sicurezza su chiavetta USB
+//  Il comando è fisso e senza interpolazione: nessun input del renderer
+//  entra nella riga di comando. Le lettere di unità sono validate con
+//  una regex prima di essere usate come percorso.
+// ══════════════════════════════════════════════════════════════════
+const CARTELLA_BACKUP = 'PSOnco-Backup';
+
+function trovaUnitaRimovibili() {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') return resolve([]);
+    execFile('powershell.exe', [
+      '-NoProfile', '-NonInteractive', '-Command',
+      'Get-CimInstance Win32_LogicalDisk -Filter "DriveType=2" | ' +
+      'ForEach-Object { $_.DeviceID + "|" + $_.VolumeName + "|" + $_.FreeSpace }'
+    ], { timeout: 10000, windowsHide: true }, (err, stdout) => {
+      if (err) return resolve([]);
+      const unita = [];
+      String(stdout).split(/\r?\n/).forEach((riga) => {
+        const m = riga.trim().match(/^([A-Z]:)\|([^|]*)\|(\d*)$/);
+        if (!m) return;
+        const radice = m[1] + path.sep;
+        try {
+          fs.accessSync(radice, fs.constants.W_OK);
+        } catch (_) { return; }   // inserita ma protetta in scrittura
+        unita.push({
+          lettera: m[1],
+          etichetta: (m[2] || '').trim() || 'Unità rimovibile',
+          spazioLibero: Number(m[3]) || 0
+        });
+      });
+      resolve(unita);
+    });
+  });
+}
+
+function marcaTemporale() {
+  const d = new Date();
+  const due = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + due(d.getMonth() + 1) + due(d.getDate()) +
+         '-' + due(d.getHours()) + due(d.getMinutes());
+}
+
+async function copiaSuUsb() {
+  if (!dataFolder) return { stato: 'senza-cartella' };
+
+  const sorgente = path.join(dataFolder, DATA_FILE);
+  let contenuto;
+  try {
+    contenuto = await fsp.readFile(sorgente, 'utf8');
+  } catch (err) {
+    return { stato: 'errore', messaggio: descrizioneErrore(err) };
+  }
+
+  const unita = await trovaUnitaRimovibili();
+  if (!unita.length) return { stato: 'nessuna-unita' };
+
+  let scelta = unita[0];
+  if (unita.length > 1) {
+    const res = await dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      title: 'Safety net',
+      message: 'Su quale unità rimovibile salvare la copia?',
+      buttons: unita.map((u) => u.lettera + '  ' + u.etichetta).concat(['Annulla']),
+      cancelId: unita.length,
+      defaultId: 0
+    });
+    if (res.response >= unita.length) return { stato: 'annullato' };
+    scelta = unita[res.response];
+  }
+
+  // Sono dati sanitari: la conferma dev'essere esplicita e informata.
+  const conferma = await dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    title: 'Copia di sicurezza su unità rimovibile',
+    message: 'Copiare l’archivio su ' + scelta.lettera + ' (' + scelta.etichetta + ')?',
+    detail: 'Il file contiene dati sanitari in chiaro: nomi, date di nascita e ' +
+            'diagnosi.\n\nConservare la chiavetta come si conserva una cartella ' +
+            'clinica, e cancellarla quando non serve più.',
+    buttons: ['Copia', 'Annulla'],
+    cancelId: 1,
+    defaultId: 1,
+    noLink: true
+  });
+  if (conferma.response !== 0) return { stato: 'annullato' };
+
+  const cartella = path.join(scelta.lettera + path.sep, CARTELLA_BACKUP);
+  const destinazione = path.join(cartella, 'ps_onco_data_' + marcaTemporale() + '.json');
+  try {
+    await fsp.mkdir(cartella, { recursive: true });
+    await atomicWrite(destinazione, contenuto);
+  } catch (err) {
+    return { stato: 'errore', messaggio: descrizioneErrore(err) };
+  }
+
+  let esami = 0;
+  try {
+    const store = JSON.parse(stripBom(contenuto));
+    esami = Array.isArray(store) ? store.length
+          : (store && Array.isArray(store.records) ? store.records.length : 0);
+  } catch (_) {}
+
+  return { stato: 'ok', percorso: destinazione, unita: scelta.lettera, esami: esami };
+}
+
+register('app:safetyNet', async () => copiaSuUsb());
 
 /** Nome file proposto nella finestra di salvataggio: mai un percorso. */
 function sanitizeFileName(name, forcedExt) {

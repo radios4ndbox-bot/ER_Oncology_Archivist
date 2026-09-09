@@ -69,7 +69,13 @@ let appInfo = {};
 //  UTILITÀ
 // ══════════════════════════════════════════════════════════════════
 const el = (id) => document.getElementById(id);
-const val = (id) => { const e = el(id); return e ? String(e.value || '').trim() : ''; };
+const val = (id) => {
+  const e = el(id);
+  if (!e) return '';
+  // i campi data mostrano gg/mm/aaaa ma conservano l'ISO in data-iso
+  if (e.hasAttribute('data-date')) return e.getAttribute('data-iso') || '';
+  return String(e.value || '').trim();
+};
 const rawVal = (id) => { const e = el(id); return e ? String(e.value || '') : ''; };
 
 const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -861,7 +867,7 @@ function addFU() {
   const type = val('fuType');
   if (!date && !text) { notify('Inserire almeno data o referto.'); return; }
   fuItems.push({ date: date, type: str(type, 200), text: str(text) });
-  ['fuDate', 'fuText', 'fuType'].forEach((id) => { const e = el(id); if (e) e.value = ''; });
+  ['fuDate', 'fuText', 'fuType'].forEach((id) => setFieldValue(el(id), ''));
   renderFUList();
 }
 
@@ -959,8 +965,7 @@ function resetWizard() {
     'w_diagnosi', 'w_sede', 'w_dim', 'w_anat', 'w_note',
     'w_pat_assoc', 'w_meta_sede', 'w_meta_primitivo',
     'w_sesso_override', 'w_prima_onco'].forEach((id) => {
-    const e = el(id);
-    if (e) e.value = '';
+    setFieldValue(el(id), '');
   });
   ['sessoDetected', 'ageBox', 'examDayBox'].forEach((id) => {
     const e = el(id);
@@ -986,7 +991,7 @@ function loadIntoWizard(id) {
     w_sede: r.sede, w_dim: r.dim, w_anat: r.anat, w_note: r.note,
     w_pat_assoc: r.pat_assoc, w_meta_sede: r.meta_sede, w_meta_primitivo: r.meta_primitivo
   };
-  Object.keys(map).forEach((k) => { const e = el(k); if (e) e.value = map[k] || ''; });
+  Object.keys(map).forEach((k) => setFieldValue(el(k), map[k] || ''));
 
   fuItems = r.followup.map((f) => ({ date: f.date, type: f.type, text: f.text }));
   renderFUList();
@@ -1284,7 +1289,7 @@ function deleteDetail() {
 
 function openAddFU(id) {
   fuTargetId = id;
-  ['mfuDate', 'mfuText', 'mfuType'].forEach((k) => { const e = el(k); if (e) e.value = ''; });
+  ['mfuDate', 'mfuText', 'mfuType'].forEach((k) => setFieldValue(el(k), ''));
   el('modFU').classList.add('open');
 }
 
@@ -1451,6 +1456,186 @@ async function exportCSV(anonymous) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+//  EXPORT POWERPOINT
+//  I grafici sono SVG nel DOM: si rasterizzano su canvas e finiscono
+//  nelle diapositive come PNG. Nessuna libreria esterna.
+// ══════════════════════════════════════════════════════════════════
+
+/** SVG del DOM → PNG. Il fondo bianco evita il trasparente, che in
+ *  PowerPoint su tema scuro renderebbe illeggibili le etichette. */
+function svgToPng(svgEl, fattore) {
+  return new Promise((resolve, reject) => {
+    if (!svgEl) return reject(new Error('grafico assente'));
+    const clone = svgEl.cloneNode(true);
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+
+    let w = parseFloat(clone.getAttribute('width'));
+    let h = parseFloat(clone.getAttribute('height'));
+    const vb = clone.getAttribute('viewBox');
+    if ((!w || !h) && vb) {
+      const p = vb.split(/[\s,]+/);
+      w = parseFloat(p[2]);
+      h = parseFloat(p[3]);
+    }
+    if (!w || !h) {
+      const r = svgEl.getBoundingClientRect();
+      w = r.width; h = r.height;
+    }
+    if (!w || !h) return reject(new Error('grafico senza dimensioni'));
+    clone.setAttribute('width', w);
+    clone.setAttribute('height', h);
+
+    const testo = new XMLSerializer().serializeToString(clone);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = Math.round(w * fattore);
+        c.height = Math.round(h * fattore);
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        resolve({ dataUrl: c.toDataURL('image/png'), w: w, h: h });
+      } catch (e) {
+        reject(e);
+      }
+    };
+    img.onerror = () => reject(new Error('SVG non rasterizzabile'));
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(testo);
+  });
+}
+
+function base64ToBytes(base64) {
+  const binario = atob(base64);
+  const out = new Uint8Array(binario.length);
+  for (let i = 0; i < binario.length; i++) out[i] = binario.charCodeAt(i);
+  return out;
+}
+
+/** Riquadro centrato dentro l'area utile della diapositiva. */
+function riquadroImmagine(w, h, x, larghezzaMax, altezzaMax, y) {
+  const scala = Math.min(larghezzaMax / w, altezzaMax / h);
+  const larg = w * scala;
+  const alt = h * scala;
+  return { x: x + (larghezzaMax - larg) / 2, y: y + (altezzaMax - alt) / 2, w: larg, h: alt };
+}
+
+async function exportPPTX() {
+  const set = getStatsSubset();
+  if (!set.length) { notify('Nessun esame nel periodo selezionato.'); return; }
+  if (!IS_ELECTRON) { notify('Export disponibile solo nell’applicazione desktop.'); return; }
+
+  try {
+    const P = window.PptxWriter;
+    const tot = set.length;
+    const onco = set.filter((r) => r.onco === 'si').length;
+    const sosp = set.filter((r) => r.onco === 'sospetto').length;
+    const prima = set.filter((r) => r.onco === 'si' && r.prima_onco === 'si').length;
+    const primo = set.filter((r) => r.primo_riscontro).length;
+    const meta = set.filter((r) => r.metastasi === 'si').length;
+
+    const dal = val('sfDal'), al = val('sfAl'), tipo = val('sfTipo');
+    const periodo = (dal || al)
+      ? 'Periodo ' + (dal ? fmtDate(dal) : 'inizio') + ' – ' + (al ? fmtDate(al) : 'oggi')
+      : 'Archivio completo';
+
+    // rasterizzazione dei grafici SVG presenti nella vista statistiche
+    const grafici = {};
+    const sorgenti = { donut: 'svgDonut', sede: 'svgBarseSede', mensile: 'svgMensile' };
+    const chiavi = Object.keys(sorgenti);
+    for (let i = 0; i < chiavi.length; i++) {
+      const svg = document.querySelector('#' + sorgenti[chiavi[i]] + ' svg');
+      if (!svg) continue;
+      try { grafici[chiavi[i]] = await svgToPng(svg, 2.5); } catch (_) { /* si salta */ }
+    }
+
+    const MARG = 640000;
+    const AREA_W = P.LARG - MARG * 2;
+    const dia = [];
+
+    dia.push({
+      titolo: 'ER Oncology Archivist',
+      sottotitolo: periodo + (tipo ? ' · ' + tipo : ''),
+      righe: ['Pronto Soccorso Oncologico — Radiologia d’Urgenza',
+              'Report generato il ' + new Date().toLocaleString('it-IT')]
+    });
+
+    dia.push({
+      titolo: 'Sintesi del periodo',
+      righe: [
+        'Esami nel periodo: ' + tot,
+        'Diagnosi oncologiche: ' + onco + '  (' + pct(onco, tot, 1) + ' degli esami)',
+        'Sospetti: ' + sosp + '  (' + pct(sosp, tot, 1) + ' degli esami)',
+        'Primo riscontro: ' + primo + '  (' + pct(primo, onco, 1) + ' delle diagnosi onco.)',
+        'Prime diagnosi oncologiche: ' + prima + '  (' + pct(prima, tot, 1) + ' degli esami)',
+        'Metastasi: ' + meta + '  (' + pct(meta, onco + sosp, 1) + ' delle diagnosi onco.)'
+      ]
+    });
+
+    if (grafici.donut || grafici.sede) {
+      const immagini = [];
+      const metaLarg = (AREA_W - 400000) / 2;
+      if (grafici.donut) {
+        const r = riquadroImmagine(grafici.donut.w, grafici.donut.h,
+          MARG, metaLarg, 3600000, 2200000);
+        immagini.push({ png: base64ToBytes(grafici.donut.dataUrl.split(',')[1]),
+                        x: r.x, y: r.y, w: r.w, h: r.h });
+      }
+      if (grafici.sede) {
+        const r = riquadroImmagine(grafici.sede.w, grafici.sede.h,
+          MARG + metaLarg + 400000, metaLarg, 3600000, 2200000);
+        immagini.push({ png: base64ToBytes(grafici.sede.dataUrl.split(',')[1]),
+                        x: r.x, y: r.y, w: r.w, h: r.h });
+      }
+      dia.push({ titolo: 'Distribuzione e sedi', sottotitolo: periodo, immagini: immagini });
+    }
+
+    if (grafici.mensile) {
+      const r = riquadroImmagine(grafici.mensile.w, grafici.mensile.h,
+        MARG, AREA_W, 3900000, 2100000);
+      dia.push({
+        titolo: 'Andamento mensile',
+        sottotitolo: 'Esami totali, diagnosi oncologiche e percentuale',
+        immagini: [{ png: base64ToBytes(grafici.mensile.dataUrl.split(',')[1]),
+                     x: r.x, y: r.y, w: r.w, h: r.h }]
+      });
+    }
+
+    // tabella per sede, le prime dieci
+    const sediTot = {}, sediMeta = {}, sediPrima = {};
+    set.filter((r) => (r.onco === 'si' || r.onco === 'sospetto') && r.sede).forEach((r) => {
+      sediTot[r.sede] = (sediTot[r.sede] || 0) + 1;
+      if (r.metastasi === 'si') sediMeta[r.sede] = (sediMeta[r.sede] || 0) + 1;
+      if (r.prima_onco === 'si') sediPrima[r.sede] = (sediPrima[r.sede] || 0) + 1;
+    });
+    const righeSede = Object.keys(sediTot)
+      .map((k) => [k, sediTot[k]])
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map((e) => [e[0], String(e[1]), String(sediPrima[e[0]] || 0),
+                   String(sediMeta[e[0]] || 0), pct(e[1], onco + sosp, 1)]);
+
+    if (righeSede.length) {
+      dia.push({
+        titolo: 'Prevalenza per sede',
+        sottotitolo: 'Percentuale sul totale delle diagnosi oncologiche',
+        tabella: {
+          intestazioni: ['Sede', 'Casi', 'Prime diagnosi', 'Metastasi', '% su onco.'],
+          righe: righeSede
+        }
+      });
+    }
+
+    const file = P.build(dia);
+    const ok = await sendFile('ps_onco_presentazione.pptx', window.ZipWriter.toBase64(file));
+    if (ok) notify('Presentazione esportata (' + dia.length + ' diapositive).');
+  } catch (e) {
+    notify('Errore export PowerPoint: ' + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 //  REPORT PDF (printToPDF di Electron: nessuna libreria esterna)
 // ══════════════════════════════════════════════════════════════════
 function cloneChart(id) {
@@ -1471,6 +1656,8 @@ function buildReport(set) {
   const prima = set.filter((r) => r.onco === 'si' && r.prima_onco === 'si').length;
   const primo = set.filter((r) => r.primo_riscontro).length;
   const meta = set.filter((r) => r.metastasi === 'si').length;
+  const unica = set.filter((r) => r.sottocat === 'unica').length;
+  const assoc = set.filter((r) => r.sottocat === 'associata').length;
 
   const dal = val('sfDal'), al = val('sfAl'), tipo = val('sfTipo');
   const periodo = (dal || al)
@@ -1478,25 +1665,62 @@ function buildReport(set) {
     : 'Archivio completo';
 
   const kpi = [
-    ['Esami', tot, ''],
-    ['Diagnosi oncologiche', onco, pct(onco, tot, 1)],
-    ['Sospetti', sosp, pct(sosp, tot, 1)],
-    ['Primo riscontro', primo, pct(primo, onco, 1) + ' onco.'],
-    ['Prime diagnosi', prima, pct(prima, tot, 1)],
-    ['Metastasi', meta, pct(meta, onco + sosp, 1) + ' onco.']
+    ['Esami nel periodo', tot, ''],
+    ['Diagnosi oncologiche', onco, pct(onco, tot, 1) + ' degli esami'],
+    ['Sospetti', sosp, pct(sosp, tot, 1) + ' degli esami'],
+    ['Primo riscontro', primo, pct(primo, onco, 1) + ' delle onco.'],
+    ['Prime diagnosi', prima, pct(prima, tot, 1) + ' degli esami'],
+    ['Metastasi', meta, pct(meta, onco + sosp, 1) + ' delle onco.']
   ];
 
-  return '<div class="rep-head"><h1>ER Oncology Archivist</h1>' +
+  const intestazione = (titolo) =>
+    '<div class="rep-page"><div class="rep-head"><h1>ER Oncology Archivist</h1>' +
     '<div class="rep-sub">' + esc(periodo) + (tipo ? ' · ' + esc(tipo) : '') +
-    ' · generato il ' + esc(new Date().toLocaleString('it-IT')) + '</div></div>' +
+    ' · ' + esc(titolo) + ' · ' + esc(new Date().toLocaleString('it-IT')) + '</div></div>';
+
+  // Pagina 1 — sintesi e distribuzione
+  let html = intestazione('Sintesi') +
     '<div class="rep-kpis">' + kpi.map((k) =>
       '<div class="rep-kpi"><div class="rep-kpi-n">' + esc(k[1]) + '</div>' +
       '<div class="rep-kpi-l">' + esc(k[0]) + '</div>' +
       '<div class="rep-kpi-p">' + esc(k[2]) + '</div></div>').join('') + '</div>' +
-    '<h2>Andamento mensile</h2><div class="rep-chart">' + cloneChart('svgMensile') + '</div>' +
-    '<h2>Diagnosi per sede</h2><div class="rep-chart">' + cloneChart('svgBarseSede') + '</div>' +
+    '<div class="rep-due">' +
+      '<div><h2>Distribuzione generale</h2><div class="rep-chart">' +
+        cloneChart('svgDonut') + '</div></div>' +
+      '<div><h2>Diagnosi per sede / organo</h2><div class="rep-chart">' +
+        cloneChart('svgBarseSede') + '</div></div>' +
+    '</div>' +
+    '<div class="rep-nota">Primo riscontro — unica patologia: <strong>' + unica +
+    '</strong> · con patologie associate: <strong>' + assoc + '</strong></div>' +
+    '</div>';
+
+  // Pagina 2 — andamento nel tempo
+  html += intestazione('Andamento mensile') +
+    '<h2>Esami e diagnosi oncologiche per mese</h2>' +
+    '<div class="rep-chart rep-chart-largo">' + cloneChart('svgMensile') + '</div>' +
+    '<h2>Heatmap per tipo di esame</h2>' +
+    '<div class="rep-table">' + cloneChart('svgHeatmap') + '</div>' +
+    '</div>';
+
+  // Pagina 3 — tabelle di dettaglio
+  html += intestazione('Dettaglio') +
     '<h2>Prevalenza per sede</h2><div class="rep-table">' +
-    (el('tableSedeWrap') ? el('tableSedeWrap').innerHTML : '') + '</div>';
+    (el('tableSedeWrap') ? el('tableSedeWrap').innerHTML : '') + '</div>' +
+    '<h2>Dettaglio mensile per tipo di esame</h2><div class="rep-table">' +
+    tabellaMensileHtml() + '</div>' +
+    '</div>';
+
+  return html;
+}
+
+/** La tabella mensile vive dentro un pannello con intestazione propria:
+ *  per il report serve solo la tabella. */
+function tabellaMensileHtml() {
+  const head = el('tableMensileHead');
+  const body = el('tableMensileBody');
+  if (!head || !body) return '';
+  return '<table class="data-table"><thead><tr>' + head.innerHTML +
+         '</tr></thead><tbody>' + body.innerHTML + '</tbody></table>';
 }
 
 async function exportPDF() {
@@ -1762,7 +1986,7 @@ function drawHeatmap(containerId, mesi, tipi, set) {
 //  STATISTICHE
 // ══════════════════════════════════════════════════════════════════
 function resetStatsFilters() {
-  ['sfDal', 'sfAl', 'sfTipo'].forEach((id) => { const e = el(id); if (e) e.value = ''; });
+  ['sfDal', 'sfAl', 'sfTipo'].forEach((id) => setFieldValue(el(id), ''));
   const focus = el('sfFocus');
   if (focus) focus.value = 'all';
   renderStats();
@@ -1937,8 +2161,8 @@ function renderTableSede(sediSorted, sediPrima, sediMeta, onco, sospetti, prima,
 //  molla mass .1 / stiffness 150 / damping 12.
 // ══════════════════════════════════════════════════════════════════
 const DOCK_DISTANCE = 140;
-const DOCK_SCALE_MAX = 1.22;   // 40→60px sono 1.5x: su pillole di testo è troppo
-const DOCK_LIFT = 3;           // px di sollevamento a piena magnificazione
+const DOCK_SCALE_MAX = 1.09;   // 40→60px sono 1.5x: su pillole di testo è troppo
+const DOCK_LIFT = 2;           // px di sollevamento a piena magnificazione
 const DOCK_SPRING = { massa: 0.1, rigidita: 150, smorzamento: 12 };
 
 let dockItems = [];
@@ -2005,6 +2229,197 @@ function dockTick(ts) {
   } else {
     dockRaf = null;
   }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  CALENDARIO
+//  Il selettore nativo di Chromium non è personalizzabile e mostra la
+//  data nel formato del motore (mm/dd/yyyy): sbagliato per l'Italia e
+//  fuori dal disegno del tool. Qui i campi data sono caselle di testo
+//  in gg/mm/aaaa, con il valore ISO conservato in data-iso, e un
+//  pannello disegnato con lo stesso stile del resto.
+// ══════════════════════════════════════════════════════════════════
+const GIORNI_BREVI = ['lu', 'ma', 'me', 'gi', 've', 'sa', 'do'];
+const MESI_LUNGHI = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
+  'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
+
+let calCampo = null;      // campo attualmente collegato al pannello
+let calMese = null;       // primo giorno del mese mostrato
+
+/** Imposta un campo data: valore ISO nascosto, testo visibile in italiano. */
+function setDateField(campo, iso) {
+  if (!campo) return;
+  const pulito = dateStr(iso);
+  campo.setAttribute('data-iso', pulito);
+  campo.value = pulito ? fmtDate(pulito) : '';
+}
+
+/** Scrive in un campo qualsiasi, rispettando i campi data. */
+function setFieldValue(campo, valore) {
+  if (!campo) return;
+  if (campo.hasAttribute('data-date')) { setDateField(campo, valore || ''); return; }
+  campo.value = valore == null ? '' : valore;
+}
+
+/** gg/mm/aaaa digitato a mano → ISO. Accetta anche gg-mm-aaaa e g/m/aa. */
+function parseDataItaliana(testo) {
+  const m = String(testo || '').trim().match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2}|\d{4})$/);
+  if (!m) return '';
+  let anno = parseInt(m[3], 10);
+  if (anno < 100) anno += anno > 40 ? 1900 : 2000;
+  const mese = parseInt(m[2], 10);
+  const giorno = parseInt(m[1], 10);
+  if (mese < 1 || mese > 12 || giorno < 1 || giorno > 31) return '';
+  const d = new Date(anno, mese - 1, giorno);
+  if (d.getFullYear() !== anno || d.getMonth() !== mese - 1 || d.getDate() !== giorno) return '';
+  const due = (n) => String(n).padStart(2, '0');
+  return anno + '-' + due(mese) + '-' + due(giorno);
+}
+
+function isoDiOggi() {
+  const d = new Date();
+  const due = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + due(d.getMonth() + 1) + '-' + due(d.getDate());
+}
+
+function apriCalendario(campo) {
+  const pannello = el('calPanel');
+  if (!pannello || !campo) return;
+  calCampo = campo;
+
+  const iso = campo.getAttribute('data-iso') || '';
+  const base = iso ? new Date(iso + 'T00:00:00') : new Date();
+  calMese = new Date(base.getFullYear(), base.getMonth(), 1);
+
+  renderCalendario();
+  pannello.classList.add('open');
+
+  // sotto al campo, rientrato se sborderebbe dalla finestra
+  const r = campo.getBoundingClientRect();
+  const larghezza = pannello.offsetWidth || 272;
+  const altezza = pannello.offsetHeight || 300;
+  let x = r.left;
+  let y = r.bottom + 6;
+  if (x + larghezza > window.innerWidth - 12) x = window.innerWidth - larghezza - 12;
+  if (y + altezza > window.innerHeight - 12) y = Math.max(12, r.top - altezza - 6);
+  pannello.style.left = Math.max(12, x) + 'px';
+  pannello.style.top = y + 'px';
+}
+
+function chiudiCalendario() {
+  const pannello = el('calPanel');
+  if (pannello) pannello.classList.remove('open');
+  calCampo = null;
+}
+
+function renderCalendario() {
+  const pannello = el('calPanel');
+  if (!pannello || !calMese) return;
+
+  const anno = calMese.getFullYear();
+  const mese = calMese.getMonth();
+  const selezionato = calCampo ? (calCampo.getAttribute('data-iso') || '') : '';
+  const oggi = isoDiOggi();
+  const due = (n) => String(n).padStart(2, '0');
+
+  // lunedì come primo giorno della settimana
+  const primo = new Date(anno, mese, 1);
+  let scarto = primo.getDay() - 1;
+  if (scarto < 0) scarto = 6;
+  const giorniMese = new Date(anno, mese + 1, 0).getDate();
+  const giorniPrec = new Date(anno, mese, 0).getDate();
+
+  let celle = '';
+  for (let i = 0; i < 42; i++) {
+    const n = i - scarto + 1;
+    let giorno, isoCella, fuori;
+    if (n < 1) {
+      giorno = giorniPrec + n;
+      const d = new Date(anno, mese - 1, giorno);
+      isoCella = d.getFullYear() + '-' + due(d.getMonth() + 1) + '-' + due(giorno);
+      fuori = true;
+    } else if (n > giorniMese) {
+      giorno = n - giorniMese;
+      const d = new Date(anno, mese + 1, giorno);
+      isoCella = d.getFullYear() + '-' + due(d.getMonth() + 1) + '-' + due(giorno);
+      fuori = true;
+    } else {
+      giorno = n;
+      isoCella = anno + '-' + due(mese + 1) + '-' + due(giorno);
+      fuori = false;
+    }
+    const classi = ['cal-day'];
+    if (fuori) classi.push('fuori');
+    if (isoCella === selezionato) classi.push('scelto');
+    if (isoCella === oggi) classi.push('oggi');
+    celle += '<button type="button" class="' + classi.join(' ') +
+             '" data-act="cal-pick" data-iso="' + esc(isoCella) + '">' + giorno + '</button>';
+    if (n > giorniMese && (i + 1) % 7 === 0 && n >= 7) break;
+  }
+
+  pannello.innerHTML =
+    '<div class="cal-head">' +
+      '<button type="button" class="cal-nav" data-act="cal-mese" data-delta="-1" aria-label="Mese precedente">&#8249;</button>' +
+      '<div class="cal-titolo">' + esc(MESI_LUNGHI[mese]) + ' ' + anno + '</div>' +
+      '<button type="button" class="cal-nav" data-act="cal-mese" data-delta="1" aria-label="Mese successivo">&#8250;</button>' +
+    '</div>' +
+    '<div class="cal-settimana">' + GIORNI_BREVI.map((g) => '<span>' + g + '</span>').join('') + '</div>' +
+    '<div class="cal-griglia">' + celle + '</div>' +
+    '<div class="cal-piede">' +
+      '<button type="button" class="cal-azione" data-act="cal-oggi">Oggi</button>' +
+      '<button type="button" class="cal-azione" data-act="cal-vuota">Cancella</button>' +
+    '</div>';
+}
+
+function scegliData(iso) {
+  if (!calCampo) return;
+  const campo = calCampo;
+  setDateField(campo, iso);
+  chiudiCalendario();
+  campo.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+/** Trasforma i campi data nativi in caselle di testo con calendario. */
+function setupCalendari() {
+  document.querySelectorAll('input[data-date]').forEach((campo) => {
+    campo.setAttribute('type', 'text');
+    campo.setAttribute('autocomplete', 'off');
+    campo.setAttribute('placeholder', 'gg/mm/aaaa');
+    campo.setAttribute('inputmode', 'numeric');
+    if (!campo.hasAttribute('data-iso')) campo.setAttribute('data-iso', '');
+
+    campo.addEventListener('focus', () => apriCalendario(campo));
+    campo.addEventListener('click', () => apriCalendario(campo));
+    // digitando a mano, il valore ISO si allinea a ogni carattere valido
+    campo.addEventListener('input', () => {
+      const iso = parseDataItaliana(campo.value);
+      campo.setAttribute('data-iso', iso);
+      if (iso) {
+        calMese = new Date(iso + 'T00:00:00');
+        calMese.setDate(1);
+        if (calCampo === campo) renderCalendario();
+      }
+    });
+    campo.addEventListener('blur', () => {
+      const iso = parseDataItaliana(campo.value);
+      if (campo.value.trim() && !iso) {
+        // testo non interpretabile: si ripristina l'ultimo valore buono
+        setDateField(campo, campo.getAttribute('data-iso') || '');
+      } else if (iso) {
+        setDateField(campo, iso);
+      }
+    });
+    campo.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') { chiudiCalendario(); campo.blur(); }
+      if (ev.key === 'Enter') { chiudiCalendario(); }
+    });
+  });
+
+  document.addEventListener('click', (ev) => {
+    if (ev.target.closest('#calPanel') || ev.target.closest('input[data-date]')) return;
+    chiudiCalendario();
+  });
+  window.addEventListener('resize', chiudiCalendario);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -2078,12 +2493,39 @@ function refreshSettingsInfo() {
   });
 }
 
+
+/** Copia di sicurezza dell'archivio su chiavetta USB.
+ *  La ricerca dell'unità, la conferma e la scrittura avvengono nel
+ *  processo principale: il renderer non tocca mai un percorso. */
+async function safetyNet() {
+  if (!IS_ELECTRON) { notify('Disponibile solo nell’applicazione desktop.'); return; }
+  if (!storageReady) { notify('Serve prima una cartella dati leggibile.'); return; }
+  notify('Cerco un’unità rimovibile…');
+  try {
+    const r = await API.safetyNet();
+    if (!r || r.stato === 'nessuna-unita') {
+      notify('Nessuna chiavetta USB rilevata: inseriscine una e riprova.');
+    } else if (r.stato === 'annullato') {
+      notify('Copia annullata.');
+    } else if (r.stato === 'senza-cartella') {
+      notify('Cartella dati non configurata.');
+    } else if (r.stato === 'ok') {
+      notify('Copia salvata su ' + r.unita + ' (' + r.esami + ' esami).');
+      refreshSettingsInfo();
+    } else {
+      notify('Copia non riuscita: ' + (r.messaggio || 'errore sconosciuto'));
+    }
+  } catch (e) {
+    notify('Copia non riuscita: ' + e.message);
+  }
+}
+
 /** In modalità browser le voci che toccano il file non hanno senso. */
 function setupSettings() {
   loadPrefs();
   applyPrefs();
   if (!IS_ELECTRON) {
-    ['smFolder', 'smReload'].forEach((id) => {
+    ['smFolder', 'smReload', 'smSafety'].forEach((id) => {
       const b = el(id);
       if (b) { b.disabled = true; b.title = 'Disponibile solo nell’applicazione desktop'; }
     });
@@ -2101,9 +2543,13 @@ const INTRO_GLYPH_STAGGER = 17;   // sfalsamento fra un glifo e il successivo
 const INTRO_HOLD = 2650;          // quando parte la dissolvenza di uscita
 const INTRO_FLIGHT = 700;         // volo del logo verso la nav
 const POP_STEP = 90;              // cascata fra una sezione e la successiva
+const HEX_SIZE = 76;              // larghezza di un esagono, px
+const HEX_SPEED = 2.1;            // px al millisecondo del fronte d'onda
+const HEX_CELL_MS = 420;          // durata della sparizione di una cella
 
 let introTimer = null;
 let introClosed = false;
+let hexCells = null;
 
 /** Intro automatica: nessun click richiesto, ma interrompibile. */
 function runIntro() {
@@ -2198,6 +2644,7 @@ function closeIntro() {
 
   if (!screen || !volo) { finishIntro(); return; }
 
+  hexCells = buildHexVeil();
   screen.classList.add('exiting');
   logoBtn.classList.add('flying');
   logoBtn.style.transform =
@@ -2217,7 +2664,16 @@ function finishIntro() {
   if (screen) screen.classList.add('closing');
   // Spenti i filtri: 51 blur SVG vivi costano frame per nulla.
   if (stage) stage.classList.add('settled');
-  popSections(currentView);
+
+  // La prima pagina non entra a cascata: si scopre da sotto il favo,
+  // che si scompone partendo dal logo appena atterrato.
+  if (hexCells && navLogo) {
+    const r = navLogo.getBoundingClientRect();
+    revealFromHex(hexCells, r.left + r.width / 2, r.top + r.height / 2);
+    hexCells = null;
+  } else {
+    popSections(currentView);
+  }
 }
 
 /** Fa comparire a cascata le sezioni della vista indicata.
@@ -2238,6 +2694,65 @@ function popSections(view) {
     e.classList.add('popping');
     i++;
   });
+}
+
+
+/** Costruisce il favo che copre la finestra. Si prepara mentre il logo
+ *  vola, così a fine volo la rivelazione parte senza scatti. */
+function buildHexVeil() {
+  const veil = el('hexReveal');
+  if (!veil || PREFS.reduceMotion) return null;
+  veil.textContent = '';
+
+  const W = HEX_SIZE;
+  const H = W * 0.8660;          // altezza di un esagono a punte laterali
+  const passoX = W * 0.75;       // le colonne si incastrano
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const frammento = document.createDocumentFragment();
+  const celle = [];
+
+  for (let col = 0; col * passoX < vw + W; col++) {
+    const offset = (col % 2) ? H / 2 : 0;
+    for (let row = -1; row * H + offset < vh + H; row++) {
+      const x = col * passoX;
+      const y = row * H + offset;
+      const cella = document.createElement('div');
+      cella.className = 'hex-cell';
+      cella.style.left = x + 'px';
+      cella.style.top = y + 'px';
+      cella.style.width = W + 'px';
+      cella.style.height = H + 'px';
+      celle.push({ e: cella, cx: x + W / 2, cy: y + H / 2 });
+      frammento.appendChild(cella);
+    }
+  }
+  veil.appendChild(frammento);
+  veil.classList.add('armed');
+  return celle;
+}
+
+/** Fa sparire il favo a onda, partendo dal punto indicato. */
+function revealFromHex(celle, origineX, origineY) {
+  const veil = el('hexReveal');
+  if (!veil || !celle || !celle.length) { if (veil) veil.classList.remove('armed'); return 0; }
+
+  let ritardoMax = 0;
+  celle.forEach((c) => {
+    const dx = c.cx - origineX;
+    const dy = c.cy - origineY;
+    const ritardo = Math.round(Math.sqrt(dx * dx + dy * dy) / HEX_SPEED);
+    if (ritardo > ritardoMax) ritardoMax = ritardo;
+    c.e.style.setProperty('--hex-delay', ritardo + 'ms');
+  });
+  veil.classList.add('revealing');
+
+  const totale = ritardoMax + HEX_CELL_MS + 60;
+  setTimeout(() => {
+    veil.classList.remove('armed', 'revealing');
+    veil.textContent = '';
+  }, totale);
+  return totale;
 }
 
 /** Copia del logo SD nella barra di navigazione. */
@@ -2285,6 +2800,10 @@ const CLICK_ACTIONS = {
   'set-meta': (t) => setMetastasi(t.getAttribute('data-val')),
   'settings-toggle': () => toggleSettings(),
   'pref': (t) => togglePref(t.getAttribute('data-pref')),
+  'cal-pick': (t) => scegliData(t.getAttribute('data-iso')),
+  'cal-mese': (t) => { if (!calMese) return; calMese.setMonth(calMese.getMonth() + (parseInt(t.getAttribute('data-delta'), 10) || 0)); renderCalendario(); },
+  'cal-oggi': () => scegliData(isoDiOggi()),
+  'cal-vuota': () => scegliData(''),
   'reset-filters': () => resetFilters(),
   'reset-stats': () => resetStatsFilters(),
   'sort': (t) => sortBy(t.getAttribute('data-key')),
@@ -2299,9 +2818,11 @@ const CLICK_ACTIONS = {
   'export-xlsx': (t) => { closeOverlay('modExport'); exportExcel(t.getAttribute('data-anon') === '1'); },
   'export-csv': (t) => { closeOverlay('modExport'); exportCSV(t.getAttribute('data-anon') === '1'); },
   'export-pdf': () => { closeOverlay('modExport'); exportPDF(); },
+  'export-pptx': () => { closeOverlay('modExport'); exportPPTX(); },
   'welcome-select': () => welcomeSelectFolder(),
   'select-folder': () => { toggleSettings(false); selectFolder(); },
   'reload': () => { toggleSettings(false); if (IS_ELECTRON && dataFolder) activateFolder(); },
+  'safety-net': () => { toggleSettings(false); safetyNet(); },
   'pick': (t) => {
     const target = el(t.getAttribute('data-target'));
     if (target) { target.value = t.getAttribute('data-value') || ''; }
@@ -2363,6 +2884,7 @@ function wireEvents() {
 //  AVVIO — dopo che tutte le dichiarazioni globali esistono
 // ══════════════════════════════════════════════════════════════════
 function boot() {
+  setupCalendari();
   setupNavLogo();
   setupSettings();
   setupDock();              // prima di runIntro: i cloni devono essere "puliti"
