@@ -29,15 +29,43 @@ legacy/                  versione originale, solo consultazione
 
 ## Build
 
-Il proxy ospedaliero blocca npm in locale: si compila su **GitHub Actions**.
-
-1. Push su `main` (o *Actions → Build Windows → Run workflow*).
-2. Al termine, scaricare l'artifact **`ER-Oncology-Archivist-Windows`**:
-   contiene il `.exe` portable e l'installer NSIS.
-
 La pipeline esegue prima dei controlli automatici: sintassi JavaScript,
 assenza di gestori di evento inline, assenza di risorse remote, presenza
 delle impostazioni di sicurezza in `main.js`. Se uno fallisce non si compila.
+
+### Build di prova
+
+Push su `main` (o *Actions → Build Windows → Run workflow*). Al termine si
+scarica l'artifact **`ER-Oncology-Archivist-Windows`**, che resta
+disponibile 30 giorni e richiede di essere loggati su GitHub.
+
+### Release scaricabile
+
+Per pubblicare una versione che il reparto possa scaricare con un link
+diretto, basta creare un tag `v<versione>`:
+
+```bash
+npm version 2.0.1 --no-git-tag-version   # allinea package.json
+git commit -am "Versione 2.0.1"
+git tag v2.0.1
+git push origin main --tags
+```
+
+Il workflow compila e crea da solo la **Release** con allegati il portable,
+l'installer e il file `SHA256SUMS.txt`. Gli allegati non pesano sul
+repository e non hanno il limite dei 100 MB dei file versionati.
+
+Il tag deve corrispondere alla `version` di `package.json`: se non
+combaciano la pipeline si ferma, per non pubblicare una release `v2.1.0`
+che contiene eseguibili `2.0.0`.
+
+### In locale (dove npm funziona)
+
+```bash
+npm install
+npm start                                    # avvia l'app
+npx electron-builder --win portable nsis     # produce dist/
+```
 
 ### Icona
 
@@ -45,11 +73,22 @@ Copiare l'icona in `build/icon.ico` (ICO, almeno 256×256). electron-builder
 la rileva da sola: **non** va aggiunta nessuna chiave `icon` in
 `package.json`. Se il file manca, la build usa l'icona predefinita.
 
-### In locale (dove npm funziona)
+## Distribuzione
 
-```bash
-npm install
-npm start
+Gli eseguibili **non sono firmati**: al primo avvio Windows SmartScreen
+mostra "Windows ha protetto il PC" e serve *Ulteriori informazioni →
+Esegui comunque*. Funziona anche senza diritti di amministratore, ma
+conviene avvisare il personale. Se l'IT dispone di un certificato di code
+signing aziendale, si può configurare in `build.win` di `package.json`.
+
+Per il reparto la strada più semplice è il **portable**: si copia sulla
+share e si lancia da lì, senza installare nulla sui PC.
+
+Il `SHA256SUMS.txt` allegato alla release serve a verificare il file
+scaricato:
+
+```powershell
+Get-FileHash .\ER-Oncology-Archivist-2.0.0-portable.exe -Algorithm SHA256
 ```
 
 ## Primo avvio su una postazione

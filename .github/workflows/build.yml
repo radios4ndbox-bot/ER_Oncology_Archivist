@@ -3,6 +3,7 @@ name: Build Windows
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
   workflow_dispatch:
 
 jobs:
@@ -49,9 +50,23 @@ jobs:
           done
           echo "OK: webPreferences irrobustite"
 
+      - name: Tag coerente con la versione
+        # Evita release chiamate v2.1.0 che contengono eseguibili 2.0.0.
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          versione=$(node -p "require('./package.json').version")
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$versione" != "$tag" ]; then
+            echo "::error::il tag $GITHUB_REF_NAME non corrisponde alla version $versione di package.json"
+            exit 1
+          fi
+          echo "OK: versione $versione"
+
   build:
     needs: verifica
     runs-on: windows-latest
+    permissions:
+      contents: write        # necessario solo per pubblicare la release
     steps:
       - uses: actions/checkout@v4
 
@@ -66,8 +81,17 @@ jobs:
 
       - name: Build portable + installer
         run: npx electron-builder --win portable nsis --publish never
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checksum SHA-256
+        # Gli eseguibili non sono firmati: il checksum e' l'unico modo che
+        # ha il reparto per verificare di aver scaricato il file giusto.
+        shell: pwsh
+        run: |
+          Get-ChildItem dist/*.exe | ForEach-Object {
+            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$h  $($_.Name)"
+          } | Tee-Object -FilePath dist/SHA256SUMS.txt
+          Get-Content dist/SHA256SUMS.txt
 
       - name: Pubblicazione artifact
         uses: actions/upload-artifact@v4
@@ -75,5 +99,40 @@ jobs:
           name: ER-Oncology-Archivist-Windows
           path: |
             dist/*.exe
+            dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
+
+      - name: Release scaricabile
+        # Si attiva solo sui tag v*. Usa la gh CLI gia' presente sul runner:
+        # nessuna action di terze parti nella catena di build.
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "## ER Oncology Archivist ${GITHUB_REF_NAME}"
+            echo
+            echo "**Quale file scaricare**"
+            echo
+            echo "| file | quando usarlo |"
+            echo "|---|---|"
+            echo "| \`...-portable.exe\` | copialo sulla share e lancialo. Nessuna installazione, nessun diritto di amministratore. |"
+            echo "| \`...-setup.exe\` | installazione classica, se preferisci il collegamento nel menu Start. |"
+            echo
+            echo "**Gli eseguibili non sono firmati.** Al primo avvio Windows SmartScreen"
+            echo "mostra \"Windows ha protetto il PC\": *Ulteriori informazioni* -> *Esegui comunque*."
+            echo "Verifica prima il checksum qui sotto."
+            echo
+            echo '```'
+            cat dist/SHA256SUMS.txt
+            echo '```'
+            echo
+            echo "In PowerShell: \`Get-FileHash .\\nomefile.exe -Algorithm SHA256\`"
+          } > note-release.md
+
+          gh release create "$GITHUB_REF_NAME" \
+            dist/*.exe dist/SHA256SUMS.txt \
+            --title "ER Oncology Archivist ${GITHUB_REF_NAME}" \
+            --notes-file note-release.md
