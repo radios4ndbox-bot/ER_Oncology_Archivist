@@ -19,7 +19,11 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);font-size:14
 
 /* ══════════════ NAV ══════════════ */
 nav{background:var(--text);height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 2rem;position:sticky;top:0;z-index:100;}
-.nav-title{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#fff;}
+.nav-title{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#fff;display:flex;align-items:center;gap:9px;}
+/* il segnaposto dove atterra il logo SD alla fine dell'intro */
+.nav-logo{display:block;width:26px;height:15px;flex-shrink:0;opacity:0;}
+.nav-logo svg{display:block;width:100%;height:100%;}
+.nav-logo.landed{opacity:1;transition:opacity .18s ease;}
 .nav-sub{font-size:11px;color:#888;font-family:var(--mono);}
 .nav-tabs{display:flex;gap:2px;}
 .nav-tab{background:none;border:none;color:#999;font-family:var(--sans);font-size:13px;font-weight:500;padding:6px 14px;border-radius:4px;cursor:pointer;transition:background .1s,color .1s;}
@@ -745,4 +749,42 @@ body { padding-bottom: 1.8rem; }
 }
 @media (max-width: 700px) {
   .app-footer { font-size: 9px; right: .8rem; bottom: .5rem; }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Uscita dell'intro: il logo SD vola in alto a sinistra e l'interfaccia
+   entra scaglionata.
+
+   · volo del logo → tecnica FLIP: si misura la posizione di partenza e
+     quella di arrivo, si anima la differenza con una sola transform
+   · pop-in        → effects/effect di animate-ui, stessa molla del
+     sottotitolo, con i ritardi a cascata del loro hero (0.15s l'uno)
+   ══════════════════════════════════════════════════════════════════ */
+
+/* mentre il logo vola, tutto il resto dello splash si dissolve */
+#splashScreen.exiting { background: transparent; pointer-events: none;
+  transition: background .45s ease; }
+#splashScreen.exiting .splash-blob-bg,
+#splashScreen.exiting .splash-title-wrap,
+#splashScreen.exiting .splash-sub {
+  opacity: 0;
+  transition: opacity .4s ease;
+}
+
+.splash-logo-btn.flying {
+  transform-origin: top left;
+  transition: transform .68s cubic-bezier(.5,.05,.2,1);
+  will-change: transform;
+}
+
+/* l'interfaccia compare come gli elementi dell'hero di animate-ui */
+body.app-entering [data-pop] {
+  opacity: 0;
+  transform: translateY(-22px) scale(.94);
+  animation: splashMotionEffect .72s cubic-bezier(.22,1.15,.36,1) var(--pop-delay, 0ms) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-logo-btn.flying { transition-duration: .01ms; }
+  body.app-entering [data-pop] { animation-duration: .01ms; animation-delay: 0ms; }
 }

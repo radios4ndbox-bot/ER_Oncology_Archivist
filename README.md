@@ -93,10 +93,19 @@ Get-FileHash .\ER-Oncology-Archivist-2.0.0-portable.exe -Algorithm SHA256
 
 ## Intro
 
-All'avvio parte una sequenza automatica di circa 2,6 secondi: il logo si
-disegna, il titolo entra a fuoco lettera per lettera, il sottotitolo
-compare, poi la schermata si dissolve da sola. **Nessun pulsante da
-premere.** Un click o un tasto qualsiasi la salta subito.
+All'avvio parte una sequenza automatica, **senza nessun pulsante da
+premere**. Un click o un tasto qualsiasi la salta subito.
+
+1. Il logo SD si disegna e si riempie
+2. Il titolo entra a fuoco lettera per lettera, da sinistra
+3. Compare il sottotitolo
+4. Il logo **vola in alto a sinistra** e diventa il marchio della barra di
+   navigazione; contemporaneamente lo sfondo si dissolve e l'interfaccia
+   entra a cascata (nav, wizard, footer)
+
+Circa 3,3 secondi in tutto. Il volo del logo usa la tecnica FLIP: si
+misura dove il logo si trova e dove deve atterrare, e si anima la sola
+differenza con una `transform` — nessun ricalcolo di layout per frame.
 
 Le tecniche di animazione sono ispirate a
 [animate-ui](https://github.com/imskyleen/animate-ui) (Elliot Sutton,
@@ -111,6 +120,7 @@ sono state riscritte da zero in CSS:
 | `logo.tsx` — `pathLength` 0→1 + `fillOpacity` | `pathLength="1"` + `stroke-dashoffset`, keyframes `splashDrawLogo` |
 | `texts/splitting` — blur+fade sfalsato per carattere | keyframes `splashRevealGlyph` sui 51 path del titolo |
 | `effects/effect` — fade + slide + zoom con molla | keyframes `splashMotionEffect`, molla approssimata con `cubic-bezier` |
+| ritardi a cascata dell'hero (0,15 s l'uno) | attributo `data-pop` + `--pop-delay`, stessa animazione sui blocchi dell'interfaccia |
 
 A intro conclusa i filtri SVG vengono spenti: 51 filtri `blur` attivi
 costerebbero frame per nulla sulle postazioni di reparto. La sequenza

@@ -1916,7 +1916,9 @@ function renderTableSede(sediSorted, sediPrima, sediMeta, onco, sospetti, prima,
 const INTRO_TITLE_DELAY = 580;    // quando parte il primo glifo
 const INTRO_GLYPH_STAGGER = 17;   // sfalsamento fra un glifo e il successivo
 const INTRO_HOLD = 2650;          // quando parte la dissolvenza di uscita
-const INTRO_FADE = 700;           // durata della dissolvenza
+const INTRO_FLIGHT = 700;         // volo del logo verso la nav
+const POP_BASE = 120;             // quando comincia a comparire l'interfaccia
+const POP_STEP = 150;             // cascata fra un blocco e il successivo
 
 let introTimer = null;
 let introClosed = false;
@@ -1946,13 +1948,22 @@ function runIntro() {
       item.g.style.setProperty('--d', (INTRO_TITLE_DELAY + i * INTRO_GLYPH_STAGGER) + 'ms');
     });
 
-  // Un reflow forzato fissa lo stato iniziale, poi si parte subito.
-  // requestAnimationFrame qui sarebbe fragile: non scatta finche' la
-  // finestra non e' visibile, ed Electron la crea con show:false.
-  void stage.offsetWidth;
-  stage.classList.add('playing');
-
-  introTimer = setTimeout(closeIntro, INTRO_HOLD);
+  // Le animazioni CSS non avanzano finche' la finestra non viene
+  // disegnata, ed Electron la crea con show:false. Partendo a orologio
+  // l'intro verrebbe tagliata dei millisecondi passati da nascosta.
+  // Quindi: si parte al primo fotogramma davvero dipinto...
+  let avviata = false;
+  const avvia = () => {
+    if (avviata) return;
+    avviata = true;
+    void stage.offsetWidth;
+    stage.classList.add('playing');
+    introTimer = setTimeout(closeIntro, INTRO_HOLD);
+  };
+  requestAnimationFrame(() => requestAnimationFrame(avvia));
+  // ...ma non oltre questo limite, se la finestra restasse nascosta:
+  // meglio un'intro non vista che restare bloccati sullo splash.
+  setTimeout(avvia, 1200);
   screen.addEventListener('click', closeIntro);
   document.addEventListener('keydown', introKeyHandler);
 }
@@ -1968,43 +1979,82 @@ function closeIntro() {
   document.removeEventListener('keydown', introKeyHandler);
 
   const screen = el('splashScreen');
-  const stage = el('splashStage');
-  if (screen) {
-    screen.removeEventListener('click', closeIntro);
-    screen.classList.add('closing');
+  const logoBtn = el('splashLogo');
+  const navLogo = el('navLogo');
+  if (screen) screen.removeEventListener('click', closeIntro);
+
+  // L'interfaccia entra a cascata, come i blocchi dell'hero di animate-ui.
+  document.querySelectorAll('[data-pop]').forEach((e) => {
+    const rank = parseInt(e.getAttribute('data-pop'), 10) || 0;
+    e.style.setProperty('--pop-delay', (POP_BASE + POP_STEP * rank) + 'ms');
+  });
+  document.body.classList.add('app-entering');
+
+  if (!screen || !logoBtn || !navLogo) { finishIntro(); return; }
+
+  screen.classList.add('exiting');
+
+  // FLIP: si misura dove il logo sta adesso e dove deve atterrare, e si
+  // anima la sola differenza. Una transform, nessun ricalcolo di layout.
+  const from = logoBtn.getBoundingClientRect();
+  const to = navLogo.getBoundingClientRect();
+  if (from.width > 0 && to.width > 0) {
+    logoBtn.classList.add('flying');
+    logoBtn.style.transform =
+      'translate(' + (to.left - from.left) + 'px, ' + (to.top - from.top) + 'px)' +
+      ' scale(' + (to.width / from.width) + ')';
   }
-  // Chiusa l'intro si spengono i filtri: restare con 51 filtri SVG vivi
-  // costa frame senza dare piu' nulla.
-  setTimeout(() => { if (stage) stage.classList.add('settled'); }, INTRO_FADE);
+
+  setTimeout(finishIntro, INTRO_FLIGHT);
 }
 
-/** Il clone del logo per l'overlay di transizione va costruito a DOM
- *  pronto e con l'id del gradiente rinominato (altrimenti collide). */
-function setupModeTransitionLogo() {
-  const original = document.querySelector('.splash-logo-svg-wrap svg');
-  const container = el('modeTransitionLogo');
-  if (!original || !container || container.childNodes.length) return;
+/** Atterraggio: il logo della nav prende il posto di quello volante. */
+function finishIntro() {
+  const screen = el('splashScreen');
+  const stage = el('splashStage');
+  const navLogo = el('navLogo');
+  if (navLogo) navLogo.classList.add('landed');
+  if (screen) screen.classList.add('closing');
+  // Spenti i filtri: 51 blur SVG vivi costano frame per nulla.
+  if (stage) stage.classList.add('settled');
+  setTimeout(() => document.body.classList.remove('app-entering'), 1600);
+}
 
+/** Copia del logo SD nella barra di navigazione. */
+function setupNavLogo() {
+  const original = document.querySelector('.splash-logo-svg-wrap svg');
+  const holder = el('navLogo');
+  if (!original || !holder || holder.childNodes.length) return;
+  holder.appendChild(cloneLogoSvg(original, 'splashGradLogoIconNav'));
+}
+
+/** Clona il logo rinominando l'id del gradiente: due gradienti con lo
+ *  stesso id nello stesso documento si annullano a vicenda. */
+function cloneLogoSvg(original, newId) {
   const clone = original.cloneNode(true);
-  // Il clone vive fuori da .splash-stage.playing: senza questo resterebbe
-  // con stroke-dashoffset:1 e fill-opacity:0, cioe' invisibile.
+  clone.removeAttribute('width');
+  clone.removeAttribute('height');
+  // Il clone vive fuori da .splash-stage.playing: senza spogliarlo della
+  // classe di disegno resterebbe a dashoffset 1 e fill-opacity 0.
   clone.querySelectorAll('.splash-logo-path').forEach((path) => {
     path.classList.remove('splash-logo-path');
   });
   const grad = clone.querySelector('#splashGradLogoIcon');
   if (grad) {
-    const newId = 'splashGradLogoIconTrans';
     grad.id = newId;
     clone.querySelectorAll('[fill="url(#splashGradLogoIcon)"]').forEach((e) => {
       e.setAttribute('fill', 'url(#' + newId + ')');
     });
-    clone.querySelectorAll('g[fill]').forEach((g) => {
-      if (g.getAttribute('fill') === 'url(#splashGradLogoIcon)') {
-        g.setAttribute('fill', 'url(#' + newId + ')');
-      }
-    });
   }
-  container.appendChild(clone);
+  return clone;
+}
+
+/** Il clone del logo per l'overlay di transizione fra viste. */
+function setupModeTransitionLogo() {
+  const original = document.querySelector('.splash-logo-svg-wrap svg');
+  const container = el('modeTransitionLogo');
+  if (!original || !container || container.childNodes.length) return;
+  container.appendChild(cloneLogoSvg(original, 'splashGradLogoIconTrans'));
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -2093,7 +2143,8 @@ function wireEvents() {
 //  AVVIO — dopo che tutte le dichiarazioni globali esistono
 // ══════════════════════════════════════════════════════════════════
 function boot() {
-  setupModeTransitionLogo();   // prima di runIntro: il clone dev'essere "pulito"
+  setupNavLogo();              // prima di runIntro: i cloni devono essere "puliti"
+  setupModeTransitionLogo();
   runIntro();
   wireEvents();
   buildProgress();
