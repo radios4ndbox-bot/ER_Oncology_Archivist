@@ -640,6 +640,7 @@ function showView(name) {
   window.scrollTo(0, 0);
   if (name === 'stats') renderStats();
   if (name === 'db') applyFilters();
+  popSections(name);
 }
 
 /** Sposta il binario e allinea schede, aria e highlight. */
@@ -675,11 +676,13 @@ function moveTabHighlight() {
   const hl = el('navTabHighlight');
   const active = document.querySelector('.nav-tab.active');
   if (!hl || !active || !hl.parentElement) return;
-  const base = hl.parentElement.getBoundingClientRect();
-  const r = active.getBoundingClientRect();
-  if (!r.width) return;
-  hl.style.width = r.width + 'px';
-  hl.style.transform = 'translateX(' + (r.left - base.left) + 'px)';
+  hl.style.height = active.offsetHeight + 'px';
+  hl.style.top = active.offsetTop + 'px';
+  // offsetLeft/offsetWidth ignorano le transform: se l'elemento attivo
+  // e' ingrandito dal puntatore, il fondino non deve seguirlo.
+  if (!active.offsetWidth) return;
+  hl.style.width = active.offsetWidth + 'px';
+  hl.style.transform = 'translateX(' + active.offsetLeft + 'px)';
   hl.classList.add('ready');
 }
 
@@ -817,6 +820,7 @@ function goStep(n) {
   if (target) target.classList.add('active');
   currentStep = n;
   buildProgress();
+  popSections('wizard');
 }
 
 function validateStep1() {
@@ -1928,6 +1932,82 @@ function renderTableSede(sediSorted, sediPrima, sediMeta, onco, sospetti, prima,
 }
 
 // ══════════════════════════════════════════════════════════════════
+//  DOCK — magnificazione per prossimità, dal Dock di Magic UI
+//  Costanti loro: size 40 → magnification 60 su distanza 140,
+//  molla mass .1 / stiffness 150 / damping 12.
+// ══════════════════════════════════════════════════════════════════
+const DOCK_DISTANCE = 140;
+const DOCK_SCALE_MAX = 1.22;   // 40→60px sono 1.5x: su pillole di testo è troppo
+const DOCK_LIFT = 3;           // px di sollevamento a piena magnificazione
+const DOCK_SPRING = { massa: 0.1, rigidita: 150, smorzamento: 12 };
+
+let dockItems = [];
+let dockMouseX = Infinity;
+let dockRaf = null;
+let dockLastTs = 0;
+
+function setupDock() {
+  const dock = el('navDock');
+  if (!dock) return;
+  dockItems = Array.prototype.slice.call(dock.querySelectorAll('.dock-item'))
+    .map((e) => ({ e: e, valore: 1, velocita: 0 }));
+
+  dock.addEventListener('pointermove', (ev) => {
+    if (PREFS.reduceMotion) return;
+    dockMouseX = ev.clientX;
+    startDockLoop();
+  });
+  dock.addEventListener('pointerleave', () => {
+    dockMouseX = Infinity;
+    startDockLoop();
+  });
+}
+
+function startDockLoop() {
+  if (dockRaf !== null) return;
+  dockLastTs = 0;
+  dockRaf = requestAnimationFrame(dockTick);
+}
+
+function dockTick(ts) {
+  const dt = dockLastTs ? Math.min((ts - dockLastTs) / 1000, 0.032) : 0.016;
+  dockLastTs = ts;
+
+  let inMovimento = false;
+  dockItems.forEach((it) => {
+    const r = it.e.getBoundingClientRect();
+    const centro = r.left + r.width / 2;
+    const d = Math.abs(dockMouseX - centro);
+    // interpolazione lineare come il loro useTransform([-dist,0,dist])
+    const t = d >= DOCK_DISTANCE || !isFinite(d) ? 0 : 1 - d / DOCK_DISTANCE;
+    const obiettivo = 1 + (DOCK_SCALE_MAX - 1) * t;
+
+    const a = (DOCK_SPRING.rigidita * (obiettivo - it.valore)
+               - DOCK_SPRING.smorzamento * it.velocita) / DOCK_SPRING.massa;
+    it.velocita += a * dt;
+    it.valore += it.velocita * dt;
+
+    if (Math.abs(obiettivo - it.valore) > 0.0008 || Math.abs(it.velocita) > 0.0008) {
+      inMovimento = true;
+    } else {
+      it.valore = obiettivo;
+      it.velocita = 0;
+    }
+
+    const sollevamento = -DOCK_LIFT * (it.valore - 1) / (DOCK_SCALE_MAX - 1);
+    it.e.style.transform = it.valore === 1
+      ? ''
+      : 'translateY(' + sollevamento.toFixed(2) + 'px) scale(' + it.valore.toFixed(4) + ')';
+  });
+
+  if (inMovimento) {
+    dockRaf = requestAnimationFrame(dockTick);
+  } else {
+    dockRaf = null;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 //  PREFERENZE E MENÙ IMPOSTAZIONI
 //  Vivono in localStorage: sono scelte della postazione, non dati del
 //  paziente. Nessun dato clinico esce mai dal file condiviso.
@@ -2020,8 +2100,7 @@ const INTRO_TITLE_DELAY = 580;    // quando parte il primo glifo
 const INTRO_GLYPH_STAGGER = 17;   // sfalsamento fra un glifo e il successivo
 const INTRO_HOLD = 2650;          // quando parte la dissolvenza di uscita
 const INTRO_FLIGHT = 700;         // volo del logo verso la nav
-const POP_BASE = 120;             // quando comincia a comparire l'interfaccia
-const POP_STEP = 150;             // cascata fra un blocco e il successivo
+const POP_STEP = 90;              // cascata fra una sezione e la successiva
 
 let introTimer = null;
 let introClosed = false;
@@ -2117,13 +2196,6 @@ function closeIntro() {
     }
   }
 
-  // ── ora l'interfaccia puo' entrare ──
-  document.querySelectorAll('[data-pop]').forEach((e) => {
-    const rank = parseInt(e.getAttribute('data-pop'), 10) || 0;
-    e.style.setProperty('--pop-delay', (POP_BASE + POP_STEP * rank) + 'ms');
-  });
-  document.body.classList.add('app-entering');
-
   if (!screen || !volo) { finishIntro(); return; }
 
   screen.classList.add('exiting');
@@ -2135,7 +2207,8 @@ function closeIntro() {
   setTimeout(finishIntro, INTRO_FLIGHT);
 }
 
-/** Atterraggio: il logo della nav prende il posto di quello volante. */
+/** Atterraggio: il logo della nav prende il posto di quello volante,
+ *  e solo allora le sezioni cominciano a comparire, una per volta. */
 function finishIntro() {
   const screen = el('splashScreen');
   const stage = el('splashStage');
@@ -2144,7 +2217,27 @@ function finishIntro() {
   if (screen) screen.classList.add('closing');
   // Spenti i filtri: 51 blur SVG vivi costano frame per nulla.
   if (stage) stage.classList.add('settled');
-  setTimeout(() => document.body.classList.remove('app-entering'), 1600);
+  popSections(currentView);
+}
+
+/** Fa comparire a cascata le sezioni della vista indicata.
+ *  Riavvia sempre da zero: senza togliere la classe, riattivarla non
+ *  fa ripartire l'animazione. */
+function popSections(view) {
+  if (PREFS.reduceMotion) return;
+  const root = el('view-' + view);
+  if (!root) return;
+  const sezioni = root.querySelectorAll('.pop-section');
+  let i = 0;
+  sezioni.forEach((e) => {
+    // le sezioni non visibili (step del wizard nascosti) non contano
+    if (e.offsetParent === null) { e.classList.remove('popping'); return; }
+    e.classList.remove('popping');
+    void e.offsetWidth;
+    e.style.setProperty('--pop-delay', (i * POP_STEP) + 'ms');
+    e.classList.add('popping');
+    i++;
+  });
 }
 
 /** Copia del logo SD nella barra di navigazione. */
@@ -2271,7 +2364,8 @@ function wireEvents() {
 // ══════════════════════════════════════════════════════════════════
 function boot() {
   setupNavLogo();
-  setupSettings();              // prima di runIntro: i cloni devono essere "puliti"
+  setupSettings();
+  setupDock();              // prima di runIntro: i cloni devono essere "puliti"
   runIntro();
   wireEvents();
   applyViewState();

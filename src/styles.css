@@ -763,23 +763,9 @@ body { padding-bottom: 1.8rem; }
   will-change: transform;
 }
 
-/* l'interfaccia compare come gli elementi dell'hero di animate-ui */
-body.app-entering [data-pop] {
-  opacity: 0;
-  transform: translateY(-22px) scale(.94);
-  animation: splashMotionEffect .72s cubic-bezier(.22,1.15,.36,1) var(--pop-delay, 0ms) forwards;
-}
-/* La nav e' dove atterra il logo: deve stare ferma, altrimenti il
-   bersaglio si muove mentre il logo e' in volo. Solo dissolvenza. */
-body.app-entering nav[data-pop] {
-  transform: none;
-  animation-name: splashFadeIn;
-}
-@keyframes splashFadeIn { to { opacity: 1; } }
-
 @media (prefers-reduced-motion: reduce) {
   .splash-logo-btn.flying { transition-duration: .01ms; }
-  body.app-entering [data-pop] { animation-duration: .01ms; animation-delay: 0ms; }
+  .pop-section.popping { animation-duration: .01ms !important; animation-delay: 0ms !important; }
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -820,6 +806,9 @@ body.app-entering nav[data-pop] {
 .nav-tab-highlight {
   position: absolute; left: 0; top: 0;
   height: 100%; width: 0;
+  transition: transform .42s cubic-bezier(.32,.72,0,1),
+              width .42s cubic-bezier(.32,.72,0,1),
+              height .2s ease, top .2s ease, opacity .2s ease;
   background: #2A2A25; border-radius: 4px;
   z-index: 0; opacity: 0;
   transition: transform .42s cubic-bezier(.32,.72,0,1),
@@ -905,3 +894,82 @@ body.reduce-motion .splash-glyph,
 body.reduce-motion [data-pop],
 body.reduce-motion .settings-menu { animation: none !important; transition: none !important; }
 body.reduce-motion .splash-glyph { opacity: 1; filter: none; }
+
+/* ══════════════════════════════════════════════════════════════════
+   Comparsa a cascata delle sezioni — AnimatedList di Magic UI
+   (registry/magicui/animated-list.tsx)
+
+   Loro: initial { scale: 0, opacity: 0 } → animate { scale: 1,
+   opacity: 1, originY: 0 }, molla stiffness 350 damping 40.
+
+   Qui la scala parte da .88 invece che da 0: questi non sono
+   cartoncini di notifica ma pannelli larghi quanto la finestra, e
+   farli nascere da un punto sembra un difetto di rendering. Il resto
+   — origine in alto, rimbalzo della molla — è quello.
+   ══════════════════════════════════════════════════════════════════ */
+.pop-section.popping {
+  opacity: 0;
+  transform: scale(.88);
+  transform-origin: top center;
+  animation: popSection .44s cubic-bezier(.34,1.28,.64,1) var(--pop-delay, 0ms) forwards;
+  will-change: transform, opacity;
+}
+@keyframes popSection {
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Le finestre modali entrano con la stessa molla. */
+.overlay.open .modal {
+  animation: popSection .34s cubic-bezier(.34,1.28,.64,1) forwards;
+  transform-origin: center;
+}
+
+body.reduce-motion .pop-section.popping,
+body.reduce-motion .overlay.open .modal { animation: none; opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay.open .modal { animation: none; }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Dock delle viste — template Dock di Magic UI
+   (registry/magicui/dock.tsx)
+
+   Contenitore a pillola con bordo e sfocatura, elementi che si
+   ingrandiscono in base alla distanza dal puntatore. La molla
+   (mass .1, stiffness 150, damping 12) è integrata in JS: una
+   transizione CSS non riproduce quella risposta.
+
+   Differenza voluta: loro interpolano la larghezza (40→60 px) su
+   icone quadrate, spingendo le vicine. Qui gli elementi portano
+   anche l'etichetta testuale, e cambiarne la larghezza rimanderebbe
+   a capo il testo ad ogni fotogramma. Si scala con transform,
+   origine in basso: crescono verso l'alto come nel dock di macOS.
+   ══════════════════════════════════════════════════════════════════ */
+.nav-dock {
+  display: flex; align-items: flex-end; gap: 4px;
+  position: relative; padding: 4px;
+  border: 1px solid rgba(255,255,255,.09);
+  border-radius: 12px;
+  background: rgba(255,255,255,.05);
+  backdrop-filter: blur(8px);
+}
+
+.dock-item {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 13px; border-radius: 8px;
+  transform-origin: bottom center;
+  will-change: transform;
+}
+.dock-ico { display: flex; flex-shrink: 0; }
+.dock-ico svg { width: 15px; height: 15px; display: block; }
+.dock-label { white-space: nowrap; }
+
+/* Il puntatore ingrandisce, ma il fondino resta all'elemento attivo:
+   ci pensa .nav-tab-highlight, che non si scala. */
+.nav-dock .nav-tab:hover { background: transparent; }
+
+@media (max-width: 700px) {
+  .dock-label { display: none; }
+  .dock-item { padding: 6px 10px; }
+}

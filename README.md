@@ -100,8 +100,11 @@ premere**. Un click o un tasto qualsiasi la salta subito.
 2. Il titolo entra a fuoco lettera per lettera, da sinistra
 3. Compare il sottotitolo
 4. Il logo **vola in alto a sinistra** e diventa il marchio della barra di
-   navigazione; contemporaneamente lo sfondo si dissolve e l'interfaccia
-   entra a cascata (nav, wizard, footer)
+   navigazione, mentre lo sfondo si dissolve
+5. **Solo a volo concluso** le sezioni compaiono una dopo l'altra, a 90 ms
+   di distanza — è l'`AnimatedList` di Magic UI: scala con origine in
+   alto e molla. La stessa comparsa si ripete ad ogni cambio vista, ad
+   ogni passo del wizard e all'apertura delle finestre modali.
 
 Circa 3,3 secondi in tutto. Il volo del logo usa la tecnica FLIP: si
 misura dove il logo si trova e dove deve atterrare, e si anima la sola
@@ -125,6 +128,21 @@ sono state riscritte da zero in CSS:
 A intro conclusa i filtri SVG vengono spenti: 51 filtri `blur` attivi
 costerebbero frame per nulla sulle postazioni di reparto. La sequenza
 rispetta anche `prefers-reduced-motion`.
+
+## Dock delle viste
+
+La barra centrale è il `Dock` di
+[Magic UI](https://github.com/magicuidesign/magicui): pillola con bordo e
+sfocatura, elementi che si ingrandiscono in base alla distanza dal
+puntatore, con la scia sulle voci vicine. La molla (mass .1,
+stiffness 150, damping 12) è integrata in JavaScript — una transizione
+CSS non riproduce quella risposta.
+
+Differenza voluta: loro interpolano la *larghezza* (40→60 px) su icone
+quadrate, spingendo le vicine. Qui gli elementi portano anche
+l'etichetta, e cambiarne la larghezza rimanderebbe a capo il testo ad
+ogni fotogramma. Si scala con `transform`, origine in basso: crescono
+verso l'alto come nel dock di macOS.
 
 ## Cambio vista
 

@@ -205,15 +205,31 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
     </div>
   </div>
 
-<nav data-pop="0">
+<nav>
   <div>
     <div class="nav-title"><span class="nav-logo" id="navLogo"></span><span>ER Oncology Archivist</span></div>
     <div class="nav-sub" id="navSub">raccolta dati pronto soccorso</div>
   </div>
-  <div class="nav-tabs"><span class="nav-tab-highlight" id="navTabHighlight" aria-hidden="true"></span>
-    <button type="button" class="nav-tab active" data-act="view" data-view="wizard">+ Nuovo esame</button>
-    <button type="button" class="nav-tab" data-act="view" data-view="db">Archivio</button>
-    <button type="button" class="nav-tab" data-act="view" data-view="stats">Statistiche</button>
+  <div class="nav-tabs nav-dock" id="navDock" role="tablist">
+    <span class="nav-tab-highlight" id="navTabHighlight" aria-hidden="true"></span>
+    <button type="button" class="nav-tab dock-item active"
+            data-act="view" data-view="wizard" role="tab" aria-selected="true">
+      <span class="dock-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15h6"/></svg></span>
+      <span class="dock-label">Nuovo esame</span>
+    </button>
+    <button type="button" class="nav-tab dock-item"
+            data-act="view" data-view="db" role="tab" aria-selected="false">
+      <span class="dock-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/></svg></span>
+      <span class="dock-label">Archivio</span>
+    </button>
+    <button type="button" class="nav-tab dock-item"
+            data-act="view" data-view="stats" role="tab" aria-selected="false">
+      <span class="dock-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M7 16h2v-5H7z"/><path d="M12 16h2V8h-2z"/><path d="M17 16h2v-9h-2z"/></svg></span>
+      <span class="dock-label">Statistiche</span>
+    </button>
   </div>
   <div class="nav-right">
     <span class="save-status offline" id="saveStatus">&#9679; avvio...</span>
@@ -267,13 +283,13 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
 <!-- Le tre viste vivono affiancate: lo switch le fa scorrere -->
 <div class="views-port" id="viewsPort"><div class="views-track" id="viewsTrack">
 <div class="view active" id="view-wizard">
-<div class="wizard-wrap" data-pop="1">
+<div class="wizard-wrap">
   <div id="modeBanner"></div>
-  <div class="wizard-progress" id="wizProgress"></div>
+  <div class="wizard-progress pop-section" id="wizProgress"></div>
 
   <!-- Step 1: Anagrafica -->
   <div class="wstep active" id="ws-1">
-    <div class="step-card">
+    <div class="step-card pop-section">
       <div class="step-head">
         <div class="step-num">1</div>
         <div><div class="step-title">Anagrafica paziente</div><div class="step-desc">Nome, cognome, sesso e data di nascita</div></div>
@@ -324,7 +340,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
 
   <!-- Step 2: Esame PS -->
   <div class="wstep" id="ws-2">
-    <div class="step-card">
+    <div class="step-card pop-section">
       <div class="step-head">
         <div class="step-num">2</div>
         <div><div class="step-title">Dati dell'esame</div><div class="step-desc">Data, tipo di esame e richiesta del PS</div></div>
@@ -359,7 +375,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
 
   <!-- Step 3: Diagnosi oncologica -->
   <div class="wstep" id="ws-3">
-    <div class="step-card">
+    <div class="step-card pop-section">
       <div class="step-head">
         <div class="step-num">3</div>
         <div><div class="step-title">Diagnosi oncologica</div><div class="step-desc">Esito dell'esame e diagnosi oncologica</div></div>
@@ -498,7 +514,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
 
   <!-- Step 4: Anat. Pat. + Riepilogo -->
   <div class="wstep" id="ws-4">
-    <div class="step-card">
+    <div class="step-card pop-section">
       <div class="step-head">
         <div class="step-num">4</div>
         <div><div class="step-title">Anatomia patologica &amp; riepilogo</div><div class="step-desc">Riscontro istologico e follow-up progressivi</div></div>
@@ -563,7 +579,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
 ════════════════════════════════════════ -->
 <div class="view" id="view-db">
   <div id="dbModeBanner"></div>
-  <div class="stats-row">
+  <div class="stats-row pop-section">
     <div class="sc"><div class="sc-n" id="sTot">0</div><div class="sc-l">Tot. esami</div></div>
     <div class="sc"><div class="sc-n c-onco" id="sOnco">0</div><div class="sc-l">Oncologici</div></div>
     <div class="sc"><div class="sc-n c-amber" id="sSosp">0</div><div class="sc-l">Sospetti</div></div>
@@ -572,7 +588,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
     <div class="sc"><div class="sc-n c-red" id="sMeta">0</div><div class="sc-l">Metastasi</div></div>
     <div class="sc"><div class="sc-n c-m" id="sM">0</div><div class="sc-l">Maschi</div></div>
   </div>
-  <div class="db-topbar">
+  <div class="db-topbar pop-section">
     <div class="flt"><label for="fOnco">Esito onco.</label>
       <select id="fOnco">
         <option value="">Tutti</option>
@@ -612,7 +628,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
     <button type="button" class="btn btn-outline btn-sm" data-act="reset-filters">Azzera</button>
     <button type="button" class="btn btn-green btn-sm" data-act="export-open">Esporta…</button>
   </div>
-  <div class="tbl-wrap">
+  <div class="tbl-wrap pop-section">
     <div class="tbl-bar">
       <span class="tbl-count" id="tblCount">0 esami</span>
       <div class="tbl-bar-actions">
@@ -646,7 +662,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
 ════════════════════════════════════════ -->
 <div class="view" id="view-stats">
   <div id="statsModeBanner"></div>
-  <div class="stats-filters">
+  <div class="stats-filters pop-section">
     <div class="flt"><label for="sfDal">Dal</label><input type="date" id="sfDal"></div>
     <div class="flt"><label for="sfAl">Al</label><input type="date" id="sfAl"></div>
     <div class="flt"><label for="sfTipo">Tipo esame</label>
@@ -665,12 +681,12 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
     <button type="button" class="btn btn-outline btn-sm" data-act="reset-stats">Azzera filtri</button>
     <button type="button" class="btn btn-green btn-sm" data-act="export-open">Esporta…</button>
   </div>
-  <div class="stats-grid" id="statsCards"></div>
-  <div class="chart-grid">
-    <div class="chart-card"><h3>Distribuzione generale</h3><div id="svgDonut" class="donut-wrap"></div></div>
-    <div class="chart-card"><h3>Diagnosi per sede / organo</h3><div id="svgBarseSede" class="chart-scroll"></div></div>
+  <div class="stats-grid pop-section" id="statsCards"></div>
+  <div class="chart-grid pop-section">
+    <div class="chart-card pop-section"><h3>Distribuzione generale</h3><div id="svgDonut" class="donut-wrap"></div></div>
+    <div class="chart-card pop-section"><h3>Diagnosi per sede / organo</h3><div id="svgBarseSede" class="chart-scroll"></div></div>
   </div>
-  <div class="chart-card">
+  <div class="chart-card pop-section">
     <h3>Andamento mensile — esami vs diagnosi oncologiche</h3>
     <div id="svgMensile" class="chart-scroll"></div>
     <div class="chart-legend">
@@ -679,7 +695,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
       <span class="legend-item"><span class="legend-dot lg-amber"></span>% (linea)</span>
     </div>
   </div>
-  <div class="chart-card">
+  <div class="chart-card pop-section">
     <h3>Heatmap per tipo di esame &nbsp;<span class="h3-note">n. esami (oncologici) · colore = % hit oncologico</span></h3>
     <div class="heatmap-wrap" id="svgHeatmap"></div>
     <div class="chart-legend mt-6">
@@ -690,14 +706,14 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
       <span class="legend-item"><span class="legend-dot hm-4"></span>≥50%</span>
     </div>
   </div>
-  <div class="panel">
+  <div class="panel pop-section">
     <div class="panel-head">
       <h3>Dettaglio mensile per tipo di esame</h3>
       <span class="panel-note">% = oncologici / totale del mese</span>
     </div>
     <div class="tbl-scroll"><table class="data-table"><thead><tr id="tableMensileHead"></tr></thead><tbody id="tableMensileBody"></tbody></table></div>
   </div>
-  <div class="panel" id="tableSedeWrap">
+  <div class="panel pop-section" id="tableSedeWrap">
     <div class="panel-head">
       <h3>Prevalenza per sede / tipo di diagnosi oncologica</h3>
       <span class="panel-note">% = sul totale delle diagnosi oncologiche</span>
@@ -790,7 +806,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
   </div>
 </div>
 
-<div class="app-footer" data-pop="2">&copy; 2026 StructuRad. All rights reserved. Powered by RadioPako.</div>
+<div class="app-footer">&copy; 2026 StructuRad. All rights reserved. Powered by RadioPako.</div>
 <div class="notif" id="notif"></div>
 <div id="printRoot"></div>
 
