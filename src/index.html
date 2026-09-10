@@ -661,8 +661,8 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
   </div>
   <div class="stats-grid pop-section" id="statsCards"></div>
   <div class="chart-grid pop-section">
-    <div class="chart-card pop-section"><h3>Distribuzione generale</h3><div id="svgDonut" class="donut-wrap"></div><div class="chart-nota" id="nota-donut"></div></div>
-    <div class="chart-card pop-section"><h3>Diagnosi per sede / organo</h3><div id="svgBarseSede" class="chart-scroll"></div><div class="chart-nota" id="nota-sede"></div></div>
+    <div class="chart-card pop-section"><h3>Distribuzione generale</h3><div id="svgDonut" class="donut-wrap"></div><div class="graf-dettaglio" id="det-donut" aria-live="polite"></div><div class="chart-nota" id="nota-donut"></div></div>
+    <div class="chart-card pop-section"><h3>Diagnosi per sede / organo</h3><div id="svgBarseSede" class="chart-scroll"></div><div class="graf-dettaglio" id="det-sede" aria-live="polite"></div><div class="chart-nota" id="nota-sede"></div></div>
   </div>
   <div class="chart-card pop-section">
     <h3>Andamento mensile — esami vs diagnosi oncologiche</h3>
@@ -672,6 +672,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
       <span class="legend-item"><span class="legend-dot lg-onco"></span>Oncologici + sospetti</span>
       <span class="legend-item"><span class="legend-dot lg-amber"></span>% (linea)</span>
     </div>
+    <div class="graf-dettaglio" id="det-mensile" aria-live="polite"></div>
     <div class="chart-nota" id="nota-mensile"></div>
   </div>
   <div class="chart-card pop-section">
@@ -684,8 +685,9 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
       <span class="legend-item"><span class="legend-dot hm-3"></span>30–49%</span>
       <span class="legend-item"><span class="legend-dot hm-4"></span>≥50%</span>
     </div>
-  </div>
+    <div class="graf-dettaglio" id="det-heatmap" aria-live="polite"></div>
     <div class="chart-nota" id="nota-heatmap"></div>
+  </div>
   <div class="panel pop-section">
     <div class="panel-head">
       <h3>Dettaglio mensile per tipo di esame</h3>

@@ -687,6 +687,7 @@ function showView(name) {
   if (name === 'stats') renderStats();
   if (name === 'db') applyFilters();
   popSections(name);
+  if (name === 'stats') avviaAnimazioniGrafici(true);
 }
 
 /** Sposta il binario e allinea schede, aria e highlight. */
@@ -1621,14 +1622,22 @@ function kpiPeriodo(set) {
   };
 }
 
-/** Spicchi della ciambella: condivisi da grafico, report e presentazione. */
+/** Spicchi della ciambella: si escludono a vicenda, quindi sommano al
+ *  totale degli esami. Prima c'erano anche primo riscontro e metastasi,
+ *  che sono sottoinsiemi delle diagnosi: il centro diceva 287 su 210. */
 function segmentiDistribuzione(k) {
   return [
-    { label: 'Esami negativi', value: Math.max(0, k.tot - k.onco - k.sosp), color: '#C8C6BE' },
-    { label: 'Diagnosi oncologiche', value: k.onco, color: '#6B1A7A', opacity: 0.85 },
-    { label: 'Sospetti', value: k.sosp, color: '#E8A020' },
-    { label: 'Primo riscontro', value: k.primo, color: '#C2185B' },
-    { label: 'Metastasi', value: k.meta, color: '#8B1A1A', opacity: 0.7 }
+    { key: 'neg', label: 'Esami negativi', corto: 'negativi', value: Math.max(0, k.tot - k.onco - k.sosp), color: '#C8C6BE' },
+    { key: 'onco', label: 'Diagnosi oncologiche', corto: 'oncologici', value: k.onco, color: '#6B1A7A' },
+    { key: 'sosp', label: 'Sospetti', corto: 'sospetti', value: k.sosp, color: '#E8A020' }
+  ].filter((s) => s.value > 0);
+}
+
+/** Sottoinsiemi delle diagnosi oncologiche, mostrati in legenda. */
+function sottoinsiemiDistribuzione(k) {
+  return [
+    { key: 'primo', alias: 'onco', label: 'Primo riscontro', corto: 'primo risc.', value: k.primo, color: '#C2185B' },
+    { key: 'meta', alias: 'onco', label: 'Metastasi', corto: 'metastasi', value: k.meta, color: '#8B1A1A' }
   ].filter((s) => s.value > 0);
 }
 
@@ -1702,7 +1711,10 @@ async function exportPPTX() {
         legenda: seg.map((s) => ({
           colore: hex(s.color), etichetta: s.label,
           valore: s.value + '  ·  ' + Math.round(s.value / somma * 100) + '%'
-        })),
+        })).concat(sottoinsiemiDistribuzione(k).map((s) => ({
+          colore: hex(s.color), etichetta: 'di cui ' + s.label.toLowerCase(),
+          valore: s.value + '  ·  ' + Math.round(s.value / somma * 100) + '%'
+        }))),
         didascalia: nota('donut'),
         piede: piede
       });
@@ -1800,7 +1812,21 @@ function cloneChart(id) {
   if (!source) return '';
   const clone = source.cloneNode(true);
   clone.removeAttribute('id');
-  clone.querySelectorAll('[id]').forEach((n) => n.removeAttribute('id'));
+  clone.classList.remove('anima', 'ha-scelta');
+  clone.querySelectorAll('.scelto').forEach((n) => n.classList.remove('scelto'));
+  // Sfumature, maschere e filtri sono richiamati per id: toglierli
+  // spegnerebbe il grafico nel report, duplicarli confonderebbe i
+  // riferimenti. Si rinominano insieme a ogni url(#...) che li cita.
+  const mappa = {};
+  clone.querySelectorAll('[id]').forEach((n) => { mappa[n.id] = n.id + '-rep'; n.id = mappa[n.id]; });
+  clone.querySelectorAll('*').forEach((n) => {
+    ['fill', 'stroke', 'mask', 'filter', 'clip-path'].forEach((a) => {
+      const v = n.getAttribute(a);
+      if (!v || v.indexOf('url(#') !== 0) return;
+      const rif = v.slice(5, -1);
+      if (mappa[rif]) n.setAttribute(a, 'url(#' + mappa[rif] + ')');
+    });
+  });
   const box = document.createElement('div');
   box.appendChild(clone);
   return box.innerHTML;
@@ -1927,9 +1953,6 @@ async function exportPDF() {
   }
 }
 
-// ══════════════════════════════════════════════════════════════════
-//  GRAFICI SVG
-// ══════════════════════════════════════════════════════════════════
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 function svgEl(tag, attrs, children) {
@@ -1949,107 +1972,268 @@ function chartEmpty(container, text) {
   container.appendChild(d);
 }
 
-function drawDonut(containerId, segments, centerLabel) {
+// ══════════════════════════════════════════════════════════════════
+//  GRAFICI SVG — animati e interattivi
+//
+//  Ogni segno (spicchio, barra, mese, cella) porta data-graf e data-k:
+//  al passaggio del puntatore compare un'etichetta, il click lo
+//  seleziona e apre sotto al grafico una spiegazione generata dai
+//  numeri del periodo. Un secondo click sullo stesso segno la richiude.
+//
+//  Le animazioni vivono nel CSS sotto la classe .anima del contenitore,
+//  che avviaAnimazioniGrafici() aggiunge dopo il pop delle schede. Senza
+//  quella classe (stampa, PNG della presentazione) ogni grafico è già
+//  nel suo stato finale: nessun keyframe definisce lo stato di arrivo.
+// ══════════════════════════════════════════════════════════════════
+function svgDefs(svg, figli) {
+  svg.appendChild(svgEl('defs', {}, figli));
+}
+
+/** Sfumatura lineare: stops = [[offset, colore, opacità], ...] */
+function sfumatura(id, x2, y2, stops) {
+  return svgEl('linearGradient', { id: id, x1: 0, y1: 0, x2: x2, y2: y2 },
+    stops.map((s) => svgEl('stop', { offset: s[0], 'stop-color': s[1], 'stop-opacity': s[2] })));
+}
+
+/** Duotone: metà chiara e metà piena, con il taglio netto a metà. */
+function duotone(id, colore, verticale) {
+  return sfumatura(id, verticale ? 0 : 1, verticale ? 1 : 0,
+    [['50%', colore, 0.42], ['50%', colore, 1]]);
+}
+
+/** Alone morbido: la sagoma sopra una sua copia sfocata. */
+function alone(id, deviazione) {
+  return svgEl('filter', { id: id, x: '-20%', y: '-40%', width: '140%', height: '180%' }, [
+    svgEl('feGaussianBlur', { in: 'SourceGraphic', stdDeviation: deviazione, result: 'sfocato' }),
+    svgEl('feMerge', {}, [svgEl('feMergeNode', { in: 'sfocato' }), svgEl('feMergeNode', { in: 'SourceGraphic' })])
+  ]);
+}
+
+/** Rende un elemento (SVG o HTML) un segno cliccabile del grafico. */
+function marcaGrafico(e, graf, k, titolo, valore, indice) {
+  e.setAttribute('data-act', 'grafico');
+  e.setAttribute('data-graf', graf);
+  e.setAttribute('data-k', k);
+  e.setAttribute('data-tip', titolo);
+  e.setAttribute('data-tip2', valore);
+  e.setAttribute('tabindex', '0');
+  e.setAttribute('role', 'button');
+  e.setAttribute('aria-pressed', 'false');
+  e.setAttribute('aria-label', titolo + ': ' + valore);
+  if (indice != null) e.style.setProperty('--i', String(indice));
+  return e;
+}
+
+const r2 = (v) => Math.round(v * 100) / 100;
+
+/** Colore mescolato col bianco. La sfumatura degli spicchi deve restare
+ *  opaca: con l'opacità il bordo smussato, che si sovrappone al
+ *  riempimento, si vedeva come una seconda banda più scura. */
+function schiarisci(hex, f) {
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (v) => Math.round(v + (255 - v) * f).toString(16).padStart(2, '0');
+  return '#' + ch((n >> 16) & 255) + ch((n >> 8) & 255) + ch(n & 255);
+}
+
+// ── Ciambella ──────────────────────────────────────────────────────
+// Spicchi separati da un piccolo spazio e con gli angoli smussati, su
+// sfumatura verticale e con ombra, come nel riferimento. Si apre con un
+// giro completo: una maschera circolare che si srotola in senso orario.
+function drawDonut(containerId, segments, centerLabel, sottoinsiemi) {
   const box = el(containerId);
   if (!box) return;
   const total = segments.reduce((s, x) => s + x.value, 0);
   if (!total) { chartEmpty(box, 'Nessun dato.'); return; }
 
-  const W = 180, cx = 90, cy = 90, R = 70, ri = 44;
-  const svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + W, width: W, height: W, style: 'flex-shrink:0;' });
-  let angle = -Math.PI / 2;
-
-  segments.forEach((seg) => {
-    if (!seg.value) return;
-    const sweep = (seg.value / total) * 2 * Math.PI;
-    const end = angle + sweep;
-    const x1 = cx + R * Math.cos(angle), y1 = cy + R * Math.sin(angle);
-    const x2 = cx + R * Math.cos(end), y2 = cy + R * Math.sin(end);
-    const xi1 = cx + ri * Math.cos(angle), yi1 = cy + ri * Math.sin(angle);
-    const xi2 = cx + ri * Math.cos(end), yi2 = cy + ri * Math.sin(end);
-    const large = sweep > Math.PI ? 1 : 0;
-    const d = 'M ' + x1 + ' ' + y1 + ' A ' + R + ' ' + R + ' 0 ' + large + ' 1 ' + x2 + ' ' + y2 +
-      ' L ' + xi2 + ' ' + yi2 + ' A ' + ri + ' ' + ri + ' 0 ' + large + ' 0 ' + xi1 + ' ' + yi1 + ' Z';
-    const path = svgEl('path', { d: d, fill: seg.color, opacity: seg.opacity || 1 });
-    path.appendChild(svgEl('title', {}, [seg.label + ': ' + seg.value +
-      ' (' + Math.round(seg.value / total * 100) + '%)']));
-    svg.appendChild(path);
-    angle = end;
+  const W = 220, c = W / 2, R = 94, ri = 64, ARR = 5;
+  const svg = svgEl('svg', {
+    viewBox: '0 0 ' + W + ' ' + W, width: W, height: W,
+    class: 'graf-donut', 'data-n': total, 'data-l': centerLabel || 'totale'
   });
+  svgDefs(svg, [
+    svgEl('filter', { id: 'gd-ombra', x: '-25%', y: '-25%', width: '150%', height: '160%' }, [
+      svgEl('feDropShadow', { dx: 0, dy: 6, stdDeviation: 5, 'flood-color': '#18170F', 'flood-opacity': 0.16 })
+    ]),
+    svgEl('mask', { id: 'gd-maschera', maskUnits: 'userSpaceOnUse', x: 0, y: 0, width: W, height: W }, [
+      svgEl('circle', {
+        class: 'graf-sweep', cx: c, cy: c, r: (R + ri) / 2, fill: 'none', stroke: '#fff',
+        'stroke-width': R - ri + 34, pathLength: 1, 'stroke-dasharray': '1 1',
+        transform: 'rotate(-90 ' + c + ' ' + c + ')'
+      })
+    ])
+  ].concat(segments.map((s, i) => sfumatura('gd-f' + i, 0, 1, [['0%', s.color, 1], ['100%', schiarisci(s.color, 0.2), 1]]))));
+
+  const gruppo = svgEl('g', { mask: 'url(#gd-maschera)', filter: 'url(#gd-ombra)' });
+  const pt = (r, a) => r2(c + r * Math.cos(a)) + ' ' + r2(c + r * Math.sin(a));
+  const PAD = segments.length > 1 ? 0.05 : 0;
+  let a = -Math.PI / 2;
+
+  segments.forEach((seg, i) => {
+    const sweep = seg.value / total * 2 * Math.PI;
+    const a0 = a + PAD / 2, a1 = a + sweep - PAD / 2;
+    const mezzo = (a0 + a1) / 2;
+    a += sweep;
+    const g = marcaGrafico(svgEl('g', { class: 'graf-seg' }), 'donut', seg.key, seg.label,
+      seg.value + ' esami · ' + pct(seg.value, total, 1), i);
+    g.style.setProperty('--dx', r2(Math.cos(mezzo) * 6) + 'px');
+    g.style.setProperty('--dy', r2(Math.sin(mezzo) * 6) + 'px');
+
+    if (segments.length === 1) {
+      g.appendChild(svgEl('circle', { cx: c, cy: c, r: (R + ri) / 2, fill: 'none',
+        stroke: 'url(#gd-f' + i + ')', 'stroke-width': R - ri }));
+    } else {
+      // Sagoma rimpicciolita di ARR su ogni lato e ripassata con un tratto
+      // largo 2*ARR a giunti tondi: torna alla misura piena, smussata.
+      const ro = R - ARR, rin = ri + ARR;
+      const da = ARR / ((ro + rin) / 2);
+      const b0 = a0 + da;
+      const b1 = Math.max(b0 + 0.002, a1 - da);
+      const grande = (b1 - b0) > Math.PI ? 1 : 0;
+      const d = 'M ' + pt(ro, b0) + ' A ' + ro + ' ' + ro + ' 0 ' + grande + ' 1 ' + pt(ro, b1) +
+        ' L ' + pt(rin, b1) + ' A ' + rin + ' ' + rin + ' 0 ' + grande + ' 0 ' + pt(rin, b0) + ' Z';
+      g.appendChild(svgEl('path', {
+        d: d, fill: 'url(#gd-f' + i + ')', stroke: 'url(#gd-f' + i + ')',
+        'stroke-width': ARR * 2, 'stroke-linejoin': 'round'
+      }));
+    }
+    gruppo.appendChild(g);
+  });
+  svg.appendChild(gruppo);
 
   svg.appendChild(svgEl('text', {
-    x: cx, y: cy - 6, 'text-anchor': 'middle', 'font-size': '22',
-    'font-weight': '500', fill: '#18170F', 'font-family': 'IBM Plex Mono,monospace'
+    class: 'graf-centro-n', x: c, y: c + 4, 'text-anchor': 'middle', 'font-size': 30,
+    'font-weight': 600, fill: '#18170F', 'font-family': 'IBM Plex Mono,monospace'
   }, [String(total)]));
   svg.appendChild(svgEl('text', {
-    x: cx, y: cy + 12, 'text-anchor': 'middle', 'font-size': '10', fill: '#6B6A62'
+    class: 'graf-centro-l', x: c, y: c + 24, 'text-anchor': 'middle', 'font-size': 11, fill: '#6B6A62'
   }, [centerLabel || 'totale']));
 
+  // Legenda HTML: ogni riga è cliccabile quanto lo spicchio.
   const legend = document.createElement('div');
   legend.className = 'donut-legend';
-  segments.forEach((seg) => {
-    if (!seg.value) return;
+  const riga = (s, i, sotto) => {
     const row = document.createElement('div');
-    row.className = 'dl-row';
+    row.className = 'dl-row' + (sotto ? ' dl-sub' : '');
+    marcaGrafico(row, 'donut', s.key, s.label, s.value + ' esami · ' + pct(s.value, total, 1), i);
+    row.setAttribute('data-v', String(s.value));
+    row.setAttribute('data-corto', s.corto || s.label);
+    if (s.alias) row.setAttribute('data-alias', s.alias);
     const dot = document.createElement('div');
-    dot.className = 'dl-dot';
-    dot.style.background = seg.color;
-    dot.style.opacity = String(seg.opacity || 1);
+    dot.className = 'dl-dot' + (sotto ? ' dl-anello' : '');
+    if (sotto) dot.style.borderColor = s.color; else dot.style.background = s.color;
     const txt = document.createElement('div');
     const lbl = document.createElement('div');
     lbl.className = 'dl-label';
-    lbl.textContent = seg.label;
-    const num_ = document.createElement('div');
-    num_.className = 'dl-num';
-    num_.textContent = seg.value + ' — ' + Math.round(seg.value / total * 100) + '%';
-    num_.style.color = seg.color;
+    lbl.textContent = (sotto ? 'di cui ' + s.label.toLowerCase() : s.label);
+    const num = document.createElement('div');
+    num.className = 'dl-num';
+    num.textContent = s.value + ' — ' + pct(s.value, total, 1);
+    num.style.color = s.color;
     txt.appendChild(lbl);
-    txt.appendChild(num_);
+    txt.appendChild(num);
     row.appendChild(dot);
     row.appendChild(txt);
     legend.appendChild(row);
-  });
+  };
+  segments.forEach((s, i) => riga(s, i, false));
+  (sottoinsiemi || []).forEach((s, i) => riga(s, segments.length + i, true));
 
   box.textContent = '';
   box.appendChild(svg);
   box.appendChild(legend);
 }
 
-function drawHBars(containerId, items, opts) {
+/** Al centro della ciambella il valore dello spicchio scelto. */
+function aggiornaCentroDonut(box, k) {
+  const svg = box.querySelector('svg.graf-donut');
+  if (!svg) return;
+  const n = svg.querySelector('.graf-centro-n');
+  const l = svg.querySelector('.graf-centro-l');
+  let valore = svg.getAttribute('data-n');
+  let etichetta = svg.getAttribute('data-l');
+  if (k !== null) {
+    const voce = Array.prototype.find.call(box.querySelectorAll('.dl-row'),
+      (e) => e.getAttribute('data-k') === k);
+    if (voce) { valore = voce.getAttribute('data-v'); etichetta = voce.getAttribute('data-corto'); }
+  }
+  if (n) n.textContent = valore;
+  if (l) l.textContent = etichetta;
+}
+
+// ── Barre orizzontali (sedi) ───────────────────────────────────────
+function drawHBars(containerId, items) {
   const box = el(containerId);
   if (!box) return;
   if (!items.length) { chartEmpty(box, 'Nessuna diagnosi oncologica nel periodo.'); return; }
 
-  const W = 500, ROW_H = 28, PAD_L = 130, PAD_R = 80, PAD_T = 8;
+  const W = 540, ROW_H = 32, PAD_L = 120, PAD_R = 96, PAD_T = 6, BAR_H = 18;
   const H = PAD_T * 2 + ROW_H * items.length;
   const maxVal = Math.max.apply(null, items.map((i) => i.value).concat([1]));
   const TW = W - PAD_L - PAD_R;
-  const svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, width: '100%', style: 'max-width:500px;' });
+  const svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, width: '100%', class: 'graf-barre',
+    style: 'max-width:' + W + 'px;' });
+  svgDefs(svg, [duotone('gs-onco', '#6B1A7A', true), duotone('gs-meta', '#8B1A1A', true)]);
 
   [0.25, 0.5, 0.75, 1].forEach((f) => {
     const x = PAD_L + TW * f;
-    svg.appendChild(svgEl('line', { x1: x, y1: PAD_T, x2: x, y2: H - PAD_T, stroke: '#E0DED7', 'stroke-width': 1 }));
+    svg.appendChild(svgEl('line', { x1: x, y1: PAD_T, x2: x, y2: H - PAD_T,
+      stroke: '#E0DED7', 'stroke-width': 1, 'stroke-dasharray': '3 3' }));
   });
 
   items.forEach((item, i) => {
     const y = PAD_T + i * ROW_H;
-    const bw = Math.round(item.value / maxVal * TW);
-    const bw2 = item.value2 ? Math.round(item.value2 / maxVal * TW) : 0;
-    svg.appendChild(svgEl('rect', { x: PAD_L, y: y + 5, width: bw, height: 16, rx: 3, fill: (opts && opts.color) || '#6B1A7A', opacity: 0.85 }));
-    if (bw2 > 0) svg.appendChild(svgEl('rect', { x: PAD_L, y: y + 5, width: bw2, height: 16, rx: 3, fill: '#8B1A1A', opacity: 0.7 }));
-
-    const short = item.label.length > 16 ? item.label.slice(0, 15) + '…' : item.label;
-    const lbl = svgEl('text', { x: PAD_L - 6, y: y + 17, 'text-anchor': 'end', 'font-size': 11, fill: '#18170F' }, [short]);
-    lbl.appendChild(svgEl('title', {}, [item.label]));
-    svg.appendChild(lbl);
-    svg.appendChild(svgEl('text', {
-      x: PAD_L + TW + 6, y: y + 17, 'font-size': 11, fill: '#6B6A62',
-      'font-family': 'IBM Plex Mono,monospace'
-    }, [item.value + (item.pct ? ' (' + item.pct + ')' : '')]));
+    const by = y + (ROW_H - BAR_H) / 2;
+    const bw = Math.max(3, Math.round(item.value / maxVal * TW));
+    const bw2 = item.value2 ? Math.max(3, Math.round(item.value2 / maxVal * TW)) : 0;
+    const g = marcaGrafico(svgEl('g', { class: 'graf-riga' }), 'sede', item.label, item.label,
+      item.value + ' casi · ' + item.pct + (item.value2 ? ' · ' + item.value2 + ' con metastasi' : ''), i);
+    g.appendChild(svgEl('rect', { class: 'graf-fondo', x: 0, y: y + 1, width: W, height: ROW_H - 2,
+      rx: 7, fill: '#A82255', 'fill-opacity': 0 }));
+    g.appendChild(svgEl('rect', { class: 'graf-barra-x', x: PAD_L, y: by, width: bw, height: BAR_H,
+      rx: 5, fill: 'url(#gs-onco)' }));
+    if (bw2) {
+      g.appendChild(svgEl('rect', { class: 'graf-barra-x', x: PAD_L, y: by, width: bw2, height: BAR_H,
+        rx: 5, fill: 'url(#gs-meta)' }));
+    }
+    const corto = item.label.length > 17 ? item.label.slice(0, 16) + '…' : item.label;
+    g.appendChild(svgEl('text', { class: 'graf-etichetta', x: PAD_L - 10, y: y + ROW_H / 2 + 4,
+      'text-anchor': 'end', 'font-size': 11.5, fill: '#18170F' }, [corto]));
+    g.appendChild(svgEl('text', { class: 'graf-valore', x: PAD_L + TW + 10, y: y + ROW_H / 2 + 4,
+      'font-size': 11, fill: '#6B6A62', 'font-family': 'IBM Plex Mono,monospace' },
+      [item.value + (item.pct ? ' (' + item.pct + ')' : '')]));
+    svg.appendChild(g);
   });
 
   box.textContent = '';
   box.appendChild(svg);
+}
+
+// ── Andamento mensile ──────────────────────────────────────────────
+/** Curva monotona (Fritsch–Carlson): morbida come la "natural" del
+ *  riferimento, ma senza uscire sopra il 100% o sotto lo 0%. */
+function curvaMonotona(p) {
+  const n = p.length;
+  if (n < 2) return n ? 'M' + p[0].x + ',' + p[0].y : '';
+  const dx = [], m = [];
+  for (let i = 0; i < n - 1; i++) {
+    dx[i] = p[i + 1].x - p[i].x;
+    m[i] = (p[i + 1].y - p[i].y) / dx[i];
+  }
+  const t = [m[0]];
+  for (let i = 1; i < n - 1; i++) t[i] = m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2;
+  t[n - 1] = m[n - 2];
+  for (let i = 0; i < n - 1; i++) {
+    if (m[i] === 0) { t[i] = 0; t[i + 1] = 0; continue; }
+    const a = t[i] / m[i], b = t[i + 1] / m[i], s = a * a + b * b;
+    if (s > 9) { const k = 3 / Math.sqrt(s); t[i] = k * a * m[i]; t[i + 1] = k * b * m[i]; }
+  }
+  let d = 'M' + r2(p[0].x) + ',' + r2(p[0].y);
+  for (let i = 0; i < n - 1; i++) {
+    const h = dx[i] / 3;
+    d += ' C' + r2(p[i].x + h) + ',' + r2(p[i].y + t[i] * h) + ' ' +
+      r2(p[i + 1].x - h) + ',' + r2(p[i + 1].y - t[i + 1] * h) + ' ' + r2(p[i + 1].x) + ',' + r2(p[i + 1].y);
+  }
+  return d;
 }
 
 function drawMensileChart(containerId, mesi, mesiTot, mesiOnco) {
@@ -2057,68 +2241,95 @@ function drawMensileChart(containerId, mesi, mesiTot, mesiOnco) {
   if (!box) return;
   if (!mesi.length) { chartEmpty(box, 'Nessun dato nel periodo selezionato.'); return; }
 
-  const BAR_W = 36, GAP = 10, PAD_L = 36, PAD_R = 20, PAD_T = 24, PAD_B = 48;
-  const W = PAD_L + mesi.length * (BAR_W + GAP) + PAD_R;
-  const CH = 160;
+  const n = mesi.length;
+  const PAD_L = 34, PAD_R = 42, PAD_T = 30, PAD_B = 46, CH = 170;
+  const W = Math.max(PAD_L + n * 48 + PAD_R, 640);
+  const passo = (W - PAD_L - PAD_R) / n;
+  const BAR_W = Math.min(38, passo * 0.62);
   const H = PAD_T + CH + PAD_B;
+  const base = PAD_T + CH;
   const maxVal = Math.max.apply(null, mesi.map((m) => mesiTot[m] || 0).concat([1]));
-  const svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, width: Math.max(W, 400), height: H, style: 'display:block;' });
+  const svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, width: '100%', class: 'graf-mensile',
+    style: 'display:block;max-height:400px;' });
+  svgDefs(svg, [
+    duotone('gm-tot', '#B5B3AB', false),
+    duotone('gm-onco', '#6B1A7A', false),
+    sfumatura('gm-area', 0, 1, [['5%', '#E8A020', 0.34], ['95%', '#E8A020', 0]]),
+    alone('gm-alone', 3.5)
+  ]);
 
+  // griglia tratteggiata; a sinistra i conteggi, a destra la quota
   [0, 0.25, 0.5, 0.75, 1].forEach((f) => {
     const y = PAD_T + CH * (1 - f);
-    svg.appendChild(svgEl('line', { x1: PAD_L, y1: y, x2: W - PAD_R, y2: y, stroke: '#E0DED7', 'stroke-width': 1 }));
+    svg.appendChild(svgEl('line', { x1: PAD_L, y1: y, x2: W - PAD_R, y2: y, stroke: '#E0DED7',
+      'stroke-width': 1, 'stroke-dasharray': f === 0 ? '' : '3 3' }));
     if (f > 0) {
-      svg.appendChild(svgEl('text', {
-        x: PAD_L - 4, y: y + 4, 'text-anchor': 'end', 'font-size': 9, fill: '#A09E97'
-      }, [String(Math.round(maxVal * f))]));
+      svg.appendChild(svgEl('text', { x: PAD_L - 6, y: y + 3.5, 'text-anchor': 'end', 'font-size': 9,
+        fill: '#A09E97' }, [String(Math.round(maxVal * f))]));
+    }
+    if (f === 0.5 || f === 1) {
+      svg.appendChild(svgEl('text', { x: W - PAD_R + 6, y: y + 3.5, 'font-size': 9, fill: '#C98A12' },
+        [Math.round(f * 100) + '%']));
     }
   });
 
-  const linePoints = [];
+  const punti = [];
   mesi.forEach((m, i) => {
-    const x = PAD_L + i * (BAR_W + GAP);
+    const cx = PAD_L + passo * (i + 0.5);
+    const x = cx - BAR_W / 2;
     const tot = mesiTot[m] || 0;
     const onco = mesiOnco[m] || 0;
-    const hTot = Math.round(tot / maxVal * CH);
-    const hOnco = Math.round(onco / maxVal * CH);
+    const hTot = Math.max(2, Math.round(tot / maxVal * CH));
+    const hOnco = onco ? Math.max(2, Math.round(onco / maxVal * CH)) : 0;
+    const quota = tot ? onco / tot * 100 : 0;
 
-    svg.appendChild(svgEl('rect', { x: x, y: PAD_T + CH - hTot, width: BAR_W, height: hTot, rx: 3, fill: '#C8C6BE' }));
-    if (hOnco > 0) {
-      svg.appendChild(svgEl('rect', { x: x, y: PAD_T + CH - hOnco, width: BAR_W, height: hOnco, rx: 3, fill: '#6B1A7A', opacity: 0.85 }));
+    const g = marcaGrafico(svgEl('g', { class: 'graf-mese' }), 'mensile', m, fmtMese(m),
+      tot + ' esami · ' + onco + ' onco. o sospetti (' + pct(onco, tot, 1) + ')', i);
+    g.appendChild(svgEl('rect', { class: 'graf-fondo', x: r2(cx - passo / 2 + 2), y: PAD_T - 8,
+      width: r2(passo - 4), height: CH + 8, rx: 7, fill: '#A82255', 'fill-opacity': 0 }));
+    g.appendChild(svgEl('rect', { class: 'graf-barra-y', x: r2(x), y: base - hTot, width: r2(BAR_W),
+      height: hTot, rx: 4, fill: 'url(#gm-tot)' }));
+    if (hOnco) {
+      g.appendChild(svgEl('rect', { class: 'graf-barra-y', x: r2(x), y: base - hOnco, width: r2(BAR_W),
+        height: hOnco, rx: 4, fill: 'url(#gm-onco)' }));
     }
-
-    const pctVal = tot ? Math.round(onco / tot * 100) : 0;
-    const hit = svgEl('rect', { x: x, y: PAD_T, width: BAR_W, height: CH, fill: 'transparent' });
-    hit.appendChild(svgEl('title', {}, [fmtMese(m) + ': ' + tot + ' esami, ' + onco + ' oncologici (' + pctVal + '%)']));
-    svg.appendChild(hit);
-
-    svg.appendChild(svgEl('text', {
-      x: x + BAR_W / 2, y: H - PAD_B + 14, 'text-anchor': 'middle', 'font-size': 9, fill: '#6B6A62',
-      transform: 'rotate(-35, ' + (x + BAR_W / 2) + ', ' + (H - PAD_B + 14) + ')'
-    }, [fmtMeseBreve(m)]));
-
-    if (tot > 0) linePoints.push({ x: x + BAR_W / 2, y: PAD_T + CH * (1 - pctVal / 100), pct: pctVal });
+    const ly = base + 14;
+    g.appendChild(svgEl('text', { class: 'graf-asse', x: r2(cx), y: ly, 'text-anchor': 'end',
+      'font-size': 9.5, fill: '#6B6A62', transform: 'rotate(-35 ' + r2(cx + 4) + ' ' + ly + ')' },
+      [fmtMeseBreve(m)]));
+    svg.appendChild(g);
+    if (tot > 0) punti.push({ x: cx, y: PAD_T + CH * (1 - quota / 100), quota: quota });
   });
 
-  if (linePoints.length > 1) {
-    svg.appendChild(svgEl('polyline', {
-      points: linePoints.map((p) => p.x + ',' + p.y).join(' '),
-      fill: 'none', stroke: '#E8A020', 'stroke-width': 2,
-      'stroke-linejoin': 'round', 'stroke-linecap': 'round'
-    }));
+  if (punti.length > 1) {
+    const d = curvaMonotona(punti);
+    const ultimo = punti[punti.length - 1];
+    svg.appendChild(svgEl('path', { class: 'graf-area', fill: 'url(#gm-area)',
+      d: d + ' L' + r2(ultimo.x) + ',' + base + ' L' + r2(punti[0].x) + ',' + base + ' Z' }));
+    svg.appendChild(svgEl('path', { class: 'graf-linea', d: d, fill: 'none', stroke: '#E8A020',
+      'stroke-width': 2.5, 'stroke-linecap': 'round', pathLength: 1, 'stroke-dasharray': '1 1',
+      filter: 'url(#gm-alone)' }));
   }
-  linePoints.forEach((p) => {
-    svg.appendChild(svgEl('circle', { cx: p.x, cy: p.y, r: 4, fill: '#E8A020', stroke: '#fff', 'stroke-width': 1.5 }));
-    svg.appendChild(svgEl('text', {
-      x: p.x, y: p.y - 8, 'text-anchor': 'middle', 'font-size': 9, fill: '#E8A020',
-      'font-weight': '500', 'font-family': 'IBM Plex Mono,monospace'
-    }, [p.pct + '%']));
+  punti.forEach((p, i) => {
+    const c = svgEl('circle', { class: 'graf-punto', cx: r2(p.x), cy: r2(p.y), r: 4.5, fill: '#E8A020',
+      stroke: '#fff', 'stroke-width': 2 });
+    c.style.setProperty('--i', String(i));
+    svg.appendChild(c);
+    // Etichetta sopra il punto, con un alone bianco che la stacca dalle
+    // barre: non si confonde più con quello che c'è sotto.
+    const t = svgEl('text', { class: 'graf-pct', x: r2(p.x), y: r2(Math.max(PAD_T - 12, p.y - 11)),
+      'text-anchor': 'middle', 'font-size': 9.5, 'font-weight': 600, fill: '#B57607',
+      'font-family': 'IBM Plex Mono,monospace', stroke: '#fff', 'stroke-width': 3,
+      'stroke-linejoin': 'round', 'paint-order': 'stroke' }, [Math.round(p.quota) + '%']);
+    t.style.setProperty('--i', String(i));
+    svg.appendChild(t);
   });
 
   box.textContent = '';
   box.appendChild(svg);
 }
 
+// ── Heatmap ────────────────────────────────────────────────────────
 function heatClass(tot, onco) {
   if (!tot) return 'hm-0';
   const p = onco / tot;
@@ -2144,29 +2355,292 @@ function drawHeatmap(containerId, mesi, tipi, set) {
     if (r.onco === 'si' || r.onco === 'sospetto') matrix[m][r.tipo_esame].onco++;
   });
 
+  // intestazioni intere, che vanno a capo: troncate non si leggevano
   let html = '<table class="heatmap-table"><thead><tr><th class="hm-head hm-head-left">Mese</th>';
-  tipi.forEach((t) => {
-    html += '<th class="hm-head" title="' + esc(t) + '">' +
-      esc(t.length > 14 ? t.slice(0, 13) + '…' : t) + '</th>';
-  });
+  tipi.forEach((t) => { html += '<th class="hm-head">' + esc(t) + '</th>'; });
   html += '</tr></thead><tbody>';
 
-  mesi.slice().reverse().forEach((m) => {
+  mesi.slice().reverse().forEach((m, ri) => {
     html += '<tr><td class="hm-month">' + esc(fmtMeseBreve(m)) + '</td>';
-    tipi.forEach((t) => {
+    tipi.forEach((t, ci) => {
       const cell = (matrix[m] || {})[t];
+      const i = Math.min(40, ri + ci);
       if (!cell || !cell.tot) {
-        html += '<td class="hm-0">—</td>';
-      } else {
-        const p = Math.round(cell.onco / cell.tot * 100);
-        html += '<td class="' + heatClass(cell.tot, cell.onco) + '" title="' +
-          cell.tot + ' esami, ' + cell.onco + ' oncologici (' + p + '%)">' +
-          cell.tot + '<span class="hm-sub"> (' + cell.onco + ')</span></td>';
+        html += '<td class="hm-cella hm-vuota" style="--i:' + i + '">—</td>';
+        return;
       }
+      html += '<td class="hm-cella ' + heatClass(cell.tot, cell.onco) + '" data-act="grafico" data-graf="heatmap"' +
+        ' data-k="' + esc(m + '|' + t) + '" data-tip="' + esc(t + ' · ' + fmtMese(m)) + '"' +
+        ' data-tip2="' + esc(cell.tot + ' esami · ' + cell.onco + ' onco. o sospetti (' + pct(cell.onco, cell.tot, 0) + ')') + '"' +
+        ' tabindex="0" role="button" aria-pressed="false" style="--i:' + i + '">' +
+        cell.tot + '<span class="hm-sub"> (' + cell.onco + ')</span></td>';
     });
     html += '</tr>';
   });
   box.innerHTML = html + '</tbody></table>';
+}
+
+// ── Selezione e spiegazione sotto al grafico ───────────────────────
+const GRAF_BOX = { donut: 'svgDonut', sede: 'svgBarseSede', mensile: 'svgMensile', heatmap: 'svgHeatmap' };
+let grafScelto = { donut: null, sede: null, mensile: null, heatmap: null };
+
+function selezionaGrafico(graf, k) {
+  if (!GRAF_BOX[graf]) return;
+  grafScelto[graf] = grafScelto[graf] === k ? null : k;
+  applicaScelta(graf);
+}
+
+function applicaScelta(graf) {
+  const k = grafScelto[graf];
+  const box = el(GRAF_BOX[graf]);
+  if (box) {
+    const segni = Array.prototype.slice.call(box.querySelectorAll('[data-k]'));
+    // "di cui primo riscontro" e "di cui metastasi" accendono anche lo
+    // spicchio delle diagnosi oncologiche a cui appartengono
+    const scelto = segni.find((e) => e.getAttribute('data-k') === k);
+    const alias = scelto ? scelto.getAttribute('data-alias') : null;
+    box.classList.toggle('ha-scelta', k !== null);
+    segni.forEach((e) => {
+      const kk = e.getAttribute('data-k');
+      const acceso = k !== null && (kk === k || kk === alias);
+      e.classList.toggle('scelto', acceso);
+      if (e.getAttribute('role') === 'button') e.setAttribute('aria-pressed', acceso ? 'true' : 'false');
+    });
+    if (graf === 'donut') aggiornaCentroDonut(box, k);
+  }
+
+  const det = el('det-' + graf);
+  if (!det) return;
+  if (k === null) { det.classList.remove('aperto'); return; }
+  const d = dettaglioGrafico(graf, k, getStatsSubset());
+  det.innerHTML =
+    '<div class="det-corpo"><div class="det-testa">' +
+      '<span class="det-punto" style="background:' + d.colore + '"></span>' +
+      '<strong>' + esc(d.titolo) + '</strong>' +
+      '<button type="button" class="det-chiudi" data-act="grafico-chiudi" data-graf="' + graf +
+        '" aria-label="Chiudi la spiegazione">&times;</button>' +
+    '</div><p>' + esc(d.testo) + '</p></div>';
+  det.classList.add('aperto');
+}
+
+function chiudiSceltaGrafico(graf) {
+  if (!GRAF_BOX[graf]) return;
+  grafScelto[graf] = null;
+  applicaScelta(graf);
+}
+
+/** Dopo un nuovo calcolo le selezioni non valgono più. */
+function azzeraSceltaGrafici() {
+  Object.keys(grafScelto).forEach((g) => {
+    grafScelto[g] = null;
+    const det = el('det-' + g);
+    if (det) det.classList.remove('aperto');
+  });
+}
+
+function piuFrequente(righe, campo) {
+  const c = {};
+  righe.forEach((r) => { if (r[campo]) c[r[campo]] = (c[r[campo]] || 0) + 1; });
+  const k = Object.keys(c).sort((a, b) => c[b] - c[a])[0];
+  return k ? { nome: k, n: c[k] } : null;
+}
+
+function conSegno(v, decimali) {
+  const t = decimali ? Math.abs(v).toFixed(decimali).replace('.', ',') : String(Math.abs(v));
+  return (v > 0 ? '+' : v < 0 ? '−' : '±') + t;
+}
+
+/** Spiegazione breve dell'elemento cliccato, dai numeri del periodo. */
+function dettaglioGrafico(graf, k, set) {
+  const kp = kpiPeriodo(set);
+  const oncoTot = kp.onco + kp.sosp;
+  const isOnco = (r) => r.onco === 'si' || r.onco === 'sospetto';
+
+  if (graf === 'donut') {
+    if (k === 'neg') {
+      const neg = Math.max(0, kp.tot - oncoTot);
+      return { titolo: 'Esami negativi', colore: '#C8C6BE',
+        testo: neg + ' esami su ' + kp.tot + ' (' + pct(neg, kp.tot, 1) +
+          ') si sono chiusi senza reperto oncologico né sospetto.' };
+    }
+    if (k === 'onco') {
+      const rs = set.filter((r) => r.onco === 'si');
+      const top = piuFrequente(rs, 'sede');
+      return { titolo: 'Diagnosi oncologiche', colore: '#6B1A7A',
+        testo: rs.length + ' esami con diagnosi oncologica (' + pct(rs.length, kp.tot, 1) + ' del periodo). ' +
+          'Prime diagnosi: ' + kp.prima + '; con metastasi: ' + rs.filter((r) => r.metastasi === 'si').length + '.' +
+          (top ? ' Sede più frequente: ' + top.nome + ' (' + top.n + ').' : '') };
+    }
+    if (k === 'sosp') {
+      const rs = set.filter((r) => r.onco === 'sospetto');
+      const top = piuFrequente(rs, 'sede');
+      return { titolo: 'Sospetti', colore: '#E8A020',
+        testo: rs.length + ' reperti sospetti (' + pct(rs.length, kp.tot, 1) +
+          ' del periodo), da approfondire con follow-up o ulteriori accertamenti.' +
+          (top ? ' Sede più indicata: ' + top.nome + ' (' + top.n + ').' : '') };
+    }
+    if (k === 'primo') {
+      return { titolo: 'Primo riscontro', colore: '#C2185B',
+        testo: kp.primo + ' tumori di primo riscontro, ' + pct(kp.primo, kp.onco, 1) +
+          ' delle diagnosi oncologiche: ' + kp.unica + ' con unica patologia, ' + kp.assoc +
+          ' con patologie associate.' };
+    }
+    if (k === 'meta') {
+      const top = piuFrequente(set.filter((r) => r.metastasi === 'si'), 'meta_sede');
+      return { titolo: 'Metastasi', colore: '#8B1A1A',
+        testo: kp.meta + ' lesioni metastatiche, ' + pct(kp.meta, kp.onco, 1) + ' delle diagnosi oncologiche.' +
+          (top ? ' Sede di metastasi più indicata: ' + top.nome + ' (' + top.n + ').' : '') };
+    }
+  }
+
+  if (graf === 'sede') {
+    const rs = set.filter((r) => isOnco(r) && r.sede === k);
+    const prime = rs.filter((r) => r.prima_onco === 'si').length;
+    const meta = rs.filter((r) => r.metastasi === 'si').length;
+    const sosp = rs.filter((r) => r.onco === 'sospetto').length;
+    const tipo = piuFrequente(rs, 'tipo_esame');
+    return { titolo: k, colore: '#6B1A7A',
+      testo: rs.length + ' casi, ' + pct(rs.length, oncoTot, 1) + ' delle diagnosi oncologiche o sospette. ' +
+        'Prime diagnosi ' + prime + ', metastasi ' + meta + ', sospetti ' + sosp + '.' +
+        (tipo ? ' Esame più usato: ' + tipo.nome + ' (' + tipo.n + ').' : '') };
+  }
+
+  if (graf === 'mensile') {
+    const c = conteggiMese(set);
+    const tot = c.tot[k] || 0, on = c.onco[k] || 0;
+    const i = c.mesi.indexOf(k);
+    let testo = tot + ' esami, ' + on + ' oncologici o sospetti (' + pct(on, tot, 1) + ').';
+    if (i > 0) {
+      const p = c.mesi[i - 1];
+      const tp = c.tot[p] || 0, op = c.onco[p] || 0;
+      const dq = (tot ? on / tot : 0) * 100 - (tp ? op / tp : 0) * 100;
+      testo += ' Rispetto a ' + fmtMese(p) + ': ' + conSegno(tot - tp) + ' esami, quota ' +
+        conSegno(dq, 1) + ' punti.';
+    }
+    const tipo = piuFrequente(set.filter((r) => r.data && r.data.slice(0, 7) === k), 'tipo_esame');
+    if (tipo) testo += ' Esame più frequente: ' + tipo.nome + ' (' + tipo.n + ').';
+    return { titolo: fmtMese(k), colore: '#E8A020', testo: testo };
+  }
+
+  if (graf === 'heatmap') {
+    const sep = k.indexOf('|');
+    const m = k.slice(0, sep), t = k.slice(sep + 1);
+    const rs = set.filter((r) => r.data && r.data.slice(0, 7) === m && r.tipo_esame === t);
+    const on = rs.filter(isOnco).length;
+    const ct = conteggiTipo(set);
+    return { titolo: t + ' · ' + fmtMese(m), colore: '#A82255',
+      testo: rs.length + ' esami, ' + on + ' oncologici o sospetti (' + pct(on, rs.length, 1) + '). ' +
+        'Sull’intero periodo ' + t + ' ha una resa del ' + pct(ct.onco[t] || 0, ct.tot[t] || 0, 1) +
+        ' su ' + (ct.tot[t] || 0) + ' esami.' };
+  }
+  return { titolo: '', colore: '#A82255', testo: '' };
+}
+
+// ── Etichetta al passaggio del puntatore ───────────────────────────
+let grafTip = null;
+
+function setupGrafici() {
+  grafTip = document.createElement('div');
+  grafTip.className = 'graf-tip';
+  grafTip.setAttribute('role', 'tooltip');
+  document.body.appendChild(grafTip);
+
+  const vista = el('view-stats');
+  if (!vista) return;
+  vista.addEventListener('mouseover', (ev) => {
+    const t = ev.target.closest ? ev.target.closest('[data-tip]') : null;
+    if (!t) { nascondiTip(); return; }
+    mostraTip(t, ev.clientX, ev.clientY);
+  });
+  vista.addEventListener('mousemove', (ev) => {
+    if (grafTip.classList.contains('visibile')) posizionaTip(ev.clientX, ev.clientY);
+  });
+  vista.addEventListener('mouseleave', nascondiTip);
+  window.addEventListener('scroll', nascondiTip, { passive: true });
+  // da tastiera: Invio o spazio selezionano come il click
+  vista.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    const t = ev.target.closest ? ev.target.closest('[data-act="grafico"]') : null;
+    if (!t) return;
+    ev.preventDefault();
+    selezionaGrafico(t.getAttribute('data-graf'), t.getAttribute('data-k'));
+  });
+}
+
+function mostraTip(t, x, y) {
+  grafTip.textContent = '';
+  const a = document.createElement('strong');
+  a.textContent = t.getAttribute('data-tip');
+  const b = document.createElement('span');
+  b.textContent = t.getAttribute('data-tip2') || '';
+  grafTip.appendChild(a);
+  grafTip.appendChild(b);
+  grafTip.classList.add('visibile');
+  posizionaTip(x, y);
+}
+
+function posizionaTip(x, y) {
+  const r = grafTip.getBoundingClientRect();
+  let left = x + 14, top = y + 16;
+  if (left + r.width > window.innerWidth - 8) left = x - r.width - 14;
+  if (top + r.height > window.innerHeight - 8) top = y - r.height - 12;
+  grafTip.style.transform = 'translate(' + Math.round(left) + 'px,' + Math.round(top) + 'px)';
+}
+
+function nascondiTip() {
+  if (grafTip) grafTip.classList.remove('visibile');
+}
+
+// ── Animazioni all'apertura della pagina ───────────────────────────
+const GRAF_ANIMATI = ['statsCards', 'svgDonut', 'svgBarseSede', 'svgMensile', 'svgHeatmap', 'tableSedeWrap'];
+let timerAnima = null;
+
+/** Riavvia le animazioni dei grafici. Con dopoPop ognuna parte quando
+ *  la scheda che la contiene ha finito di comparire. */
+function avviaAnimazioniGrafici(dopoPop) {
+  if (PREFS.reduceMotion) return;
+  clearTimeout(timerAnima);
+  let ultimo = 0;
+  GRAF_ANIMATI.forEach((id) => {
+    const box = el(id);
+    if (!box) return;
+    let ritardo = 0;
+    if (dopoPop) {
+      const sez = box.classList.contains('pop-section') ? box : box.closest('.pop-section');
+      ritardo = (parseFloat(sez ? sez.style.getPropertyValue('--pop-delay') : '') || 0) + 260;
+    }
+    ultimo = Math.max(ultimo, ritardo);
+    box.style.setProperty('--ritardo', ritardo + 'ms');
+    box.classList.remove('anima');
+    void box.offsetWidth;
+    box.classList.add('anima');
+  });
+  contaNumeri(dopoPop);
+  // tolta la classe, restano gli stati finali: nessuno scatto, e il
+  // report e le diapositive clonano grafici già fermi
+  timerAnima = setTimeout(() => GRAF_ANIMATI.forEach((id) => {
+    const b = el(id);
+    if (b) b.classList.remove('anima');
+  }), ultimo + 2600);
+}
+
+/** I numeri delle schede salgono da zero al loro valore. */
+function contaNumeri(dopoPop) {
+  const box = el('statsCards');
+  if (!box) return;
+  const ritardo = dopoPop ? (parseFloat(box.style.getPropertyValue('--pop-delay')) || 0) + 180 : 0;
+  box.querySelectorAll('.sb-num[data-n]').forEach((n) => {
+    const fine = parseInt(n.getAttribute('data-n'), 10);
+    if (!(fine > 0)) return;
+    const t0 = performance.now() + ritardo;
+    n.textContent = '0';
+    const passo = (ora) => {
+      const p = Math.min(1, Math.max(0, (ora - t0) / 900));
+      n.textContent = String(Math.round(fine * (1 - Math.pow(1 - p, 3))));
+      if (p < 1) requestAnimationFrame(passo);
+    };
+    requestAnimationFrame(passo);
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -2177,6 +2651,7 @@ function resetStatsFilters() {
   const focus = el('sfFocus');
   if (focus) focus.value = 'all';
   renderStats();
+  avviaAnimazioniGrafici(false);
 }
 
 function getStatsSubset() {
@@ -2211,21 +2686,21 @@ function renderStats() {
   const assoc = set.filter((r) => r.sottocat === 'associata').length;
 
   cards.innerHTML =
-    '<div class="stat-big"><div class="sb-num">' + tot + '</div>' +
+    '<div class="stat-big"><div class="sb-num" data-n="' + tot + '">' + tot + '</div>' +
       '<div class="sb-label">Esami nel periodo</div>' +
       '<div class="sb-sub">Base di calcolo per tutte le percentuali</div></div>' +
-    '<div class="stat-big"><div class="sb-num sb-onco">' + onco + '</div>' +
+    '<div class="stat-big"><div class="sb-num sb-onco" data-n="' + onco + '">' + onco + '</div>' +
       '<div class="sb-pct">' + pct(onco, tot, 1) + ' degli esami</div>' +
       '<div class="sb-label">Diagnosi oncologiche</div>' +
       '<div class="sb-sub">Prime diagnosi: <strong>' + prima + '</strong> (' + pct(prima, tot, 1) +
       ' tot. · ' + pct(prima, onco, 1) + ' onco.)<br>Sospetti: <strong>' + sospetti +
       '</strong> (' + pct(sospetti, tot, 1) + ' degli esami)</div></div>' +
-    '<div class="stat-big"><div class="sb-num sb-onco">' + primo + '</div>' +
+    '<div class="stat-big"><div class="sb-num sb-onco" data-n="' + primo + '">' + primo + '</div>' +
       '<div class="sb-pct">' + pct(primo, onco, 1) + ' delle diagnosi onco.</div>' +
       '<div class="sb-label">Primo riscontro</div>' +
       '<div class="sb-sub">Unica patologia: <strong>' + unica + '</strong> · Con comorbidità: <strong>' +
       assoc + '</strong></div></div>' +
-    '<div class="stat-big"><div class="sb-num sb-red">' + meta + '</div>' +
+    '<div class="stat-big"><div class="sb-num sb-red" data-n="' + meta + '">' + meta + '</div>' +
       '<div class="sb-pct">' + pct(meta, onco, 1) + ' delle diagnosi onco.</div>' +
       '<div class="sb-label">Metastasi</div>' +
       '<div class="sb-sub">Primitive: <strong>' + Math.max(0, onco - meta) + '</strong> (' +
@@ -2240,9 +2715,8 @@ function renderStats() {
   });
   const mesiSorted = Object.keys(mesiTot).sort().slice(-24);
 
-  drawDonut('svgDonut', segmentiDistribuzione({
-    tot: tot, onco: onco, sosp: sospetti, primo: primo, meta: meta
-  }), 'esami');
+  const kd = { tot: tot, onco: onco, sosp: sospetti, primo: primo, meta: meta };
+  drawDonut('svgDonut', segmentiDistribuzione(kd), 'esami', sottoinsiemiDistribuzione(kd));
 
   const sediTot = {}, sediMeta = {}, sediPrima = {};
   set.filter((r) => (r.onco === 'si' || r.onco === 'sospetto') && r.sede).forEach((r) => {
@@ -2268,6 +2742,7 @@ function renderStats() {
   renderTableMensile(mesiSorted, tipi, set, mesiTot, mesiOnco);
   renderTableSede(sediSorted, sediPrima, sediMeta, onco, sospetti, prima, meta);
   renderNote(set);
+  azzeraSceltaGrafici();
 }
 
 function renderTableMensile(mesi, tipi, set, mesiTot, mesiOnco) {
@@ -2319,7 +2794,7 @@ function renderTableSede(sediSorted, sediPrima, sediMeta, onco, sospetti, prima,
     return;
   }
   const max = sediSorted[0][1] || 1;
-  body.innerHTML = sediSorted.map((entry) => {
+  body.innerHTML = sediSorted.map((entry, i) => {
     const sede = entry[0], casi = entry[1];
     const ps = sediPrima[sede] || 0;
     const ms = sediMeta[sede] || 0;
@@ -2329,7 +2804,7 @@ function renderTableSede(sediSorted, sediPrima, sediMeta, onco, sospetti, prima,
       '<td class="sd-c v-onco">' + ps + (ps ? ' <span class="sd-pct">(' + pct(ps, casi, 0) + ')</span>' : '') + '</td>' +
       '<td class="sd-c v-red">' + ms + (ms ? ' <span class="sd-pct">(' + pct(ms, casi, 0) + ')</span>' : '') + '</td>' +
       '<td class="sd-bar-cell"><div class="sd-bar-wrap"><div class="sd-bar-track">' +
-      '<div class="sd-bar" style="width:' + barW + '%"></div></div>' +
+      '<div class="sd-bar" style="width:' + barW + '%;--i:' + i + '"></div></div>' +
       '<span class="sd-bar-val">' + pct(casi, onco + sospetti, 1) + '</span></div></td></tr>';
   }).join('') +
     '<tr class="sd-total"><td class="sd-name">TOTALE</td>' +
@@ -3330,20 +3805,44 @@ function toggleRail(pan) {
   const chiudi = !pan || railAperto === pan;
   railAperto = chiudi ? null : pan;
 
+  // Il cambio di larghezza avviene in un colpo solo: il dock e lo stato
+  // scivolano nella nuova posizione (FLIP), il contenuto rientra con una
+  // breve dissolvenza che nasconde il riadattamento del testo.
+  const mobili = [el('navDock'), document.querySelector('.nav-right')].filter(Boolean);
+  const prima = mobili.map((e) => e.getBoundingClientRect().left);
   document.body.classList.toggle('rail-aperto', !chiudi);
+  if (!PREFS.reduceMotion) {
+    mobili.forEach((e, i) => {
+      const dx = prima[i] - e.getBoundingClientRect().left;
+      if (!dx) return;
+      e.style.transition = 'none';
+      e.style.transform = 'translateX(' + dx + 'px)';
+      void e.offsetWidth;
+      e.style.transition = 'transform .5s cubic-bezier(.22,1,.36,1)';
+      e.style.transform = '';
+      setTimeout(() => { e.style.transition = ''; }, 540);
+    });
+    const vp = el('viewsPort');
+    if (vp) { vp.classList.remove('rientra'); void vp.offsetWidth; vp.classList.add('rientra'); }
+  }
   document.querySelectorAll('.rail-btn').forEach((b) => {
     b.setAttribute('aria-selected', b.getAttribute('data-pan') === railAperto ? 'true' : 'false');
   });
   document.querySelectorAll('.pan').forEach((sez) => {
     const suo = sez.getAttribute('data-pan') === railAperto;
     sez.classList.remove('attivo');
-    if (suo) { void sez.offsetWidth; sez.classList.add('attivo'); }
+    if (suo) {
+      // le voci del pannello entrano a cascata da destra
+      Array.prototype.forEach.call(sez.children, (c, i) => c.style.setProperty('--i', String(Math.min(i, 12))));
+      void sez.offsetWidth;
+      sez.classList.add('attivo');
+    }
   });
 
   if (railAperto === 'info' || railAperto === 'archivio') refreshSettingsInfo();
   if (railAperto === 'esami') renderTipiEsame();
-  // il fondino della scheda attiva e il dock si spostano con il layout
-  setTimeout(moveTabHighlight, 460);
+  // il fondino è relativo al dock: si riallinea subito
+  requestAnimationFrame(moveTabHighlight);
 }
 
 /** Compatibilità con i vecchi punti di chiamata: chiudere il menu. */
@@ -3708,10 +4207,13 @@ const CLICK_ACTIONS = {
   'reset-wizard': () => { resetWizard(); notify('Modulo azzerato.'); },
   'add-fu': () => addFU(),
   'del-fu': (t) => removeFU(parseInt(t.getAttribute('data-idx'), 10)),
-  'set-onco': (t) => setOnco(t.getAttribute('data-val')),
-  'set-class': (t) => setClassTumore(t.getAttribute('data-val')),
-  'set-sottocat': (t) => setSottocat(t.getAttribute('data-val')),
-  'set-meta': (t) => setMetastasi(t.getAttribute('data-val')),
+  // un secondo click sul toggle attivo lo spegne e richiude la sua sezione
+  'set-onco': (t) => { const v = t.getAttribute('data-val'); setOnco(wOnco === v ? null : v); },
+  'set-class': (t) => setClassTumore(wPrimo ? null : t.getAttribute('data-val')),
+  'set-sottocat': (t) => { const v = t.getAttribute('data-val'); setSottocat(wSottocat === v ? null : v); },
+  'set-meta': (t) => { const v = t.getAttribute('data-val'); setMetastasi(wMetastasi === v ? null : v); },
+  'grafico': (t) => selezionaGrafico(t.getAttribute('data-graf'), t.getAttribute('data-k')),
+  'grafico-chiudi': (t) => chiudiSceltaGrafico(t.getAttribute('data-graf')),
   'rail': (t) => toggleRail(t.getAttribute('data-pan')),
   'pref': (t) => togglePref(t.getAttribute('data-pref')),
   'nota-modifica': (t) => modificaNota(t.getAttribute('data-nota')),
@@ -3757,6 +4259,7 @@ const CLICK_ACTIONS = {
 };
 
 function wireEvents() {
+  setupGrafici();
   document.addEventListener('click', (ev) => {
     const target = ev.target.closest('[data-act]');
     if (!target) return;
@@ -3783,7 +4286,10 @@ function wireEvents() {
 
   ['fOnco', 'fPrima', 'fClassTumore', 'fMeta', 'fTipo'].forEach((id) => on(id, 'change', applyFilters));
   on('fSearch', 'input', applyFilters);
-  ['sfDal', 'sfAl', 'sfTipo', 'sfFocus'].forEach((id) => on(id, 'change', renderStats));
+  ['sfDal', 'sfAl', 'sfTipo', 'sfFocus'].forEach((id) => on(id, 'change', () => {
+    renderStats();
+    avviaAnimazioniGrafici(false);
+  }));
 
   on('chkAll', 'change', (ev) => toggleAll(ev.target.checked));
   const tbody = el('tblBody');
