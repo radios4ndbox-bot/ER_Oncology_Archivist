@@ -1198,14 +1198,80 @@ body.reduce-motion #hexReveal { display: none; }
 .wp-step[aria-disabled="true"]:hover .wp-dot { transform: none; }
 .wp-step[aria-disabled="true"]:hover .wp-label { color: var(--muted); }
 
-/* Le sezioni che compaiono usando i toggle entrano con la stessa molla */
-.reveal-block { display: none; }
-.reveal-block.aperto {
-  display: block;
-  animation: popSection .38s cubic-bezier(.34,1.28,.64,1) forwards;
-  transform-origin: top center;
+/* ══════════════════════════════════════════════════════════════════
+   Sezioni aperte dai toggle — dal dropdown di Uiverse (ilkhoeri)
+
+   Stessa dinamica in apertura e in chiusura, 500 ms: l'altezza si
+   espande (o collassa) mentre il contenuto sale sfumando dal basso.
+   L'altezza si anima con grid-template-rows 0fr → 1fr, che a
+   differenza di height:auto è interpolabile.
+
+   I margini delle sezioni stanno sul contenitore e non sul figlio: in
+   una traccia 0fr i margini del figlio conterebbero comunque e la
+   sezione chiusa lascerebbe un buco. visibility, con il suo ritardo,
+   toglie i campi chiusi dal tab quando la chiusura è finita.
+   ══════════════════════════════════════════════════════════════════ */
+.reveal-block {
+  display: grid;
+  grid-template-rows: 0fr;
+  overflow: clip;
+  overflow-clip-margin: 4px;          /* anelli di focus dei campi */
+  visibility: hidden;
+  transition: grid-template-rows .5s ease-out, margin .5s ease-out, visibility 0s linear .5s;
 }
-body.reduce-motion .reveal-block.aperto { animation: none; opacity: 1; transform: none; }
+.reveal-block:not(.aperto) { margin-top: 0; margin-bottom: 0; }
+.reveal-block > * {
+  min-height: 0;
+  margin: 0;
+  opacity: 0;
+  transform: translateY(1.25rem) scale(.98);
+  transform-origin: top center;
+  transition: opacity .5s ease-out, transform .5s ease-out,
+              padding .5s ease-out, border-width .5s ease-out;
+}
+/* padding e bordo non si comprimono con la traccia: senza questo la
+   sezione chiusa lascerebbe il loro spessore come spazio vuoto */
+.reveal-block:not(.aperto) > * {
+  padding-top: 0; padding-bottom: 0;
+  border-top-width: 0; border-bottom-width: 0;
+}
+.reveal-block.aperto {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition: grid-template-rows .5s ease, margin .5s ease, visibility 0s;
+}
+.reveal-block.aperto > * {
+  opacity: 1;
+  transform: none;
+  transition: opacity .5s ease, transform .5s ease,
+              padding .5s ease, border-width .5s ease;
+}
+#oncoSection.aperto { margin-top: 1rem; }
+#metaSection.aperto { margin-top: .6rem; }
+#sottoCategSection.aperto { margin-bottom: 1.2rem; }
+
+/* Freccia del trigger: i toggle che aprono una sezione la mostrano,
+   rivolta in su da chiusi e in giù da aperti. È un attributo e non una
+   classe perché toggleClass() riscrive className a ogni cambio. */
+.toggle-item[data-apre]::after {
+  content: '›';
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  width: 17px; height: 17px; margin-left: 12px;
+  font-size: 24px; line-height: 1;
+  color: var(--faint);
+  rotate: -90deg;
+  transition: rotate .35s ease 85ms, color .2s;
+}
+.toggle-item[data-apre][class*="active-"]::after {
+  rotate: 90deg;
+  color: var(--text);
+  transition-delay: 0ms;
+}
+
+body.reduce-motion .reveal-block,
+body.reduce-motion .reveal-block > *,
+body.reduce-motion .toggle-item[data-apre]::after { transition: none; }
 
 /* ══════════════════════════════════════════════════════════════════
    Select — ispirato al componente di Uiverse (3bdel3ziz-T)

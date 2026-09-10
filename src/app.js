@@ -818,8 +818,9 @@ function liveValidate2() {
   }
 }
 
-/** Apre o chiude una sezione con la molla, invece di accenderla e
- *  spegnerla di colpo con display. */
+/** Apre o chiude una sezione: la transizione (altezza, scivolamento,
+ *  dissolvenza, 500 ms in entrambi i versi) è tutta nel CSS di
+ *  .reveal-block, qui si cambia solo la classe. */
 function mostraSezione(id, aperto) {
   const e = el(id);
   if (!e) return;

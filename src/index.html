@@ -363,14 +363,14 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
         <div class="field">
           <label>Esito dell'esame</label>
           <div class="toggle-group">
-            <div class="toggle-item" id="tog_onco_si" data-act="set-onco" data-val="si">
+            <div class="toggle-item" id="tog_onco_si" data-act="set-onco" data-val="si" data-apre="oncoSection">
               <div>
                 <div class="toggle-label c-onco">Diagnosi oncologica — reperto positivo</div>
                 <div class="toggle-desc">L'esame ha evidenziato una lesione oncologica</div>
               </div>
               <div class="toggle-pill" id="pill_onco_si"></div>
             </div>
-            <div class="toggle-item" id="tog_onco_sospetto" data-act="set-onco" data-val="sospetto">
+            <div class="toggle-item" id="tog_onco_sospetto" data-act="set-onco" data-val="sospetto" data-apre="oncoSection">
               <div>
                 <div class="toggle-label c-amber">Sospetto — reperto da approfondire</div>
                 <div class="toggle-desc">Reperto sospetto per oncologia, richiede follow-up o ulteriori accertamenti</div>
@@ -387,7 +387,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
             <div class="field">
               <label>Classificazione tumore</label>
               <div class="toggle-group">
-                <div class="toggle-item" id="tog_primo" data-act="set-class" data-val="primo">
+                <div class="toggle-item" id="tog_primo" data-act="set-class" data-val="primo" data-apre="sottoCategSection">
                   <div>
                     <div class="toggle-label c-onco">Tumore di primo riscontro</div>
                     <div class="toggle-desc">Prima diagnosi oncologica per questo paziente</div>
@@ -408,7 +408,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
                     </div>
                     <div class="toggle-pill" id="pill_unica"></div>
                   </div>
-                  <div class="toggle-item" id="tog_associata" data-act="set-sottocat" data-val="associata">
+                  <div class="toggle-item" id="tog_associata" data-act="set-sottocat" data-val="associata" data-apre="patAssocField">
                     <div>
                       <div class="toggle-label">Patologie associate</div>
                       <div class="toggle-desc">Presenza di altre patologie oncologiche o comorbidità rilevanti</div>
@@ -445,7 +445,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
             <div class="field mt-4">
               <label>La lesione è una metastasi?</label>
               <div class="toggle-group">
-                <div class="toggle-item" id="tog_meta_si" data-act="set-meta" data-val="si">
+                <div class="toggle-item" id="tog_meta_si" data-act="set-meta" data-val="si" data-apre="metaSection">
                   <div>
                     <div class="toggle-label c-red">Sì — lesione metastatica</div>
                     <div class="toggle-desc">La lesione è una metastasi di un tumore primitivo</div>
