@@ -23,7 +23,7 @@ nav{background:var(--text);height:52px;display:flex;align-items:center;justify-c
 /* il segnaposto dove atterra il logo SD alla fine dell'intro */
 .nav-logo{display:block;width:26px;height:15px;flex-shrink:0;opacity:0;}
 .nav-logo svg{display:block;width:100%;height:100%;}
-.nav-logo.landed{opacity:1;transition:opacity .18s ease;}
+.nav-logo.landed{opacity:1;transition:none;}
 .nav-sub{font-size:11px;color:#888;font-family:var(--mono);}
 .nav-tabs{display:flex;gap:2px;position:relative;}
 .nav-tab{background:none;border:none;color:#999;font-family:var(--sans);font-size:13px;font-weight:500;padding:6px 14px;border-radius:4px;cursor:pointer;transition:background .1s,color .1s;}
@@ -408,9 +408,16 @@ td.mono{font-family:var(--mono);font-size:12px;}
   .splash-logo-svg-wrap {
     width: min(150px, 18vw);
     transform: scale(2.133); transform-origin: center;
-    transition: transform .6s var(--splash-ease);
-    filter: drop-shadow(0 8px 30px rgba(79,140,255,.15));
+    transition: transform .6s var(--splash-ease), filter .5s ease;
+    filter: drop-shadow(0 8px 30px rgba(255,77,109,.16));
   }
+  /* in volo l'ombra si spegne: il logo della barra non ne ha, e lo
+     scambio fra i due deve essere invisibile */
+  .splash-logo-btn.flying .splash-logo-svg-wrap { filter: drop-shadow(0 0 0 rgba(0,0,0,0)); }
+  /* all'atterraggio il logo volante sparisce di colpo: coincide al pixel
+     con quello della barra, una dissolvenza incrociata mostrerebbe due
+     loghi sovrapposti per qualche fotogramma */
+  .splash-logo-btn.atterrato { visibility: hidden; }
   .splash-stage.playing .splash-logo-svg-wrap { transform: scale(1); }
   .splash-logo-svg-wrap svg { display: block; width: 100%; height: auto; }
   .splash-title-wrap {
@@ -689,41 +696,120 @@ td.mono{font-family:var(--mono);font-size:12px;}
 
 /* ══════════════════════════════════════════════════════════════════
    REPORT PDF — reso da webContents.printToPDF()
+
+   A4 orizzontale. I colori sono scritti per esteso: la stampa deve
+   uscire uguale qualunque sia l'aspetto scelto per l'interfaccia.
+   Il numero di pagina lo aggiunge il processo principale nel margine
+   inferiore (footerTemplate), quindi quel margine resta più alto.
    ══════════════════════════════════════════════════════════════════ */
 #printRoot { display: none; }
-
-.rep-head { border-bottom: 3px solid var(--onco); padding-bottom: 10px; margin-bottom: 18px; }
-.rep-head h1 { font-size: 22px; font-weight: 600; color: var(--onco); }
-.rep-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
-.rep-kpis { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
-.rep-kpi {
-  flex: 1 1 140px; border: 1px solid var(--border); border-radius: 8px;
-  padding: 10px 12px; background: var(--surface2);
-}
-.rep-kpi-n { font-family: var(--mono); font-size: 24px; font-weight: 500; }
-.rep-kpi-l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-.rep-kpi-p { font-size: 11px; color: var(--onco); }
-#printRoot h2 {
-  font-size: 13px; text-transform: uppercase; letter-spacing: .07em;
-  color: var(--muted); margin: 18px 0 8px;
-}
-.rep-chart { page-break-inside: avoid; text-align: center; }
-.rep-chart svg { max-width: 100%; height: auto; }
-.rep-chart-largo svg { width: 100%; }
-.rep-table table { width: 100%; border-collapse: collapse; font-size: 10px; }
-.rep-table th, .rep-table td { padding: 3px 6px; }
-.rep-page { page-break-after: always; }
-.rep-page:last-child { page-break-after: auto; }
-.rep-due { display: flex; gap: 24px; align-items: flex-start; }
-.rep-due > div { flex: 1 1 0; min-width: 0; }
-.rep-nota { margin-top: 14px; font-size: 11px; color: var(--muted); }
-
 body.printing #printRoot { display: block; }
 
+#printRoot {
+  font-family: var(--sans); color: #18170F; background: #FFFFFF;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.rep-page { break-after: page; }
+.rep-page:last-child { break-after: auto; }
+
+.rep-copertina {
+  position: relative; overflow: hidden;
+  display: flex; justify-content: space-between; align-items: flex-end; gap: 24px;
+  background: #18170F; color: #FFFFFF;
+  border-radius: 10px; padding: 18px 24px 18px 30px; margin-bottom: 12px;
+}
+.rep-copertina::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px;
+  background: linear-gradient(180deg, #FF4D6D, #A855D0);
+}
+.rep-etichetta {
+  font-size: 9px; font-weight: 600; letter-spacing: .22em; text-transform: uppercase; color: #FF4D6D;
+}
+.rep-copertina h1 { font-size: 25px; font-weight: 600; margin: 4px 0 3px; color: #FFFFFF; }
+.rep-copertina-sub { font-size: 11px; color: #C8C6BE; }
+.rep-copertina-dx { text-align: right; font-size: 10px; line-height: 1.55; color: #A09E97; white-space: nowrap; }
+.rep-copertina-dx strong {
+  display: block; font-family: var(--mono); font-size: 26px; font-weight: 500; color: #FFFFFF; line-height: 1.1;
+}
+
+.rep-testata {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 16px;
+  border-bottom: 1px solid #E0DED7; padding-bottom: 6px; margin-bottom: 12px;
+  font-size: 9.5px; color: #6B6A62;
+}
+.rep-testata b { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: #A82255; }
+.rep-sezione { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.rep-sezione .n { font-family: var(--mono); font-size: 12px; font-weight: 600; color: #A82255; }
+.rep-sezione h2 { font-size: 18px; font-weight: 600; color: #18170F; margin: 0; }
+.rep-sezione p { font-size: 10.5px; color: #6B6A62; margin: 0 0 0 6px; }
+
+.rep-kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 12px; }
+.rep-kpi {
+  border: 1px solid #E0DED7; border-top: 3px solid var(--k, #A82255); border-radius: 7px;
+  padding: 7px 10px 8px; background: #FFFFFF;
+}
+.rep-kpi-n { font-family: var(--mono); font-size: 22px; font-weight: 500; line-height: 1.15; color: var(--k, #A82255); }
+.rep-kpi-l {
+  margin-top: 2px; font-size: 8.5px; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: #6B6A62;
+}
+.rep-kpi-p { margin-top: 2px; font-size: 9px; line-height: 1.35; color: #6B6A62; }
+
+.rep-due { display: grid; grid-template-columns: 1fr 1.25fr; gap: 14px; align-items: stretch; }
+.rep-blocco {
+  display: flex; flex-direction: column;
+  border: 1px solid #E0DED7; border-radius: 8px; padding: 12px 14px;
+  background: #FFFFFF; break-inside: avoid;
+}
+.rep-blocco-lungo { break-inside: auto; }
+.rep-blocco h3 {
+  margin: 0 0 8px; font-size: 9.5px; font-weight: 600; letter-spacing: .1em;
+  text-transform: uppercase; color: #6B6A62;
+}
+.rep-grafico { flex: 1 1 auto; display: flex; justify-content: center; align-items: center; }
+.rep-grafico > div { width: 100%; display: flex; justify-content: center; }
+.rep-grafico svg { max-width: 100%; height: auto; }
+.rep-donut .donut-wrap { gap: 22px; align-items: center; }
+.rep-grafico-largo svg { width: 100%; height: auto; max-height: 430px; }
+
+.rep-legenda {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px;
+  margin-top: 8px; font-size: 9.5px; color: #6B6A62;
+}
+.rep-legenda i {
+  display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  margin-right: 6px; vertical-align: -1px;
+}
+
+.rep-lettura {
+  margin-top: 10px; padding: 8px 12px 9px;
+  background: #F7F6F2; border-left: 3px solid #A82255; border-radius: 0 6px 6px 0;
+  break-inside: avoid;
+}
+.rep-lettura-tit {
+  margin-bottom: 3px; font-size: 8px; font-weight: 700; letter-spacing: .16em;
+  text-transform: uppercase; color: #A82255;
+}
+.rep-lettura p { margin: 0; font-size: 10.5px; line-height: 1.5; color: #18170F; }
+
+.rep-tabella table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
+.rep-tabella thead { display: table-header-group; }
+.rep-tabella tr { break-inside: avoid; }
+.rep-tabella th {
+  padding: 5px 6px; background: #18170F; color: #FFFFFF;
+  font-size: 8.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
+}
+.rep-tabella td { padding: 4px 6px; border-bottom: 1px solid #EEECE6; }
+.rep-tabella.zebra tbody tr:nth-child(even) td { background: #FAF9F6; }
+.rep-heatmap td { font-size: 9.5px; }
+
 @media print {
+  html, body { background: #FFFFFF !important; }
+  /* il rail laterale e il piè di pagina fisso non devono spostare nulla */
+  body { margin: 0 !important; padding: 0 !important; }
   body > *:not(#printRoot) { display: none !important; }
   #printRoot { display: block !important; padding: 0; }
-  @page { size: A4; margin: 12mm; }
+  @page { size: A4 landscape; margin: 10mm 12mm 14mm 12mm; }
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -760,14 +846,22 @@ body { padding-bottom: 1.8rem; }
   transition: background .45s ease; }
 #splashScreen.exiting .splash-blob-bg,
 #splashScreen.exiting .splash-title-wrap,
+/* Il sottotitolo e' tenuto visibile dal fill della sua animazione
+   d'ingresso, che vince sulla transizione: serve un'animazione d'uscita
+   che parta esattamente dal suo stato finale. Lo splash ora resta
+   (trasparente) finche' la banda non si e' dissolta, e senza questa il
+   sottotitolo resterebbe sopra la pagina che sale. */
 #splashScreen.exiting .splash-sub {
-  opacity: 0;
-  transition: opacity .4s ease;
+  animation: splashSubVia .35s ease forwards;
+}
+@keyframes splashSubVia {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(-8px) scale(.96); }
 }
 
 .splash-logo-btn.flying {
   transform-origin: top left;
-  transition: transform .68s cubic-bezier(.5,.05,.2,1);
+  transition: transform .8s cubic-bezier(.2,.8,.24,1);
   will-change: transform;
 }
 
@@ -1059,8 +1153,7 @@ body.reduce-motion .cal-panel.open { animation: none; opacity: 1; transform: non
 }
 @keyframes veloSfondoVia {
   0%   { opacity: 1; }
-  52%  { opacity: 1; }
-  70%  { opacity: 0; }
+  62%  { opacity: 0; }       /* nero pieno nell'istante in cui diventa barra */
   100% { opacity: 0; }
 }
 @keyframes veloFronte {
@@ -1455,3 +1548,43 @@ body.reduce-motion .pan.attivo { transition: none; animation: none; }
 @media (max-width: 900px) {
   :root { --pan-w: 280px; }
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   La pagina viene trascinata dalla banda
+
+   La vista sale agganciata al bordo del velo: stessi fotogrammi chiave
+   (0% → 62%) e stessa curva del velo, quindi il bordo superiore della
+   pagina coincide con il bordo della banda per tutta la corsa.
+   --salita e' la distanza fra il fondo della finestra e la barra.
+   ══════════════════════════════════════════════════════════════════ */
+@keyframes paginaSale {
+  0%   { transform: translateY(var(--salita, 100vh)); }
+  62%  { transform: translateY(0); }
+  100% { transform: translateY(0); }
+}
+body.pagina-sale .views-port {
+  animation: paginaSale .95s cubic-bezier(.65,0,.2,1) both;
+  will-change: transform;
+}
+
+/* Durante l'intro il contenuto della barra resta nascosto: compare a
+   cascata solo quando la banda si è consolidata in barra. */
+body.intro-in-corso .nav-title > span:not(.nav-logo),
+body.intro-in-corso .nav-sub,
+body.intro-in-corso .nav-dock,
+body.intro-in-corso .nav-right,
+body.intro-in-corso .rail-btn,
+body.intro-in-corso .app-footer { opacity: 0; }
+
+@keyframes popBarra {
+  from { opacity: 0; transform: scale(.8) translateY(-3px); }
+  to   { opacity: 1; transform: none; }
+}
+/* fill "both": durante il ritardo l'elemento resta al fotogramma di
+   partenza, cioè invisibile, anche dopo aver tolto intro-in-corso */
+.pop-barra {
+  animation: popBarra .46s cubic-bezier(.34,1.35,.64,1) var(--pop-delay, 0ms) both;
+}
+
+body.reduce-motion .pop-barra,
+body.reduce-motion.pagina-sale .views-port { animation: none; }

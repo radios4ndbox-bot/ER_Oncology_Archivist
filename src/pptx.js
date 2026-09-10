@@ -6,14 +6,21 @@
    Un .pptx è un archivio ZIP di XML OOXML: si costruisce con lo stesso
    ZipWriter usato per l'.xlsx. Niente libreria da CDN, funziona offline.
 
-   Formato 16:9. Ogni diapositiva può contenere titolo, righe di testo,
-   un'immagine PNG e una tabella.
+   Formato 16:9, impaginazione da presentazione: copertina scura,
+   intestazione con filo di colore, piè di pagina numerato, KPI come
+   schede, grafici con legenda e didascalia di lettura.
 
-   API:
-     PptxWriter.build([
-       { titolo, sottotitolo, righe: [...], immagini: [{png, x, y, w, h}],
-         tabella: { intestazioni: [...], righe: [[...]] } }
-     ]) → Uint8Array
+   Tipi di diapositiva:
+     { tipo: 'copertina', etichetta, titolo, righe: [...], piede }
+     { titolo, sottotitolo, kpi: [{ valore, etichetta, nota, colore }] }
+     { titolo, sottotitolo, grafico: { png, w, h },
+       legenda: [{ colore, etichetta, valore }], legendaSotto: bool,
+       didascalia }
+     { titolo, sottotitolo, tabella: { intestazioni, righe, allineamenti },
+       didascalia }
+   Ogni diapositiva non di copertina accetta anche `piede`.
+
+   API:  PptxWriter.build([...]) → Uint8Array
    ══════════════════════════════════════════════════════════════════ */
 
 window.PptxWriter = (function () {
@@ -25,10 +32,21 @@ window.PptxWriter = (function () {
   const LARG = 12192000;
   const ALT = 6858000;
   const EMU_PX = 9525;            // 1 px a 96 dpi
+  const MARG = 560000;
 
-  const COL_TITOLO = 'A82255';    // l'accent del tool
-  const COL_TESTO = '18170F';
-  const COL_TENUE = '6B6A62';
+  const C = {
+    accent: 'A82255', accentChiaro: 'FF4D6D',
+    testo: '18170F', tenue: '6B6A62', debole: 'A09E97',
+    scuro: '18170F', carta: 'FFFFFF', fondoTenue: 'F7F6F2', bordo: 'E0DED7'
+  };
+
+  // area utile delle diapositive di contenuto
+  const AREA = {
+    x: MARG,
+    y: MARG + 820000,
+    w: LARG - MARG * 2,
+    h: (ALT - 640000) - (MARG + 820000)
+  };
 
   // ── parti fisse del pacchetto ───────────────────────────────────
   const RELS_RADICE =
@@ -101,111 +119,249 @@ window.PptxWriter = (function () {
     '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/>' +
     '</Relationships>';
 
-  // ── forme ───────────────────────────────────────────────────────
+  // ── primitive ───────────────────────────────────────────────────
   let idForma = 1;
   const prossimoId = () => ++idForma;
+  const r0 = (v) => Math.round(v);
 
   function riquadro(x, y, w, h) {
-    return '<a:xfrm><a:off x="' + Math.round(x) + '" y="' + Math.round(y) + '"/>' +
-           '<a:ext cx="' + Math.round(w) + '" cy="' + Math.round(h) + '"/></a:xfrm>';
+    return '<a:xfrm><a:off x="' + r0(x) + '" y="' + r0(y) + '"/>' +
+           '<a:ext cx="' + r0(Math.max(1, w)) + '" cy="' + r0(Math.max(1, h)) + '"/></a:xfrm>';
   }
 
-  function paragrafo(testo, dim, colore, grassetto, allineamento) {
-    return '<a:p><a:pPr algn="' + (allineamento || 'l') + '"/><a:r><a:rPr lang="it-IT" sz="' + dim +
-           '" b="' + (grassetto ? 1 : 0) + '" dirty="0"><a:solidFill><a:srgbClr val="' + colore +
-           '"/></a:solidFill><a:latin typeface="Calibri"/></a:rPr><a:t>' + esc(testo) + '</a:t></a:r></a:p>';
+  /** dim in centesimi di punto (1400 = 14pt). */
+  function paragrafo(testo, dim, colore, opz) {
+    const o = opz || {};
+    return '<a:p><a:pPr algn="' + (o.allinea || 'l') + '">' +
+      (o.interlinea ? '<a:lnSpc><a:spcPct val="' + o.interlinea + '"/></a:lnSpc>' : '') +
+      (o.dopo ? '<a:spcAft><a:spcPts val="' + o.dopo + '"/></a:spcAft>' : '') +
+      '</a:pPr><a:r><a:rPr lang="it-IT" sz="' + dim + '" b="' + (o.grassetto ? 1 : 0) + '"' +
+      (o.spaziatura ? ' spc="' + o.spaziatura + '"' : '') + ' dirty="0">' +
+      '<a:solidFill><a:srgbClr val="' + colore + '"/></a:solidFill>' +
+      '<a:latin typeface="Calibri"/></a:rPr>' +
+      '<a:t>' + esc(testo) + '</a:t></a:r></a:p>';
   }
 
-  function casellaTesto(x, y, w, h, paragrafi) {
+  function casellaTesto(x, y, w, h, paragrafi, ancora) {
     const id = prossimoId();
     return '<p:sp><p:nvSpPr><p:cNvPr id="' + id + '" name="Testo ' + id + '"/>' +
-      '<p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>' +
-      '<p:spPr>' + riquadro(x, y, w, h) +
+      '<p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr>' + riquadro(x, y, w, h) +
       '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>' +
-      '<p:txBody><a:bodyPr wrap="square" rtlCol="0"><a:spAutoFit/></a:bodyPr><a:lstStyle/>' +
+      '<p:txBody><a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0" anchor="' +
+      (ancora || 't') + '"><a:noAutofit/></a:bodyPr><a:lstStyle/>' +
       paragrafi.join('') + '</p:txBody></p:sp>';
   }
 
-  function barra(x, y, w, h, colore) {
+  /** Rettangolo pieno, eventualmente arrotondato e bordato. */
+  function forma(x, y, w, h, o) {
     const id = prossimoId();
-    return '<p:sp><p:nvSpPr><p:cNvPr id="' + id + '" name="Barra ' + id + '"/>' +
-      '<p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>' + riquadro(x, y, w, h) +
-      '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>' +
-      '<a:solidFill><a:srgbClr val="' + colore + '"/></a:solidFill><a:ln><a:noFill/></a:ln>' +
-      '</p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody></p:sp>';
+    const geom = o.arrotonda
+      ? '<a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj" fmla="val ' + o.arrotonda + '"/></a:avLst></a:prstGeom>'
+      : '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>';
+    const fill = o.colore ? '<a:solidFill><a:srgbClr val="' + o.colore + '"/></a:solidFill>' : '<a:noFill/>';
+    const ln = o.bordo
+      ? '<a:ln w="9525"><a:solidFill><a:srgbClr val="' + o.bordo + '"/></a:solidFill></a:ln>'
+      : '<a:ln><a:noFill/></a:ln>';
+    return '<p:sp><p:nvSpPr><p:cNvPr id="' + id + '" name="Forma ' + id + '"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>' +
+      '<p:spPr>' + riquadro(x, y, w, h) + geom + fill + ln + '</p:spPr>' +
+      '<p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody></p:sp>';
   }
 
   function immagine(idRel, x, y, w, h) {
     const id = prossimoId();
     return '<p:pic><p:nvPicPr><p:cNvPr id="' + id + '" name="Grafico ' + id + '"/>' +
-      '<p:cNvPicPr/><p:nvPr/></p:nvPicPr>' +
+      '<p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>' +
       '<p:blipFill><a:blip r:embed="' + idRel + '"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>' +
       '<p:spPr>' + riquadro(x, y, w, h) +
       '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>';
   }
 
-  function tabella(x, y, w, intestazioni, righe) {
+  function tabella(x, y, w, intestazioni, righe, allineamenti) {
     const id = prossimoId();
     const nCol = intestazioni.length;
-    const largCol = Math.round(w / nCol);
-    const hRiga = 280000;
+    const primo = r0(w * (nCol > 2 ? 0.34 : 0.5));
+    const altre = r0((w - primo) / Math.max(1, nCol - 1));
+    const larghezze = intestazioni.map((_t, i) => (i === 0 ? primo : altre));
+    const hRiga = 300000;
 
-    const cella = (testo, testa) =>
-      '<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn="' + (testa ? 'ctr' : 'l') + '"/>' +
-      '<a:r><a:rPr lang="it-IT" sz="1100" b="' + (testa ? 1 : 0) + '">' +
-      '<a:solidFill><a:srgbClr val="' + (testa ? 'FFFFFF' : COL_TESTO) + '"/></a:solidFill>' +
-      '</a:rPr><a:t>' + esc(testo) + '</a:t></a:r></a:p></a:txBody>' +
-      '<a:tcPr marL="68580" marR="68580" marT="34290" marB="34290">' +
-      (testa ? '<a:solidFill><a:srgbClr val="' + COL_TITOLO + '"/></a:solidFill>' : '') +
-      '</a:tcPr></a:tc>';
+    const cella = (testo, testa, col, pari) => {
+      const alg = (allineamenti && allineamenti[col]) || (col === 0 ? 'l' : 'ctr');
+      const fondo = testa ? C.accent : (pari ? C.fondoTenue : C.carta);
+      // solo filetti orizzontali chiari: la griglia nera predefinita
+      // appesantisce la tabella
+      const filo = (t, colore) => colore
+        ? '<a:' + t + ' w="6350"><a:solidFill><a:srgbClr val="' + colore + '"/></a:solidFill></a:' + t + '>'
+        : '<a:' + t + ' w="6350"><a:noFill/></a:' + t + '>';
+      const bordi = filo('lnL') + filo('lnR') + filo('lnT', testa ? C.accent : C.bordo) +
+        filo('lnB', testa ? C.accent : C.bordo);
+      return '<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn="' + alg + '"/>' +
+        '<a:r><a:rPr lang="it-IT" sz="' + (testa ? 1050 : 1150) + '" b="' + (testa ? 1 : 0) + '">' +
+        '<a:solidFill><a:srgbClr val="' + (testa ? 'FFFFFF' : C.testo) + '"/></a:solidFill>' +
+        '<a:latin typeface="Calibri"/></a:rPr><a:t>' + esc(testo) + '</a:t></a:r></a:p></a:txBody>' +
+        '<a:tcPr marL="91440" marR="91440" marT="45720" marB="45720" anchor="ctr">' + bordi +
+        '<a:solidFill><a:srgbClr val="' + fondo + '"/></a:solidFill></a:tcPr></a:tc>';
+    };
 
-    const corpo = righe.map((r) =>
-      '<a:tr h="' + hRiga + '">' + r.map((c) => cella(c, false)).join('') + '</a:tr>').join('');
+    const corpo = righe.map((r, i) =>
+      '<a:tr h="' + hRiga + '">' + r.map((c, col) => cella(c, false, col, i % 2 === 1)).join('') + '</a:tr>'
+    ).join('');
 
     return '<p:graphicFrame><p:nvGraphicFramePr>' +
       '<p:cNvPr id="' + id + '" name="Tabella ' + id + '"/><p:cNvGraphicFramePr/><p:nvPr/>' +
-      '</p:nvGraphicFramePr><p:xfrm><a:off x="' + Math.round(x) + '" y="' + Math.round(y) + '"/>' +
-      '<a:ext cx="' + Math.round(w) + '" cy="' + ((righe.length + 1) * hRiga) + '"/></p:xfrm>' +
+      '</p:nvGraphicFramePr><p:xfrm><a:off x="' + r0(x) + '" y="' + r0(y) + '"/>' +
+      '<a:ext cx="' + r0(w) + '" cy="' + ((righe.length + 1) * hRiga) + '"/></p:xfrm>' +
       '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">' +
       '<a:tbl><a:tblPr firstRow="1" bandRow="1"/><a:tblGrid>' +
-      intestazioni.map(() => '<a:gridCol w="' + largCol + '"/>').join('') +
+      larghezze.map((lw) => '<a:gridCol w="' + lw + '"/>').join('') +
       '</a:tblGrid>' +
-      '<a:tr h="' + hRiga + '">' + intestazioni.map((t) => cella(t, true)).join('') + '</a:tr>' +
-      corpo +
-      '</a:tbl></a:graphicData></a:graphic></p:graphicFrame>';
+      '<a:tr h="' + hRiga + '">' + intestazioni.map((t, col) => cella(t, true, col, false)).join('') + '</a:tr>' +
+      corpo + '</a:tbl></a:graphicData></a:graphic></p:graphicFrame>';
+  }
+
+  // ── componenti di impaginazione ─────────────────────────────────
+  function intestazione(d) {
+    let s = forma(MARG, MARG + 30000, 76200, d.sottotitolo ? 620000 : 440000, { colore: C.accent });
+    s += casellaTesto(MARG + 240000, MARG, AREA.w - 240000, 420000,
+      [paragrafo(d.titolo || '', 2600, C.testo, { grassetto: true })]);
+    if (d.sottotitolo) {
+      s += casellaTesto(MARG + 240000, MARG + 400000, AREA.w - 240000, 260000,
+        [paragrafo(d.sottotitolo, 1250, C.tenue)]);
+    }
+    return s;
+  }
+
+  function piede(testo, numero, totale) {
+    const y = ALT - 420000;
+    return forma(MARG, y - 70000, AREA.w, 9525, { colore: C.bordo }) +
+      casellaTesto(MARG, y, AREA.w * 0.75, 200000, [paragrafo(testo || '', 900, C.debole)]) +
+      casellaTesto(MARG + AREA.w * 0.75, y, AREA.w * 0.25, 200000,
+        [paragrafo(numero + ' / ' + totale, 900, C.debole, { allinea: 'r' })]);
+  }
+
+  /** Riquadro di lettura sotto al grafico: filo di colore, etichetta, testo. */
+  function didascalia(testo, x, y, w, h) {
+    return forma(x, y, w, h, { colore: C.fondoTenue, arrotonda: 5000 }) +
+      forma(x, y + 60000, 38100, h - 120000, { colore: C.accent }) +
+      casellaTesto(x + 220000, y + 120000, w - 360000, h - 200000, [
+        paragrafo('LETTURA DEL DATO', 850, C.accent, { grassetto: true, spaziatura: 80, dopo: 300 }),
+        paragrafo(testo || '', 1200, C.testo, { interlinea: 120000 })
+      ]);
+  }
+
+  function legenda(voci, x, y, w, orizzontale) {
+    let s = '';
+    if (orizzontale) {
+      // passo fisso e gruppo centrato: distribuite su tutta la larghezza
+      // le voci finirebbero lontane fra loro e dal grafico
+      const passo = Math.min(w / Math.max(1, voci.length), 2900000);
+      const x0 = x + (w - passo * voci.length) / 2;
+      voci.forEach((v, i) => {
+        const vx = x0 + passo * i;
+        s += forma(vx, y + 50000, 150000, 150000, { colore: v.colore, arrotonda: 20000 });
+        s += casellaTesto(vx + 230000, y, passo - 260000, 260000,
+          [paragrafo(v.etichetta + (v.valore != null ? '  ' + v.valore : ''), 1150, C.tenue)]);
+      });
+      return s;
+    }
+    voci.forEach((v, i) => {
+      const vy = y + i * 460000;
+      s += forma(x, vy + 70000, 190000, 190000, { colore: v.colore, arrotonda: 20000 });
+      s += casellaTesto(x + 300000, vy, w * 0.62, 330000,
+        [paragrafo(v.etichetta, 1400, C.testo)], 'ctr');
+      if (v.valore != null) {
+        s += casellaTesto(x + 300000 + w * 0.62, vy, w * 0.38 - 300000, 330000,
+          [paragrafo(String(v.valore), 1300, C.tenue, { allinea: 'r', grassetto: true })], 'ctr');
+      }
+    });
+    return s;
+  }
+
+  function grigliaKpi(kpi) {
+    const col = 3;
+    const gap = 228600;
+    const w = (AREA.w - gap * (col - 1)) / col;
+    const righeKpi = Math.ceil(kpi.length / col);
+    const h = Math.min(1900000, (AREA.h - gap * (righeKpi - 1)) / righeKpi);
+    let s = '';
+    kpi.forEach((k, i) => {
+      const x = AREA.x + (i % col) * (w + gap);
+      const y = AREA.y + Math.floor(i / col) * (h + gap);
+      const colore = k.colore || C.accent;
+      s += forma(x, y, w, h, { colore: C.carta, bordo: C.bordo, arrotonda: 6000 });
+      s += forma(x + 140000, y, w - 280000, 50800, { colore: colore });
+      s += casellaTesto(x + 260000, y + 280000, w - 520000, 700000,
+        [paragrafo(String(k.valore), 4000, colore, { grassetto: true })]);
+      s += casellaTesto(x + 260000, y + 1020000, w - 520000, 260000,
+        [paragrafo(String(k.etichetta).toUpperCase(), 1050, C.tenue, { grassetto: true, spaziatura: 60 })]);
+      if (k.nota) {
+        s += casellaTesto(x + 260000, y + 1330000, w - 520000, h - 1420000,
+          [paragrafo(k.nota, 1150, C.tenue, { interlinea: 115000 })]);
+      }
+    });
+    return s;
+  }
+
+  function copertina(d) {
+    let s = forma(0, 0, LARG, ALT, { colore: C.scuro });
+    s += forma(0, 0, 228600, ALT, { colore: C.accent });
+    const x = MARG * 2;
+    const w = LARG - MARG * 3;
+    s += casellaTesto(x, ALT * 0.28, w, 320000,
+      [paragrafo(String(d.etichetta || 'Report statistico').toUpperCase(), 1150, C.accentChiaro, { grassetto: true, spaziatura: 200 })]);
+    s += casellaTesto(x, ALT * 0.28 + 420000, w, 1000000,
+      [paragrafo(d.titolo || '', 4400, 'FFFFFF', { grassetto: true })]);
+    s += forma(x, ALT * 0.28 + 1480000, 1100000, 25400, { colore: C.accentChiaro });
+    s += casellaTesto(x, ALT * 0.28 + 1680000, w, 1000000,
+      (d.righe || []).map((r) => paragrafo(r, 1600, 'C8C6BE', { interlinea: 135000 })));
+    s += casellaTesto(x, ALT - 760000, w, 260000, [paragrafo(d.piede || '', 1000, '8A8880')]);
+    return s;
   }
 
   // ── diapositiva ─────────────────────────────────────────────────
-  function diapositiva(dia, relImmagini) {
-    const forme = [];
-    const MARG = 640000;
-    let y = MARG;
+  function diapositiva(d, relImmagine, numero, totale) {
+    let forme = '';
 
-    if (dia.titolo) {
-      forme.push(barra(MARG, y, 150000, 460000, COL_TITOLO));
-      forme.push(casellaTesto(MARG + 260000, y - 60000, LARG - MARG * 2, 560000,
-        [paragrafo(dia.titolo, 2800, COL_TESTO, true)]));
-      y += 560000;
-    }
-    if (dia.sottotitolo) {
-      forme.push(casellaTesto(MARG + 260000, y - 120000, LARG - MARG * 2, 360000,
-        [paragrafo(dia.sottotitolo, 1300, COL_TENUE, false)]));
-      y += 300000;
-    }
+    if (d.tipo === 'copertina') {
+      forme = copertina(d);
+    } else {
+      forme = intestazione(d);
+      const hDid = d.didascalia ? 1120000 : 0;
+      const gapDid = d.didascalia ? 200000 : 0;
+      const hUtile = AREA.h - hDid - gapDid;
 
-    (dia.righe || []).forEach((riga, i) => {
-      forme.push(casellaTesto(MARG, y + i * 380000, LARG - MARG * 2, 360000,
-        [paragrafo(riga, 1600, COL_TESTO, false)]));
-    });
-    if (dia.righe && dia.righe.length) y += dia.righe.length * 380000 + 120000;
+      if (d.kpi) forme += grigliaKpi(d.kpi);
 
-    (dia.immagini || []).forEach((img, i) => {
-      forme.push(immagine(relImmagini[i], img.x, img.y, img.w, img.h));
-    });
+      if (d.grafico && relImmagine) {
+        const conLegendaLato = d.legenda && d.legenda.length && !d.legendaSotto;
+        const hLeg = d.legenda && d.legendaSotto ? 300000 : 0;
+        const larghezzaImg = conLegendaLato ? AREA.w * 0.46 : AREA.w;
+        const hImg = hUtile - hLeg - (hLeg ? 120000 : 0);
+        const sc = Math.min(larghezzaImg / d.grafico.w, hImg / d.grafico.h);
+        const iw = d.grafico.w * sc;
+        const ih = d.grafico.h * sc;
+        const ix = AREA.x + (larghezzaImg - iw) / 2;
+        const iy = AREA.y + (hImg - ih) / 2;
+        forme += immagine(relImmagine, ix, iy, iw, ih);
 
-    if (dia.tabella) {
-      forme.push(tabella(MARG, y, LARG - MARG * 2,
-        dia.tabella.intestazioni, dia.tabella.righe));
+        if (conLegendaLato) {
+          const lx = AREA.x + AREA.w * 0.52;
+          const hLista = d.legenda.length * 460000;
+          forme += legenda(d.legenda, lx, AREA.y + Math.max(0, (hUtile - hLista) / 2), AREA.w * 0.48, false);
+        } else if (d.legenda && d.legendaSotto) {
+          forme += legenda(d.legenda, AREA.x + AREA.w * 0.15, AREA.y + hImg + 120000, AREA.w * 0.7, true);
+        }
+      }
+
+      if (d.tabella) {
+        forme += tabella(AREA.x, AREA.y, AREA.w, d.tabella.intestazioni,
+          d.tabella.righe, d.tabella.allineamenti);
+      }
+
+      if (d.didascalia) {
+        forme += didascalia(d.didascalia, AREA.x, AREA.y + AREA.h - hDid, AREA.w, hDid);
+      }
+
+      forme += piede(d.piede, numero, totale);
     }
 
     return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
@@ -213,7 +369,7 @@ window.PptxWriter = (function () {
       'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ' +
       'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">' +
       '<p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>' +
-      '<p:grpSpPr/>' + forme.join('') + '</p:spTree></p:cSld>' +
+      '<p:grpSpPr/>' + forme + '</p:spTree></p:cSld>' +
       '<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>';
   }
 
@@ -227,21 +383,19 @@ window.PptxWriter = (function () {
     const media = [];
     let nMedia = 0;
 
-    const xmlDia = dia.map((d) => {
+    const xmlDia = dia.map((d, i) => {
       const rels = [
         '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>'
       ];
-      const idImmagini = [];
-      (d.immagini || []).forEach((img) => {
+      let relImmagine = null;
+      if (d.grafico && d.grafico.png) {
         nMedia++;
         const nome = 'image' + nMedia + '.png';
-        media.push({ name: 'ppt/media/' + nome, data: img.png });
-        const rid = 'rId' + (rels.length + 1);
-        rels.push('<Relationship Id="' + rid +
-          '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/' + nome + '"/>');
-        idImmagini.push(rid);
-      });
-      return { xml: diapositiva(d, idImmagini), rels: rels };
+        media.push({ name: 'ppt/media/' + nome, data: d.grafico.png });
+        relImmagine = 'rId2';
+        rels.push('<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/' + nome + '"/>');
+      }
+      return { xml: diapositiva(d, relImmagine, i + 1, dia.length), rels: rels };
     });
 
     const presentazione =

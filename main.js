@@ -136,7 +136,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 680,
     show: false,
-    backgroundColor: '#0e1017',
+    backgroundColor: COLORE_FINESTRA,
     title: 'ER Oncology Archivist',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -308,6 +308,16 @@ register('app:saveExport', async (defaultName, base64) => {
   return res.filePath;
 });
 
+const COLORE_FINESTRA = '#0e1017';
+
+// Piè di pagina del report, nel margine inferiore. Il modello non eredita
+// nulla dalla pagina: dimensione e colore vanno scritti qui.
+const PIEDE_PDF =
+  '<div style="width:100%;padding:0 12mm;display:flex;justify-content:space-between;' +
+  'font-family:Segoe UI,Arial,sans-serif;font-size:7.5px;color:#8A8880;">' +
+  '<span>ER Oncology Archivist · Report statistico · Documento a uso interno, contiene dati clinici aggregati</span>' +
+  '<span>Pagina <span class="pageNumber"></span> di <span class="totalPages"></span></span></div>';
+
 register('app:savePdf', async (defaultName) => {
   const safeName = sanitizeFileName(defaultName, '.pdf');
   const res = await dialog.showSaveDialog(mainWindow, {
@@ -316,12 +326,26 @@ register('app:savePdf', async (defaultName) => {
     filters: [{ name: 'PDF', extensions: ['pdf'] }]
   });
   if (res.canceled || !res.filePath) return null;
-  const pdf = await mainWindow.webContents.printToPDF({
-    printBackground: true,
-    landscape: true,          // il report riprende l'impaginazione a schermo
-    pageSize: 'A4',
-    margins: { top: 0.35, bottom: 0.35, left: 0.35, right: 0.35 }
-  });
+  // Formato e margini li decide il CSS (@page: A4 orizzontale): senza
+  // preferCSSPageSize una regola @page con size vince comunque su
+  // landscape e il report usciva in verticale.
+  // Electron dipinge i margini di stampa con il backgroundColor della
+  // finestra, che è scuro: per la durata della stampa diventa bianco.
+  mainWindow.setBackgroundColor('#FFFFFF');
+  let pdf;
+  try {
+    pdf = await mainWindow.webContents.printToPDF({
+      printBackground: true,
+      landscape: true,
+      pageSize: 'A4',
+      preferCSSPageSize: true,
+      displayHeaderFooter: true,
+      headerTemplate: '<div></div>',
+      footerTemplate: PIEDE_PDF
+    });
+  } finally {
+    mainWindow.setBackgroundColor(COLORE_FINESTRA);
+  }
   await fsp.writeFile(res.filePath, pdf);
   return res.filePath;
 });

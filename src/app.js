@@ -1537,6 +1537,9 @@ function svgToPng(svgEl, fattore) {
     if (!svgEl) return reject(new Error('grafico assente'));
     const clone = svgEl.cloneNode(true);
     clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    // Fuori dal documento il testo SVG non eredita il font della pagina
+    // e finirebbe in un serif di sistema.
+    clone.setAttribute('font-family', "'IBM Plex Sans','Segoe UI',Arial,sans-serif");
 
     let w = parseFloat(clone.getAttribute('width'));
     let h = parseFloat(clone.getAttribute('height'));
@@ -1582,14 +1585,54 @@ function base64ToBytes(base64) {
   return out;
 }
 
-/** Riquadro centrato dentro l'area utile della diapositiva. */
-function riquadroImmagine(w, h, x, larghezzaMax, altezzaMax, y) {
-  const scala = Math.min(larghezzaMax / w, altezzaMax / h);
-  const larg = w * scala;
-  const alt = h * scala;
-  return { x: x + (larghezzaMax - larg) / 2, y: y + (altezzaMax - alt) / 2, w: larg, h: alt };
+/** Periodo e filtri attivi, in chiaro: intestano report e presentazione. */
+function descriviFiltri() {
+  const dal = val('sfDal'), al = val('sfAl'), tipo = val('sfTipo');
+  const periodo = (dal || al)
+    ? 'Periodo ' + (dal ? fmtDate(dal) : 'inizio') + ' – ' + (al ? fmtDate(al) : 'oggi')
+    : 'Archivio completo';
+  const filtri = [];
+  if (tipo) filtri.push(tipo);
+  const focus = el('sfFocus');
+  if (focus && focus.value !== 'all' && focus.selectedOptions[0]) {
+    filtri.push(focus.selectedOptions[0].textContent.trim());
+  }
+  return {
+    periodo: periodo,
+    filtri: filtri.join(' · '),
+    contesto: periodo + (filtri.length ? ' · ' + filtri.join(' · ') : ''),
+    generato: new Date().toLocaleString('it-IT', { dateStyle: 'long', timeStyle: 'short' })
+  };
 }
 
+/** Indicatori del periodo, gli stessi delle schede a schermo. */
+function kpiPeriodo(set) {
+  const conta = (f) => set.filter(f).length;
+  return {
+    tot: set.length,
+    onco: conta((r) => r.onco === 'si'),
+    sosp: conta((r) => r.onco === 'sospetto'),
+    prima: conta((r) => r.onco === 'si' && r.prima_onco === 'si'),
+    primo: conta((r) => r.primo_riscontro),
+    meta: conta((r) => r.metastasi === 'si'),
+    unica: conta((r) => r.sottocat === 'unica'),
+    assoc: conta((r) => r.sottocat === 'associata')
+  };
+}
+
+/** Spicchi della ciambella: condivisi da grafico, report e presentazione. */
+function segmentiDistribuzione(k) {
+  return [
+    { label: 'Esami negativi', value: Math.max(0, k.tot - k.onco - k.sosp), color: '#C8C6BE' },
+    { label: 'Diagnosi oncologiche', value: k.onco, color: '#6B1A7A', opacity: 0.85 },
+    { label: 'Sospetti', value: k.sosp, color: '#E8A020' },
+    { label: 'Primo riscontro', value: k.primo, color: '#C2185B' },
+    { label: 'Metastasi', value: k.meta, color: '#8B1A1A', opacity: 0.7 }
+  ].filter((s) => s.value > 0);
+}
+
+/** Presentazione 16:9: copertina, indicatori, un grafico per diapositiva
+ *  con legenda e lettura del dato, tabelle, note di metodo. */
 async function exportPPTX() {
   const set = getStatsSubset();
   if (!set.length) { notify('Nessun esame nel periodo selezionato.'); return; }
@@ -1597,104 +1640,146 @@ async function exportPPTX() {
 
   try {
     const P = window.PptxWriter;
-    const tot = set.length;
-    const onco = set.filter((r) => r.onco === 'si').length;
-    const sosp = set.filter((r) => r.onco === 'sospetto').length;
-    const prima = set.filter((r) => r.onco === 'si' && r.prima_onco === 'si').length;
-    const primo = set.filter((r) => r.primo_riscontro).length;
-    const meta = set.filter((r) => r.metastasi === 'si').length;
+    const k = kpiPeriodo(set);
+    const f = descriviFiltri();
+    const piede = 'ER Oncology Archivist · Report statistico · ' + f.contesto;
+    const nota = (chiave) => testoNota(chiave, set).testo;
+    const hex = (c) => c.replace('#', '').toUpperCase();
 
-    const dal = val('sfDal'), al = val('sfAl'), tipo = val('sfTipo');
-    const periodo = (dal || al)
-      ? 'Periodo ' + (dal ? fmtDate(dal) : 'inizio') + ' – ' + (al ? fmtDate(al) : 'oggi')
-      : 'Archivio completo';
-
-    // rasterizzazione dei grafici SVG presenti nella vista statistiche
+    // I grafici SVG della vista statistiche diventano PNG. La legenda
+    // non si rasterizza: in diapositiva è disegnata come testo vero.
     const grafici = {};
     const sorgenti = { donut: 'svgDonut', sede: 'svgBarseSede', mensile: 'svgMensile' };
     const chiavi = Object.keys(sorgenti);
     for (let i = 0; i < chiavi.length; i++) {
       const svg = document.querySelector('#' + sorgenti[chiavi[i]] + ' svg');
       if (!svg) continue;
-      try { grafici[chiavi[i]] = await svgToPng(svg, 2.5); } catch (_) { /* si salta */ }
+      try {
+        const g = await svgToPng(svg, 3);
+        grafici[chiavi[i]] = { png: base64ToBytes(g.dataUrl.split(',')[1]), w: g.w, h: g.h };
+      } catch (_) { /* grafico saltato */ }
     }
 
-    const MARG = 640000;
-    const AREA_W = P.LARG - MARG * 2;
     const dia = [];
 
     dia.push({
-      titolo: 'ER Oncology Archivist',
-      sottotitolo: periodo + (tipo ? ' · ' + tipo : ''),
-      righe: ['Pronto Soccorso Oncologico — Radiologia d’Urgenza',
-              'Report generato il ' + new Date().toLocaleString('it-IT')]
+      tipo: 'copertina',
+      etichetta: 'Report statistico',
+      titolo: 'Pronto Soccorso Oncologico',
+      righe: ['Radiologia d’Urgenza · ' + f.contesto, k.tot + ' esami analizzati'],
+      piede: 'Generato il ' + f.generato + ' con ER Oncology Archivist · Documento a uso interno'
     });
 
     dia.push({
       titolo: 'Sintesi del periodo',
-      righe: [
-        'Esami nel periodo: ' + tot,
-        'Diagnosi oncologiche: ' + onco + '  (' + pct(onco, tot, 1) + ' degli esami)',
-        'Sospetti: ' + sosp + '  (' + pct(sosp, tot, 1) + ' degli esami)',
-        'Primo riscontro: ' + primo + '  (' + pct(primo, onco, 1) + ' delle diagnosi onco.)',
-        'Prime diagnosi oncologiche: ' + prima + '  (' + pct(prima, tot, 1) + ' degli esami)',
-        'Metastasi: ' + meta + '  (' + pct(meta, onco + sosp, 1) + ' delle diagnosi onco.)'
+      sottotitolo: f.contesto,
+      piede: piede,
+      kpi: [
+        { valore: k.tot, etichetta: 'Esami nel periodo',
+          nota: 'Base di calcolo di tutte le percentuali', colore: '18170F' },
+        { valore: k.onco, etichetta: 'Diagnosi oncologiche',
+          nota: pct(k.onco, k.tot, 1) + ' degli esami', colore: '6B1A7A' },
+        { valore: k.sosp, etichetta: 'Sospetti',
+          nota: pct(k.sosp, k.tot, 1) + ' degli esami', colore: 'B86E00' },
+        { valore: k.primo, etichetta: 'Primo riscontro',
+          nota: pct(k.primo, k.onco, 1) + ' delle diagnosi · unica patologia ' + k.unica +
+                ', associata ' + k.assoc, colore: 'C2185B' },
+        { valore: k.prima, etichetta: 'Prime diagnosi',
+          nota: pct(k.prima, k.tot, 1) + ' degli esami', colore: 'A82255' },
+        { valore: k.meta, etichetta: 'Metastasi',
+          nota: pct(k.meta, k.onco, 1) + ' delle diagnosi oncologiche', colore: '8B1A1A' }
       ]
     });
 
-    if (grafici.donut || grafici.sede) {
-      const immagini = [];
-      const metaLarg = (AREA_W - 400000) / 2;
-      if (grafici.donut) {
-        const r = riquadroImmagine(grafici.donut.w, grafici.donut.h,
-          MARG, metaLarg, 3600000, 2200000);
-        immagini.push({ png: base64ToBytes(grafici.donut.dataUrl.split(',')[1]),
-                        x: r.x, y: r.y, w: r.w, h: r.h });
-      }
-      if (grafici.sede) {
-        const r = riquadroImmagine(grafici.sede.w, grafici.sede.h,
-          MARG + metaLarg + 400000, metaLarg, 3600000, 2200000);
-        immagini.push({ png: base64ToBytes(grafici.sede.dataUrl.split(',')[1]),
-                        x: r.x, y: r.y, w: r.w, h: r.h });
-      }
-      dia.push({ titolo: 'Distribuzione e sedi', sottotitolo: periodo, immagini: immagini });
+    if (grafici.donut) {
+      const seg = segmentiDistribuzione(k);
+      const somma = seg.reduce((s, x) => s + x.value, 0) || 1;
+      dia.push({
+        titolo: 'Distribuzione degli esami',
+        sottotitolo: 'Esito diagnostico degli esami del periodo',
+        grafico: grafici.donut,
+        legenda: seg.map((s) => ({
+          colore: hex(s.color), etichetta: s.label,
+          valore: s.value + '  ·  ' + Math.round(s.value / somma * 100) + '%'
+        })),
+        didascalia: nota('donut'),
+        piede: piede
+      });
+    }
+
+    if (grafici.sede) {
+      dia.push({
+        titolo: 'Diagnosi per sede / organo',
+        sottotitolo: 'Le dieci sedi più rappresentate fra i casi oncologici o sospetti',
+        grafico: grafici.sede,
+        legendaSotto: true,
+        legenda: [{ colore: '6B1A7A', etichetta: 'Casi oncologici o sospetti' },
+                  { colore: '8B1A1A', etichetta: 'di cui con metastasi' }],
+        didascalia: nota('sede'),
+        piede: piede
+      });
     }
 
     if (grafici.mensile) {
-      const r = riquadroImmagine(grafici.mensile.w, grafici.mensile.h,
-        MARG, AREA_W, 3900000, 2100000);
       dia.push({
         titolo: 'Andamento mensile',
-        sottotitolo: 'Esami totali, diagnosi oncologiche e percentuale',
-        immagini: [{ png: base64ToBytes(grafici.mensile.dataUrl.split(',')[1]),
-                     x: r.x, y: r.y, w: r.w, h: r.h }]
+        sottotitolo: 'Esami totali, casi oncologici o sospetti e quota percentuale per mese',
+        grafico: grafici.mensile,
+        legendaSotto: true,
+        legenda: [{ colore: 'C8C6BE', etichetta: 'Totale esami' },
+                  { colore: '6B1A7A', etichetta: 'Oncologici o sospetti' },
+                  { colore: 'E8A020', etichetta: 'Quota oncologica (linea)' }],
+        didascalia: nota('mensile'),
+        piede: piede
       });
     }
 
-    // tabella per sede, le prime dieci
-    const sediTot = {}, sediMeta = {}, sediPrima = {};
-    set.filter((r) => (r.onco === 'si' || r.onco === 'sospetto') && r.sede).forEach((r) => {
-      sediTot[r.sede] = (sediTot[r.sede] || 0) + 1;
-      if (r.metastasi === 'si') sediMeta[r.sede] = (sediMeta[r.sede] || 0) + 1;
-      if (r.prima_onco === 'si') sediPrima[r.sede] = (sediPrima[r.sede] || 0) + 1;
-    });
-    const righeSede = Object.keys(sediTot)
-      .map((k) => [k, sediTot[k]])
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map((e) => [e[0], String(e[1]), String(sediPrima[e[0]] || 0),
-                   String(sediMeta[e[0]] || 0), pct(e[1], onco + sosp, 1)]);
+    const ct = conteggiTipo(set);
+    const tipi = Object.keys(ct.tot).sort((a, b) => ct.tot[b] - ct.tot[a]).slice(0, 10);
+    if (tipi.length) {
+      dia.push({
+        titolo: 'Resa oncologica per tipo di esame',
+        sottotitolo: 'Esami eseguiti e quota con esito oncologico o sospetto',
+        tabella: {
+          intestazioni: ['Tipo di esame', 'Esami', 'Oncologici o sospetti', 'Resa'],
+          righe: tipi.map((t) => [t, String(ct.tot[t]), String(ct.onco[t] || 0),
+                                  pct(ct.onco[t] || 0, ct.tot[t], 1)])
+        },
+        didascalia: nota('heatmap'),
+        piede: piede
+      });
+    }
 
-    if (righeSede.length) {
+    const cs = conteggiSede(set);
+    if (cs.ordinate.length) {
+      const prime = {};
+      set.filter((r) => (r.onco === 'si' || r.onco === 'sospetto') && r.sede && r.prima_onco === 'si')
+        .forEach((r) => { prime[r.sede] = (prime[r.sede] || 0) + 1; });
       dia.push({
         titolo: 'Prevalenza per sede',
-        sottotitolo: 'Percentuale sul totale delle diagnosi oncologiche',
+        sottotitolo: 'Percentuale sul totale delle diagnosi oncologiche o sospette',
         tabella: {
-          intestazioni: ['Sede', 'Casi', 'Prime diagnosi', 'Metastasi', '% su onco.'],
-          righe: righeSede
-        }
+          intestazioni: ['Sede', 'Casi', 'Prime diagnosi', 'Metastasi', '% sul totale'],
+          righe: cs.ordinate.slice(0, 10).map((e) => [
+            e[0], String(e[1]), String(prime[e[0]] || 0), String(cs.meta[e[0]] || 0),
+            pct(e[1], k.onco + k.sosp, 1)])
+        },
+        didascalia: nota('tabSede'),
+        piede: piede
       });
     }
+
+    dia.push({
+      tipo: 'copertina',
+      etichetta: 'Note di metodo',
+      titolo: 'Come leggere i dati',
+      righe: [
+        'Le percentuali degli esami sono calcolate sul totale del periodo; quelle di sede sulle diagnosi oncologiche o sospette.',
+        'Le didascalie sono generate automaticamente dai numeri del periodo; quelle corrette a mano sono riportate come revisionate.',
+        'Filtri applicati: ' + f.contesto + '.'
+      ],
+      piede: 'ER Oncology Archivist · Documento a uso interno, contiene dati clinici aggregati'
+    });
 
     const file = P.build(dia);
     const ok = await sendFile('ps_onco_presentazione.pptx', window.ZipWriter.toBase64(file));
@@ -1706,6 +1791,8 @@ async function exportPPTX() {
 
 // ══════════════════════════════════════════════════════════════════
 //  REPORT PDF (printToPDF di Electron: nessuna libreria esterna)
+//  A4 orizzontale: copertina con indicatori, poi una sezione per
+//  pagina, ognuna con la sua lettura del dato sotto al grafico.
 // ══════════════════════════════════════════════════════════════════
 function cloneChart(id) {
   const source = el(id);
@@ -1718,66 +1805,94 @@ function cloneChart(id) {
   return box.innerHTML;
 }
 
-function buildReport(set) {
-  const tot = set.length;
-  const onco = set.filter((r) => r.onco === 'si').length;
-  const sosp = set.filter((r) => r.onco === 'sospetto').length;
-  const prima = set.filter((r) => r.onco === 'si' && r.prima_onco === 'si').length;
-  const primo = set.filter((r) => r.primo_riscontro).length;
-  const meta = set.filter((r) => r.metastasi === 'si').length;
-  const unica = set.filter((r) => r.sottocat === 'unica').length;
-  const assoc = set.filter((r) => r.sottocat === 'associata').length;
+/** Riquadro "Lettura del dato": la descrizione generata (o corretta). */
+function notaReport(chiave, set) {
+  const n = testoNota(chiave, set);
+  if (!n.testo) return '';
+  return '<div class="rep-lettura"><div class="rep-lettura-tit">Lettura del dato' +
+    (n.manuale ? ' · revisionata' : '') + '</div><p>' + esc(n.testo) + '</p></div>';
+}
 
-  const dal = val('sfDal'), al = val('sfAl'), tipo = val('sfTipo');
-  const periodo = (dal || al)
-    ? 'Periodo ' + (dal ? fmtDate(dal) : 'inizio') + ' – ' + (al ? fmtDate(al) : 'oggi')
-    : 'Archivio completo';
+function legendaReport(voci) {
+  return '<div class="rep-legenda">' + voci.map((v) =>
+    '<span><i class="' + (v[2] || '') + '" style="' + (v[0] ? 'background:' + v[0] : '') + '"></i>' +
+    esc(v[1]) + '</span>').join('') + '</div>';
+}
+
+function buildReport(set) {
+  const k = kpiPeriodo(set);
+  const f = descriviFiltri();
 
   const kpi = [
-    ['Esami nel periodo', tot, ''],
-    ['Diagnosi oncologiche', onco, pct(onco, tot, 1) + ' degli esami'],
-    ['Sospetti', sosp, pct(sosp, tot, 1) + ' degli esami'],
-    ['Primo riscontro', primo, pct(primo, onco, 1) + ' delle onco.'],
-    ['Prime diagnosi', prima, pct(prima, tot, 1) + ' degli esami'],
-    ['Metastasi', meta, pct(meta, onco + sosp, 1) + ' delle onco.']
+    ['Esami nel periodo', k.tot, 'base di tutte le percentuali', '#18170F'],
+    ['Diagnosi oncologiche', k.onco, pct(k.onco, k.tot, 1) + ' degli esami', '#6B1A7A'],
+    ['Sospetti', k.sosp, pct(k.sosp, k.tot, 1) + ' degli esami', '#B86E00'],
+    ['Primo riscontro', k.primo, pct(k.primo, k.onco, 1) + ' delle diagnosi · unica ' +
+      k.unica + ', associata ' + k.assoc, '#C2185B'],
+    ['Prime diagnosi', k.prima, pct(k.prima, k.tot, 1) + ' degli esami', '#A82255'],
+    ['Metastasi', k.meta, pct(k.meta, k.onco, 1) + ' delle diagnosi onco.', '#8B1A1A']
   ];
 
-  const intestazione = (titolo) =>
-    '<div class="rep-page"><div class="rep-head"><h1>ER Oncology Archivist</h1>' +
-    '<div class="rep-sub">' + esc(periodo) + (tipo ? ' · ' + esc(tipo) : '') +
-    ' · ' + esc(titolo) + ' · ' + esc(new Date().toLocaleString('it-IT')) + '</div></div>';
+  const sezione = (n, titolo, sotto) =>
+    '<section class="rep-page">' +
+    '<div class="rep-testata"><b>ER Oncology Archivist</b><span>' + esc(f.contesto) + '</span></div>' +
+    '<div class="rep-sezione"><span class="n">' + n + '</span><h2>' + esc(titolo) + '</h2>' +
+    (sotto ? '<p>' + esc(sotto) + '</p>' : '') + '</div>';
 
-  // Pagina 1 — sintesi e distribuzione
-  let html = intestazione('Sintesi') +
-    '<div class="rep-kpis">' + kpi.map((k) =>
-      '<div class="rep-kpi"><div class="rep-kpi-n">' + esc(k[1]) + '</div>' +
-      '<div class="rep-kpi-l">' + esc(k[0]) + '</div>' +
-      '<div class="rep-kpi-p">' + esc(k[2]) + '</div></div>').join('') + '</div>' +
+  const tabellaSede = document.querySelector('#tableSedeWrap table');
+
+  // 01 — copertina, indicatori, distribuzione e sedi
+  let html = '<section class="rep-page">' +
+    '<div class="rep-copertina"><div>' +
+      '<div class="rep-etichetta">Report statistico</div>' +
+      '<h1>Pronto Soccorso Oncologico</h1>' +
+      '<div class="rep-copertina-sub">Radiologia d’Urgenza · ' + esc(f.contesto) + '</div>' +
+    '</div><div class="rep-copertina-dx"><strong>' + k.tot + '</strong>esami analizzati<br>' +
+      'Generato il ' + esc(f.generato) + '</div></div>' +
+    '<div class="rep-kpis">' + kpi.map((x) =>
+      '<div class="rep-kpi" style="--k:' + x[3] + '"><div class="rep-kpi-n">' + esc(x[1]) + '</div>' +
+      '<div class="rep-kpi-l">' + esc(x[0]) + '</div>' +
+      '<div class="rep-kpi-p">' + esc(x[2]) + '</div></div>').join('') + '</div>' +
     '<div class="rep-due">' +
-      '<div><h2>Distribuzione generale</h2><div class="rep-chart">' +
-        cloneChart('svgDonut') + '</div></div>' +
-      '<div><h2>Diagnosi per sede / organo</h2><div class="rep-chart">' +
-        cloneChart('svgBarseSede') + '</div></div>' +
-    '</div>' +
-    '<div class="rep-nota">Primo riscontro — unica patologia: <strong>' + unica +
-    '</strong> · con patologie associate: <strong>' + assoc + '</strong></div>' +
-    '</div>';
+      '<div class="rep-blocco"><h3>Distribuzione generale</h3>' +
+        '<div class="rep-grafico rep-donut">' + cloneChart('svgDonut') + '</div>' +
+        notaReport('donut', set) + '</div>' +
+      '<div class="rep-blocco"><h3>Diagnosi per sede / organo</h3>' +
+        '<div class="rep-grafico">' + cloneChart('svgBarseSede') + '</div>' +
+        legendaReport([['#6B1A7A', 'Casi oncologici o sospetti'], ['#8B1A1A', 'di cui con metastasi']]) +
+        notaReport('sede', set) + '</div>' +
+    '</div></section>';
 
-  // Pagina 2 — andamento nel tempo
-  html += intestazione('Andamento mensile') +
-    '<h2>Esami e diagnosi oncologiche per mese</h2>' +
-    '<div class="rep-chart rep-chart-largo">' + cloneChart('svgMensile') + '</div>' +
-    '<h2>Heatmap per tipo di esame</h2>' +
-    '<div class="rep-table">' + cloneChart('svgHeatmap') + '</div>' +
-    '</div>';
+  // 02 — andamento nel tempo
+  html += sezione('02', 'Andamento mensile',
+      'Esami totali, casi oncologici o sospetti e quota percentuale per mese') +
+    '<div class="rep-blocco"><div class="rep-grafico rep-grafico-largo">' + cloneChart('svgMensile') + '</div>' +
+    legendaReport([['#C8C6BE', 'Totale esami'], ['#6B1A7A', 'Oncologici o sospetti'],
+                   ['#E8A020', 'Quota oncologica (linea)']]) +
+    notaReport('mensile', set) + '</div></section>';
 
-  // Pagina 3 — tabelle di dettaglio
-  html += intestazione('Dettaglio') +
-    '<h2>Prevalenza per sede</h2><div class="rep-table">' +
-    (el('tableSedeWrap') ? el('tableSedeWrap').innerHTML : '') + '</div>' +
-    '<h2>Dettaglio mensile per tipo di esame</h2><div class="rep-table">' +
-    tabellaMensileHtml() + '</div>' +
-    '</div>';
+  // 03 — resa per tipo di esame
+  html += sezione('03', 'Resa per tipo di esame',
+      'Esami per mese e tipo; fra parentesi i casi oncologici o sospetti, il colore indica la quota') +
+    '<div class="rep-blocco rep-blocco-lungo"><div class="rep-tabella rep-heatmap">' +
+      cloneChart('svgHeatmap') + '</div>' +
+    legendaReport([['', '0%', 'hm-0 hm-legend'], ['', 'meno del 10%', 'hm-1'], ['', '10–29%', 'hm-2'],
+                   ['', '30–49%', 'hm-3'], ['', '50% e oltre', 'hm-4']]) +
+    notaReport('heatmap', set) + '</div></section>';
+
+  // 04 — prevalenza per sede
+  html += sezione('04', 'Prevalenza per sede',
+      'Percentuale sul totale delle diagnosi oncologiche o sospette') +
+    '<div class="rep-blocco rep-blocco-lungo"><div class="rep-tabella zebra">' +
+      (tabellaSede ? tabellaSede.outerHTML : '') + '</div>' +
+    notaReport('tabSede', set) + '</div></section>';
+
+  // 05 — dettaglio mensile
+  html += sezione('05', 'Dettaglio mensile per tipo di esame',
+      'Quota = casi oncologici o sospetti sul totale del mese') +
+    '<div class="rep-blocco rep-blocco-lungo"><div class="rep-tabella zebra">' +
+      tabellaMensileHtml() + '</div>' +
+    notaReport('tabMensile', set) + '</div></section>';
 
   return html;
 }
@@ -1794,9 +1909,11 @@ function tabellaMensileHtml() {
 
 async function exportPDF() {
   if (!IS_ELECTRON) { notify('Il PDF è disponibile solo nell’applicazione desktop.'); return; }
+  const set = getStatsSubset();
+  if (!set.length) { notify('Nessun esame nel periodo selezionato.'); return; }
   const root = el('printRoot');
   if (!root) return;
-  root.innerHTML = buildReport(getStatsSubset());
+  root.innerHTML = buildReport(set);
   document.body.classList.add('printing');
   try {
     const saved = await API.savePdf('ps_onco_report.pdf');
@@ -1902,7 +2019,7 @@ function drawHBars(containerId, items, opts) {
   if (!box) return;
   if (!items.length) { chartEmpty(box, 'Nessuna diagnosi oncologica nel periodo.'); return; }
 
-  const W = 500, ROW_H = 28, PAD_L = 130, PAD_R = 60, PAD_T = 8;
+  const W = 500, ROW_H = 28, PAD_L = 130, PAD_R = 80, PAD_T = 8;
   const H = PAD_T * 2 + ROW_H * items.length;
   const maxVal = Math.max.apply(null, items.map((i) => i.value).concat([1]));
   const TW = W - PAD_L - PAD_R;
@@ -2122,13 +2239,9 @@ function renderStats() {
   });
   const mesiSorted = Object.keys(mesiTot).sort().slice(-24);
 
-  drawDonut('svgDonut', [
-    { label: 'Esami negativi', value: Math.max(0, tot - onco - sospetti), color: '#C8C6BE' },
-    { label: 'Diagnosi oncologiche', value: onco, color: '#6B1A7A', opacity: 0.85 },
-    { label: 'Sospetti', value: sospetti, color: '#E8A020' },
-    { label: 'Primo riscontro', value: primo, color: '#C2185B' },
-    { label: 'Metastasi', value: meta, color: '#8B1A1A', opacity: 0.7 }
-  ].filter((s) => s.value > 0), 'esami');
+  drawDonut('svgDonut', segmentiDistribuzione({
+    tot: tot, onco: onco, sosp: sospetti, primo: primo, meta: meta
+  }), 'esami');
 
   const sediTot = {}, sediMeta = {}, sediPrima = {};
   set.filter((r) => (r.onco === 'si' || r.onco === 'sospetto') && r.sede).forEach((r) => {
@@ -2577,7 +2690,7 @@ function generaNota(chiave, set) {
       const delta = (q2 - q1) * 100;
       if (Math.abs(delta) >= 3) {
         t += 'Nella seconda metà del periodo la quota oncologica ' +
-          (delta > 0 ? 'sale' : 'scende') + ' di ' + Math.abs(delta).toFixed(1) +
+          (delta > 0 ? 'sale' : 'scende') + ' di ' + Math.abs(delta).toFixed(1).replace('.', ',') +
           ' punti rispetto alla prima.';
       } else {
         t += 'La quota oncologica resta sostanzialmente stabile lungo il periodo.';
@@ -3310,7 +3423,9 @@ function setupSettings() {
 const INTRO_TITLE_DELAY = 580;    // quando parte il primo glifo
 const INTRO_GLYPH_STAGGER = 17;   // sfalsamento fra un glifo e il successivo
 const INTRO_HOLD = 2650;          // quando parte la dissolvenza di uscita
-const INTRO_FLIGHT = 700;         // volo del logo verso la nav
+const INTRO_FLIGHT = 800;         // volo del logo verso la nav
+const VELO_DURATA = 950;          // risalita della banda, come nel CSS
+const BARRA_PASSO = 55;           // cascata del contenuto della barra
 const POP_STEP = 90;              // cascata fra una sezione e la successiva
 const HEX_SIZE = 76;              // larghezza di un esagono, px
 const HEX_SPEED = 2.1;            // px al millisecondo del fronte d'onda
@@ -3334,6 +3449,8 @@ function runIntro() {
     introClosed = true;
     return;
   }
+
+  document.body.classList.add('intro-in-corso');
 
   // Logo: pathLength=1 normalizza la lunghezza del tracciato a 1, cosi'
   // stroke-dashoffset funziona su qualunque geometria. E' anche cio' che
@@ -3423,26 +3540,69 @@ function closeIntro() {
   setTimeout(finishIntro, INTRO_FLIGHT);
 }
 
-/** Atterraggio: il logo della nav prende il posto di quello volante,
- *  e solo allora le sezioni cominciano a comparire, una per volta. */
+/** Atterraggio. Il logo volante resta fermo al suo posto, sopra il
+ *  velo, finché la banda non si è dissolta sulla barra: il logo della
+ *  barra, sotto, sarebbe ancora coperto. Solo allora i due si scambiano
+ *  in un fotogramma: coincidono al pixel, quindi non si vede nulla. */
 function finishIntro() {
-  const screen = el('splashScreen');
   const stage = el('splashStage');
   const navLogo = el('navLogo');
   if (navLogo) navLogo.classList.add('landed');
-  if (screen) screen.classList.add('closing');
   // Spenti i filtri: 51 blur SVG vivi costano frame per nulla.
   if (stage) stage.classList.add('settled');
 
-  // La prima pagina non entra a cascata: si scopre da sotto il favo,
-  // che si scompone partendo dal logo appena atterrato.
-  if (hexCells && navLogo) {
-    const r = navLogo.getBoundingClientRect();
-    revealFromHex(hexCells, r.left + r.width / 2, r.top + r.height / 2);
+  if (hexCells) {
+    const durata = revealFromHex();
     hexCells = null;
+    setTimeout(chiudiSplash, durata);
   } else {
+    chiudiSplash();
+    popBarra();
     popSections(currentView);
   }
+}
+
+/** Il logo volante sparisce di colpo e lo splash, ormai trasparente,
+ *  si toglie di mezzo. */
+function chiudiSplash() {
+  const screen = el('splashScreen');
+  const logoBtn = el('splashLogo');
+  if (logoBtn) logoBtn.classList.add('atterrato');
+  if (screen) screen.classList.add('closing');
+}
+
+/** Il contenuto della barra compare a cascata: titolo, dock, singole
+ *  voci del dock, stato, icone del pannello laterale, piè di pagina. */
+function popBarra() {
+  const elementi = [].concat(
+    [document.querySelector('.nav-title > span:not(.nav-logo)'),
+     document.querySelector('.nav-sub'),
+     el('navDock')],
+    Array.prototype.slice.call(document.querySelectorAll('.dock-item')),
+    [document.querySelector('.nav-right')],
+    Array.prototype.slice.call(document.querySelectorAll('.rail-btn')),
+    [document.querySelector('.app-footer')]
+  ).filter(Boolean);
+
+  if (PREFS.reduceMotion) { document.body.classList.remove('intro-in-corso'); return; }
+
+  elementi.forEach((e, i) => {
+    e.classList.remove('pop-barra');
+    void e.offsetWidth;
+    e.style.setProperty('--pop-delay', (i * BARRA_PASSO) + 'ms');
+    e.classList.add('pop-barra');
+  });
+  // il fill "both" tiene nascosto ciascun elemento fino al suo turno:
+  // si può togliere subito la classe che li nascondeva tutti
+  document.body.classList.remove('intro-in-corso');
+
+  // A fine animazione la classe va via: il fill terrebbe transform:none
+  // per sempre, e le icone del pannello perderebbero l'ingrandimento al
+  // passaggio del puntatore.
+  setTimeout(() => elementi.forEach((e) => {
+    e.classList.remove('pop-barra');
+    e.style.removeProperty('--pop-delay');
+  }), elementi.length * BARRA_PASSO + 560);
 }
 
 /** Fa comparire a cascata le sezioni della vista indicata.
@@ -3476,26 +3636,36 @@ function buildHexVeil() {
   return true;
 }
 
-/** La banda risale dal bordo inferiore e si ferma sull'altezza della
- *  barra di navigazione, dove vira al nero e si dissolve: sotto c'è
- *  già la barra vera, quindi il passaggio non si vede.
- *  L'origine resta nella firma per compatibilità: qui il movimento è
- *  verticale e parte sempre dal basso. */
-function revealFromHex(_celle, _origineX, _origineY) {
+/** La banda risale dal bordo inferiore trascinando la pagina, vira al
+ *  nero salendo e si ferma sull'altezza della barra, dove si dissolve
+ *  sulla barra vera. Consolidata la barra, il suo contenuto compare a
+ *  cascata. */
+function revealFromHex() {
   const veil = el('hexReveal');
-  if (!veil) return 0;
+  if (!veil) { popBarra(); popSections(currentView); return 0; }
 
   const nav = document.querySelector('nav');
   const altezzaNav = nav ? nav.getBoundingClientRect().height : 52;
-  const quota = 100 - (altezzaNav / window.innerHeight * 100);
-  veil.style.setProperty('--velo-barra', quota.toFixed(2) + '%');
+  const H = window.innerHeight;
+  veil.style.setProperty('--velo-barra', (100 - altezzaNav / H * 100).toFixed(2) + '%');
+  // la pagina parte dal fondo della finestra e arriva sotto la barra
+  document.body.style.setProperty('--salita', Math.round(H - altezzaNav) + 'px');
 
   void veil.offsetWidth;
   veil.classList.add('revealing');
+  document.body.classList.add('pagina-sale');
 
-  const totale = 1000;
-  setTimeout(() => { veil.classList.remove('armed', 'revealing'); }, totale);
-  return totale;
+  // le schede arrivano trascinate dalla banda, con la loro molla
+  popSections(currentView);
+  // la banda diventa barra al 62% della corsa: da lì la barra si popola
+  setTimeout(popBarra, Math.round(VELO_DURATA * 0.62) + 30);
+
+  setTimeout(() => {
+    veil.classList.remove('armed', 'revealing');
+    document.body.classList.remove('pagina-sale');
+    document.body.style.removeProperty('--salita');
+  }, VELO_DURATA + 60);
+  return VELO_DURATA;
 }
 
 /** Copia del logo SD nella barra di navigazione. */
