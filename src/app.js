@@ -176,9 +176,38 @@ function setStatus(cls, txt) {
   e.textContent = txt;
 }
 
+/** Chiude una finestra con un'uscita speculare all'entrata, invece di
+ *  farla sparire di colpo. */
+function chiudiOverlay(o) {
+  if (!o || !o.classList.contains('open') || o.classList.contains('in-chiusura')) return;
+  if (PREFS.reduceMotion) {
+    o.classList.remove('open');
+    dopoChiusuraOverlay(o);
+    return;
+  }
+  o.classList.add('in-chiusura');
+  setTimeout(() => {
+    if (!o.classList.contains('in-chiusura')) return;      // riaperta nel frattempo
+    o.classList.remove('open', 'in-chiusura');
+    dopoChiusuraOverlay(o);
+  }, 200);
+}
+
+function apriOverlay(o) {
+  if (!o) return;
+  o.classList.remove('in-chiusura');
+  o.classList.add('open');
+}
+
+function dopoChiusuraOverlay(o) {
+  if (o.id === 'modPersonalizza') {
+    const b = el('railPersonalizza');
+    if (b) b.setAttribute('aria-expanded', 'false');
+  }
+}
+
 function closeOverlay(id) {
-  const e = el(id);
-  if (e) e.classList.remove('open');
+  chiudiOverlay(el(id));
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -636,7 +665,7 @@ async function refreshFromRemote() {
     if (before === after) return;
     applicaStore(merged);
     aggiornaSelettoreTipo();
-    if (railAperto === 'esami') { renderTipiEsame(); renderCategorieRichieste(); }
+    if (personalizzazioneAperta()) { renderTipiEsame(); renderCategorieRichieste(); }
     refreshViews();
     notify('Archivio aggiornato con le modifiche dell’altra postazione.');
   } catch (e) { /* transitorio: si riprova al giro successivo */ }
@@ -1343,6 +1372,9 @@ function analizzaRichiesta(testo) {
     }
   });
   const termini = parole.filter((_p, i) => !usate[i]);
+  // le stesse parole nella forma scritta, per mostrarle a chi configura
+  const originali = normalizzaTesto(testo).split(' ').filter((p) => p && !PAROLE_VUOTE.has(p));
+  const nonRiconosciute = originali.filter((p, i) => !usate[i] && p.length >= 3 && !/^[0-9]+$/.test(p));
   const normale = normalizzaTesto(testo);
   // l'ultima parola, se la si sta ancora scrivendo, vale anche come inizio
   const parziale = /[a-z0-9]$/i.test(String(testo || '')) && parole.length ? parole[parole.length - 1] : '';
@@ -1351,6 +1383,7 @@ function analizzaRichiesta(testo) {
     termini: termini,
     normale: normale,
     parziale: parziale,
+    nonRiconosciute: nonRiconosciute,
     chiave: concetti.slice().sort().join('+') + '|' + termini.slice().sort().join('+')
   };
 }
@@ -1896,7 +1929,7 @@ function openDetail(id) {
   }
 
   el('detBody').innerHTML = html;
-  el('modDetail').classList.add('open');
+  apriOverlay(el('modDetail'));
 }
 
 function deleteDetail() {
@@ -1914,7 +1947,7 @@ function deleteDetail() {
 function openAddFU(id) {
   fuTargetId = id;
   ['mfuDate', 'mfuText', 'mfuType'].forEach((k) => setFieldValue(el(k), ''));
-  el('modFU').classList.add('open');
+  apriOverlay(el('modFU'));
 }
 
 function saveFU() {
@@ -3577,7 +3610,7 @@ function modalitaTipoLibera(libera) {
 
 // ── finestra di gestione ──────────────────────────────────────────
 function apriTipiEsame() {
-  toggleRail('esami');
+  apriPersonalizzazione('tipi');
 }
 
 function renderTipiEsame() {
@@ -3700,56 +3733,201 @@ function salvaPersonalizzazione(modifica) {
   renderCronologia();
 }
 
-function renderCategorieRichieste() {
-  const wrap = el('categorieLista');
-  if (!wrap) return;
-  // le schede aperte restano aperte dopo ogni modifica
-  const aperte = new Set(Array.prototype.map.call(wrap.querySelectorAll('details[open]'),
-    (d) => d.getAttribute('data-cat')));
-  const tipi = tipiEsameCorrenti();
+let persTab = 'tipi';
+let persCategoria = 'trauma';
 
-  wrap.innerHTML = categorieEffettive().categorie.map((c) => {
-    const base = categoriaPredefinita(c.id);
-    const fisso = personalizzazione.esamiCategoria[c.id] || '';
-    const automatico = esameConsigliato(Object.assign({}, c, { esameFisso: '', esami: base.esami }));
-    const elenco = tipi.slice();
-    if (fisso && elenco.indexOf(fisso) === -1) elenco.push(fisso);
-    const opzioni = '<option value="">Automatico — ' + esc(automatico ? automatico.scelto : '—') + '</option>' +
-      elenco.map((t) => '<option value="' + esc(t) + '"' + (t === fisso ? ' selected' : '') + '>' +
-        esc(t) + '</option>').join('');
-    const aggiunte = personalizzazione.parole
-      .map((w, i) => ({ w: w, i: i }))
-      .filter((x) => x.w.categoria === c.id);
+function personalizzazioneAperta() {
+  const o = el('modPersonalizza');
+  return !!(o && o.classList.contains('open') && !o.classList.contains('in-chiusura'));
+}
 
-    return '<details class="pers-cat" data-cat="' + c.id + '" style="--c:' + c.colore + '"' +
-        (aperte.has(c.id) ? ' open' : '') + '>' +
-      '<summary>' + etichettaCategoria(c) +
-        '<span class="pers-esame-eco">' + esc(fisso || (automatico ? automatico.scelto : '')) +
-          (fisso ? '' : ' · auto') + '</span>' +
-        (aggiunte.length ? '<span class="pers-conta">+' + aggiunte.length + '</span>' : '') +
-      '</summary>' +
-      '<div class="pers-corpo">' +
-        '<div class="pers-etichetta">Esame proposto</div>' +
-        '<select class="pers-esame" data-cat="' + c.id + '" aria-label="Esame proposto per ' + esc(c.nome) + '">' +
-          opzioni + '</select>' +
-        '<div class="pers-etichetta">Parole chiave</div>' +
-        '<div class="pers-parole">' +
-          base.concetti.map((w) => '<span class="pers-parola">' + esc(w) + '</span>').join('') +
-          aggiunte.map((x) => '<span class="pers-parola utente">' + esc(x.w.testo) +
-            '<button type="button" data-act="pers-parola-elimina" data-idx="' + x.i +
-            '" aria-label="Rimuovi ' + esc(x.w.testo) + '">&times;</button></span>').join('') +
-        '</div>' +
-        '<div class="tipi-aggiungi pers-aggiungi">' +
-          '<input type="text" class="pers-nuova" data-cat="' + c.id + '" maxlength="60" autocomplete="off" ' +
-            'placeholder="nuova parola chiave">' +
-          '<button type="button" class="btn btn-outline btn-sm" data-act="pers-parola-aggiungi" data-cat="' + c.id +
-            '">Aggiungi</button>' +
-        '</div>' +
-      '</div>' +
-    '</details>';
+/** Apre la pagina di personalizzazione sopra il tool. Dal pulsante del
+ *  rail fa da interruttore: un secondo click la richiude. */
+function apriPersonalizzazione(tab) {
+  const o = el('modPersonalizza');
+  if (!o) return;
+  if (!tab && personalizzazioneAperta()) { closeOverlay('modPersonalizza'); return; }
+  if (railAperto) toggleRail(null);
+  if (tab) persTab = tab;
+  renderTipiEsame();
+  renderCategorieRichieste(false);
+  mostraTabPersonalizzazione(persTab, true);
+  apriOverlay(o);
+  const b = el('railPersonalizza');
+  if (b) b.setAttribute('aria-expanded', 'true');
+  const attivo = o.querySelector('.pg-tab[aria-selected="true"]');
+  if (attivo) attivo.focus({ preventScroll: true });
+}
+
+function mostraTabPersonalizzazione(tab, senzaAnimazione) {
+  if (tab !== 'tipi' && tab !== 'categorie') return;
+  const cambia = tab !== persTab;
+  persTab = tab;
+  const o = el('modPersonalizza');
+  if (!o) return;
+  o.querySelectorAll('.pg-tab').forEach((t) => {
+    t.setAttribute('aria-selected', t.getAttribute('data-tab') === tab ? 'true' : 'false');
+  });
+  o.querySelectorAll('.pg-sezione').forEach((s) => {
+    const sua = s.getAttribute('data-tab') === tab;
+    s.hidden = !sua;
+    s.classList.remove('pg-entra');
+    if (sua && (cambia || !senzaAnimazione) && !senzaAnimazione && !PREFS.reduceMotion) {
+      void s.offsetWidth;
+      s.classList.add('pg-entra');
+    }
+  });
+}
+
+function selezionaCategoria(id) {
+  if (!categoriaPredefinita(id)) return;
+  const cambia = id !== persCategoria;
+  persCategoria = id;
+  if (persTab !== 'categorie') mostraTabPersonalizzazione('categorie');
+  renderCategorieRichieste(cambia);
+}
+
+function aggiornaContatoriPersonalizzazione() {
+  const tipi = el('persContaTipi');
+  const cat = el('persContaCat');
+  if (tipi) tipi.textContent = String((tipiEsame.lista && tipiEsame.lista.length ? tipiEsame.lista : TIPI_PREDEFINITI).length);
+  if (cat) cat.textContent = String(CATEGORIE_RICHIESTA.length);
+}
+
+/** Elenco delle categorie a sinistra, dettaglio di quella scelta a destra. */
+function renderCategorieRichieste(animaDettaglio) {
+  aggiornaContatoriPersonalizzazione();
+  const lista = el('categorieLista');
+  const dettaglio = el('categoriaDettaglio');
+  if (!lista || !dettaglio) return;
+  const categorie = categorieEffettive().categorie;
+  if (!categoriaPredefinita(persCategoria)) persCategoria = categorie[0].id;
+
+  lista.innerHTML = categorie.map((c) => {
+    const e = esameConsigliato(c);
+    const aggiunte = personalizzazione.parole.filter((w) => w.categoria === c.id).length;
+    const scelta = c.id === persCategoria;
+    return '<button type="button" class="pg-cat' + (scelta ? ' scelta' : '') + '" role="tab" aria-selected="' +
+        scelta + '" data-act="pers-categoria" data-cat="' + c.id + '" style="--c:' + c.colore + '">' +
+      '<span class="pg-cat-nome">' + esc(c.nome) + '</span>' +
+      '<span class="pg-cat-conta">' + c.concetti.length + (aggiunte ? ' · +' + aggiunte : '') + '</span>' +
+      '<span class="pg-cat-esame">' + esc(e ? e.scelto : '—') + (c.esameFisso ? '' : ' · auto') + '</span>' +
+    '</button>';
   }).join('');
 
-  wrap.querySelectorAll('select.pers-esame').forEach(avvolgiSelect);
+  const c = categorie.find((x) => x.id === persCategoria);
+  const base = categoriaPredefinita(c.id);
+  const fisso = personalizzazione.esamiCategoria[c.id] || '';
+  const automatico = esameConsigliato(Object.assign({}, c, { esameFisso: '', esami: base.esami }));
+  const elenco = tipiEsameCorrenti().slice();
+  if (fisso && elenco.indexOf(fisso) === -1) elenco.push(fisso);
+  const opzioni = '<option value="">Automatico — ' + esc(automatico ? automatico.scelto : '—') + '</option>' +
+    elenco.map((t) => '<option value="' + esc(t) + '"' + (t === fisso ? ' selected' : '') + '>' +
+      esc(t) + '</option>').join('');
+  const aggiunte = personalizzazione.parole
+    .map((w, i) => ({ w: w, i: i }))
+    .filter((x) => x.w.categoria === c.id);
+
+  // quanto si stava scrivendo nel campo resta, anche dopo una modifica
+  const campoPrima = dettaglio.querySelector('.pers-nuova');
+  const bozza = campoPrima && campoPrima.getAttribute('data-cat') === c.id ? campoPrima.value : '';
+
+  let notaAuto = '';
+  if (automatico) {
+    notaAuto = automatico.archivio
+      ? 'In automatico: <b>' + esc(automatico.scelto) + '</b>. In archivio questa categoria usa ' +
+        esc(automatico.archivio.tipo) + ' nel ' + pct(automatico.archivio.n, automatico.archivio.tot, 0) +
+        ' dei ' + automatico.archivio.tot + ' casi.'
+      : 'In automatico: <b>' + esc(automatico.scelto) + '</b>, l’esame tipico della categoria.';
+  }
+
+  dettaglio.style.setProperty('--c', c.colore);
+  dettaglio.innerHTML =
+    '<div class="pg-det-testa">' + etichettaCategoria(c) +
+      '<span class="pg-det-sub">' + (fisso ? 'esame fissato dal reparto' : 'esame automatico') + '</span></div>' +
+    '<div class="pg-campo">' +
+      '<div class="pers-etichetta">Esame proposto nella cronologia</div>' +
+      '<select class="pers-esame" data-cat="' + c.id + '" aria-label="Esame proposto per ' + esc(c.nome) + '">' +
+        opzioni + '</select>' +
+      '<div class="pg-nota">' + notaAuto + ' Un esame scelto qui vale sempre, anche sull’archivio.</div>' +
+    '</div>' +
+    '<div class="pg-campo">' +
+      '<div class="pers-etichetta">Parole chiave predefinite</div>' +
+      '<div class="pers-parole">' + base.concetti.map((w) => '<span class="pers-parola">' + esc(w) + '</span>').join('') + '</div>' +
+      '<div class="pg-nota">Riconosciute anche nei loro sinonimi (per esempio affanno per dispnea).</div>' +
+    '</div>' +
+    '<div class="pg-campo">' +
+      '<div class="pers-etichetta">Parole chiave del reparto</div>' +
+      '<div class="pers-parole">' + (aggiunte.length
+        ? aggiunte.map((x) => '<span class="pers-parola utente">' + esc(x.w.testo) +
+            '<button type="button" data-act="pers-parola-elimina" data-idx="' + x.i +
+            '" aria-label="Rimuovi ' + esc(x.w.testo) + '">&times;</button></span>').join('')
+        : '<span class="pg-vuoto">Nessuna per ora.</span>') + '</div>' +
+      '<div class="tipi-aggiungi pers-aggiungi">' +
+        '<input type="text" class="pers-nuova" data-cat="' + c.id + '" maxlength="60" autocomplete="off" ' +
+          'placeholder="Nuova parola chiave per ' + esc(c.nome) + '" value="' + esc(bozza) + '">' +
+        '<button type="button" class="btn btn-primary btn-sm" data-act="pers-parola-aggiungi" data-cat="' + c.id +
+          '">Aggiungi</button>' +
+      '</div>' +
+      '<div class="pg-nota">Sinonimi, abbreviazioni o diagnosi che il PS scrive spesso nelle richieste. ' +
+        'Maiuscole, accenti e plurali non contano.</div>' +
+    '</div>';
+
+  dettaglio.querySelectorAll('select.pers-esame').forEach(avvolgiSelect);
+  if (animaDettaglio && !PREFS.reduceMotion) {
+    dettaglio.classList.remove('pg-entra');
+    void dettaglio.offsetWidth;
+    dettaglio.classList.add('pg-entra');
+  }
+  renderProva();
+}
+
+/** Prova dal vivo: cosa riconosce la cronologia in una richiesta. */
+function renderProva() {
+  const campo = el('persProva');
+  const esito = el('persProvaEsito');
+  if (!campo || !esito) return;
+  const testo = campo.value.trim();
+  if (!testo) {
+    esito.innerHTML = '<span class="pg-nota">Scrivi una richiesta come la scriverebbe il PS: vedi quali parole ' +
+      'vengono riconosciute, in quale categoria finisce e quale esame viene proposto.</span>';
+    return;
+  }
+  const an = analizzaRichiesta(testo);
+  const cat = an.concetti.length ? categoriaDi(an.concetti) : CATEGORIA_ALTRO;
+  const esame = esameConsigliato(cat);
+  const nomeScelta = (categoriaPredefinita(persCategoria) || {}).nome || '';
+
+  esito.innerHTML =
+    '<div class="pg-prova-riga"><span class="pers-etichetta">Riconosciute</span>' +
+      (an.concetti.length
+        ? an.concetti.map((x) => '<b class="pg-chip-ok">' + esc(x) + '</b>').join('')
+        : '<span class="pg-nota">nessuna</span>') +
+    '</div>' +
+    (an.nonRiconosciute.length
+      ? '<div class="pg-prova-riga"><span class="pers-etichetta">Non riconosciute</span>' +
+          an.nonRiconosciute.map((p) => '<button type="button" class="pg-termine" data-act="pers-termine" data-testo="' +
+            esc(p) + '" title="Prepara come parola chiave di ' + esc(nomeScelta) + '">' + esc(p) + ' +</button>').join('') +
+        '</div>'
+      : '') +
+    '<div class="pg-prova-riga"><span class="pers-etichetta">Risultato</span>' +
+      (cat !== CATEGORIA_ALTRO
+        ? '<button type="button" class="pg-prova-cat" data-act="pers-categoria" data-cat="' + cat.id + '">' +
+            etichettaCategoria(cat) + '</button><span class="pg-prova-esame">&rarr; <b>' +
+            esc(esame ? esame.scelto : '—') + '</b></span>'
+        : '<span class="pg-nota">nessuna categoria: finirebbe in Altre richieste</span>') +
+    '</div>';
+}
+
+/** Una parola non riconosciuta della prova va nel campo di aggiunta
+ *  della categoria scelta, pronta da confermare. */
+function usaTermineProva(testo) {
+  if (persTab !== 'categorie') mostraTabPersonalizzazione('categorie');
+  const campo = document.querySelector('#categoriaDettaglio .pers-nuova');
+  if (!campo) return;
+  campo.value = testo || '';
+  campo.focus();
+  campo.select();
 }
 
 function impostaEsameCategoria(id, tipo) {
@@ -3787,6 +3965,7 @@ function aggiungiParolaChiave(id) {
     notify('Raggiunto il limite di ' + PAROLE_UTENTE_MAX + ' parole chiave aggiunte.');
     return;
   }
+  campo.value = '';
   salvaPersonalizzazione((p) => p.parole.push({ testo: testo, categoria: c.id }));
   notify('Aggiunta a ' + c.nome + ': ' + testo);
   const nuovo = document.querySelector('.pers-nuova[data-cat="' + c.id + '"]');
@@ -4603,6 +4782,8 @@ let railAperto = null;
 /** Apre o chiude il pannello laterale. Cliccando l'icona già attiva si
  *  richiude, e il contenuto della pagina torna a larghezza piena. */
 function toggleRail(pan) {
+  // un pannello laterale non si apre sopra la pagina di personalizzazione
+  if (pan && personalizzazioneAperta()) closeOverlay('modPersonalizza');
   const chiudi = !pan || railAperto === pan;
   railAperto = chiudi ? null : pan;
 
@@ -4641,7 +4822,6 @@ function toggleRail(pan) {
   });
 
   if (railAperto === 'info' || railAperto === 'archivio') refreshSettingsInfo();
-  if (railAperto === 'esami') { renderTipiEsame(); renderCategorieRichieste(); }
   // il fondino è relativo al dock: si riallinea subito
   requestAnimationFrame(moveTabHighlight);
 }
@@ -5044,7 +5224,7 @@ const CLICK_ACTIONS = {
   'detail-edit': () => { const id = detailId; closeOverlay('modDetail'); if (id) loadIntoWizard(id); },
   'detail-del': () => deleteDetail(),
   'close': (t) => closeOverlay(t.getAttribute('data-target')),
-  'export-open': () => { const m = el('modExport'); if (m) m.classList.add('open'); },
+  'export-open': () => apriOverlay(el('modExport')),
   'export-xlsx': (t) => { closeOverlay('modExport'); exportExcel(t.getAttribute('data-anon') === '1'); },
   'export-csv': (t) => { closeOverlay('modExport'); exportCSV(t.getAttribute('data-anon') === '1'); },
   'export-pdf': () => { closeOverlay('modExport'); exportPDF(); },
@@ -5059,6 +5239,10 @@ const CLICK_ACTIONS = {
   'safety-net': () => safetyNet(),
   'richiesta-usa': (t) => usaRichiesta(t.getAttribute('data-testo')),
   'crono-apri': () => apriCronologia(),
+  'personalizza-apri': () => apriPersonalizzazione(),
+  'pers-tab': (t) => mostraTabPersonalizzazione(t.getAttribute('data-tab')),
+  'pers-categoria': (t) => selezionaCategoria(t.getAttribute('data-cat')),
+  'pers-termine': (t) => usaTermineProva(t.getAttribute('data-testo')),
   'pers-parola-aggiungi': (t) => aggiungiParolaChiave(t.getAttribute('data-cat')),
   'pers-parola-elimina': (t) => eliminaParolaChiave(parseInt(t.getAttribute('data-idx'), 10)),
   'pers-ripristina': () => ripristinaCategorie(),
@@ -5094,12 +5278,13 @@ function wireEvents() {
     renderCronologia();
   });
   on('tipiNuovo', 'keydown', (ev) => { if (ev.key === 'Enter') aggiungiTipoEsame(); });
-  on('categorieLista', 'change', (ev) => {
+  on('persProva', 'input', renderProva);
+  on('modPersonalizza', 'change', (ev) => {
     if (ev.target.classList.contains('pers-esame')) {
       impostaEsameCategoria(ev.target.getAttribute('data-cat'), ev.target.value);
     }
   });
-  on('categorieLista', 'keydown', (ev) => {
+  on('modPersonalizza', 'keydown', (ev) => {
     if (ev.key === 'Enter' && ev.target.classList.contains('pers-nuova')) {
       ev.preventDefault();
       aggiungiParolaChiave(ev.target.getAttribute('data-cat'));
@@ -5123,13 +5308,13 @@ function wireEvents() {
   }
 
   document.querySelectorAll('.overlay').forEach((m) => {
-    m.addEventListener('click', (ev) => { if (ev.target === m) m.classList.remove('open'); });
+    m.addEventListener('click', (ev) => { if (ev.target === m) chiudiOverlay(m); });
   });
 
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') {
       toggleRail(null);
-      document.querySelectorAll('.overlay.open').forEach((m) => m.classList.remove('open'));
+      document.querySelectorAll('.overlay.open').forEach(chiudiOverlay);
     }
   });
 

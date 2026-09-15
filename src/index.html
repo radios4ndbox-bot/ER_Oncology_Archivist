@@ -730,8 +730,8 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
       <span class="rail-eco">Archivio</span>
     </button>
 
-    <button type="button" class="rail-btn" data-act="rail" data-pan="esami"
-            role="tab" aria-selected="false" title="Personalizzazione del reparto">
+    <button type="button" class="rail-btn" data-act="personalizza-apri" id="railPersonalizza"
+            aria-haspopup="dialog" aria-expanded="false" title="Personalizzazione del reparto">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/>
@@ -781,31 +781,6 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
       </button>
     </section>
 
-    <section class="pan" data-pan="esami">
-      <h3 class="pan-tit">Personalizzazione</h3>
-      <p class="pan-desc">Tipi di esame e categorie delle richieste del PS, in un solo posto.
-      Tutto sta nel file condiviso: vale per entrambe le postazioni.</p>
-      <h4 class="pan-sez">Tipi di esame</h4>
-      <p class="pan-desc">Compaiono nel menu <strong>Tipo di esame</strong> e fra gli esami
-      proposti dalla cronologia.</p>
-      <div class="tipi-lista" id="tipiLista"></div>
-      <div class="tipi-aggiungi">
-        <input id="tipiNuovo" type="text" placeholder="es. TC addome con e senza mdc"
-               autocomplete="off" maxlength="200">
-        <button type="button" class="btn btn-primary btn-sm" data-act="tipi-aggiungi">Aggiungi</button>
-      </div>
-      <button type="button" class="pan-voce pan-voce-sm" data-act="tipi-ripristina">
-        <span class="pan-ico">&#8634;</span><span><strong>Ripristina tipi predefiniti</strong></span>
-      </button>
-      <h4 class="pan-sez">Categorie delle richieste</h4>
-      <p class="pan-desc">Per ogni categoria l'esame proposto nella cronologia e le parole chiave
-      che la riconoscono. In <strong>Automatico</strong> vale l'esame tipico, o quello più usato
-      in archivio.</p>
-      <div class="pers-lista" id="categorieLista"></div>
-      <button type="button" class="pan-voce pan-voce-sm" data-act="pers-ripristina">
-        <span class="pan-ico">&#8634;</span><span><strong>Ripristina categorie predefinite</strong></span>
-      </button>
-    </section>
 
     <section class="pan" data-pan="aspetto">
       <h3 class="pan-tit">Aspetto</h3>
@@ -929,6 +904,72 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
       </div>
     </div>
     <div class="modal-foot"><div class="spacer"></div><button type="button" class="btn btn-outline" data-act="close" data-target="modExport">Chiudi</button></div>
+  </div>
+</div>
+
+<!-- Personalizzazione del reparto: pagina in overlay -->
+<div class="overlay overlay-pagina" id="modPersonalizza" role="dialog" aria-modal="true" aria-labelledby="persTitolo">
+  <div class="modal modal-pagina">
+    <div class="pg-testa">
+      <div class="pg-icona" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/>
+          <path d="M1 14h6M9 8h6M17 16h6"/>
+        </svg>
+      </div>
+      <div>
+        <div class="pg-titolo" id="persTitolo">Personalizzazione del reparto</div>
+        <div class="pg-sub">Tipi di esame e categorie delle richieste del PS &middot; valgono per entrambe le postazioni</div>
+      </div>
+      <button type="button" class="xbtn" data-act="close" data-target="modPersonalizza" aria-label="Chiudi">&times;</button>
+    </div>
+    <div class="pg-corpo">
+      <nav class="pg-nav" role="tablist" aria-label="Sezioni della personalizzazione">
+        <button type="button" class="pg-tab" role="tab" data-act="pers-tab" data-tab="tipi" aria-selected="true">
+          <span class="pg-tab-nome">Tipi di esame</span><span class="pg-conta" id="persContaTipi">0</span>
+          <span class="pg-tab-desc">L'elenco del menu <em>Tipo di esame</em></span>
+        </button>
+        <button type="button" class="pg-tab" role="tab" data-act="pers-tab" data-tab="categorie" aria-selected="false">
+          <span class="pg-tab-nome">Categorie delle richieste</span><span class="pg-conta" id="persContaCat">0</span>
+          <span class="pg-tab-desc">Esame proposto e parole chiave della cronologia</span>
+        </button>
+        <div class="pg-nav-nota">Le modifiche si salvano da sole nel file condiviso. Si chiude con <kbd>Esc</kbd>.</div>
+      </nav>
+
+      <section class="pg-sezione" data-tab="tipi">
+        <div class="pg-sez-testa">
+          <h3>Tipi di esame</h3>
+          <p>Compaiono nel menu <strong>Tipo di esame</strong> del passo 2, in quest'ordine, e fra
+          gli esami che la cronologia può proporre.</p>
+        </div>
+        <div class="tipi-aggiungi">
+          <input id="tipiNuovo" type="text" placeholder="Nuovo tipo di esame, es. TC addome con e senza mdc"
+                 autocomplete="off" maxlength="200">
+          <button type="button" class="btn btn-primary btn-sm" data-act="tipi-aggiungi">Aggiungi</button>
+        </div>
+        <div class="tipi-lista" id="tipiLista"></div>
+        <button type="button" class="pg-link" data-act="tipi-ripristina">&#8634; Ripristina tipi predefiniti</button>
+      </section>
+
+      <section class="pg-sezione" data-tab="categorie" hidden>
+        <div class="pg-sez-testa">
+          <h3>Categorie delle richieste</h3>
+          <p>La cronologia riconosce le parole chiave di una richiesta, la assegna a una categoria e
+          propone l'esame. Scegli una categoria per cambiarne l'esame o insegnarle nuove parole.</p>
+        </div>
+        <div class="pg-prova">
+          <label for="persProva">Prova una richiesta</label>
+          <input id="persProva" type="text" autocomplete="off" maxlength="300"
+                 placeholder="es. addominalgia con melena, calo ponderale">
+          <div class="pg-prova-esito" id="persProvaEsito" aria-live="polite"></div>
+        </div>
+        <div class="pg-md">
+          <div class="pg-cat-lista" id="categorieLista" role="tablist" aria-label="Categorie"></div>
+          <div class="pg-cat-dettaglio" id="categoriaDettaglio"></div>
+        </div>
+        <button type="button" class="pg-link" data-act="pers-ripristina">&#8634; Ripristina categorie predefinite</button>
+      </section>
+    </div>
   </div>
 </div>
 
