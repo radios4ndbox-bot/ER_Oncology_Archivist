@@ -688,31 +688,27 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
     <div class="graf-dettaglio" id="det-heatmap" aria-live="polite"></div>
     <div class="chart-nota" id="nota-heatmap"></div>
   </div>
-  <div class="panel pop-section">
-    <div class="panel-head">
-      <h3>Dettaglio mensile per tipo di esame</h3>
-      <span class="panel-note">% = oncologici / totale del mese</span>
-    </div>
-    <div class="tbl-scroll"><table class="data-table"><thead><tr id="tableMensileHead"></tr></thead><tbody id="tableMensileBody"></tbody></table></div>
-  </div>
+  <div class="chart-card pop-section tab-card" id="tableMensileWrap">
+    <h3>Dettaglio mensile per tipo di esame &nbsp;<span class="h3-note">n. esami (oncologici) · quota = oncologici sul totale del mese</span></h3>
+    <div class="tbl-scroll"><table class="data-table tab-graf"><thead><tr id="tableMensileHead"></tr></thead><tbody id="tableMensileBody"></tbody></table></div>
+    <div class="graf-dettaglio" id="det-tabMensile" aria-live="polite"></div>
     <div class="chart-nota" id="nota-tabMensile"></div>
-  <div class="panel pop-section" id="tableSedeWrap">
-    <div class="panel-head">
-      <h3>Prevalenza per sede / tipo di diagnosi oncologica</h3>
-      <span class="panel-note">% = sul totale delle diagnosi oncologiche</span>
-    </div>
+  </div>
+  <div class="chart-card pop-section tab-card" id="tableSedeWrap">
+    <h3>Prevalenza per sede / tipo di diagnosi oncologica &nbsp;<span class="h3-note">quota sul totale delle diagnosi oncologiche o sospette</span></h3>
     <div class="tbl-scroll">
-      <table class="data-table">
+      <table class="data-table tab-graf">
         <thead><tr>
           <th class="sd-head sd-head-left">Sede</th>
           <th class="sd-head">Casi</th>
           <th class="sd-head">Prime diagnosi</th>
           <th class="sd-head">Metastasi</th>
-          <th class="sd-head sd-head-left">% su tot. onco.</th>
+          <th class="sd-head sd-head-left">Quota</th>
         </tr></thead>
         <tbody id="tableSedeBody"></tbody>
       </table>
     </div>
+    <div class="graf-dettaglio" id="det-tabSede" aria-live="polite"></div>
     <div class="chart-nota" id="nota-tabSede"></div>
   </div>
 </div>
@@ -818,15 +814,46 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
 
     <section class="pan" data-pan="info">
       <h3 class="pan-tit">Informazioni</h3>
-      <div class="info-blocco" id="smInfo"></div>
-      <p class="pan-desc">
-        Raccolta dati del Pronto Soccorso Oncologico — Radiologia d'Urgenza.
-        Funziona completamente offline: nessun dato lascia la rete dell'ospedale.
-      </p>
-      <p class="pan-desc">
-        L'archivio è un unico file JSON sulla cartella condivisa, letto e
-        riscritto con unione automatica fra le due postazioni.
-      </p>
+      <div class="info-hero">
+        <div class="info-etichetta">Radiologia di Desio</div>
+        <div class="info-titolo">ER Oncology Archivist</div>
+        <p>Archivio dei pazienti del Pronto Soccorso con prima diagnosi di malattia oncologica.</p>
+      </div>
+      <div class="info-sez">
+        <h4>Il progetto</h4>
+        <p>La Radiologia di Desio ha avviato un progetto di archiviazione strutturata dei dati
+          dei pazienti che afferiscono al Pronto Soccorso e ricevono una prima diagnosi di
+          malattia oncologica.</p>
+      </div>
+      <div class="info-sez">
+        <h4>Obiettivo</h4>
+        <p>Raccogliere in modo uniforme e continuativo la casistica, così da poterne elaborare
+          dati statistici significativi, con la prospettiva di una pubblicazione scientifica.</p>
+      </div>
+      <div class="info-sez">
+        <h4>Sulle postazioni di Pronto Soccorso</h4>
+        <ul class="info-lista">
+          <li>In uso sulle due postazioni radiologiche dedicate al Pronto Soccorso, con un
+            archivio condiviso e sempre aggiornato fra le due.</li>
+          <li>Rende superfluo l’uso delle chiavette USB per la conservazione quotidiana dei dati.</li>
+          <li>Indipendente dai software di refertazione: non ne modifica né ne ostacola l’utilizzo.</li>
+          <li>Funziona senza connessione a Internet e senza supporti rimovibili, a tutela
+            dell’integrità delle postazioni: i dati restano nella rete dell’ospedale.</li>
+        </ul>
+      </div>
+      <div class="info-sez">
+        <h4>Ideazione e sviluppo</h4>
+        <div class="info-autori">
+          <div class="info-autore"><span class="info-iniz">C</span>
+            <div><strong>Dott.ssa Costantini</strong><em>Radiologia di Desio</em></div></div>
+          <div class="info-autore"><span class="info-iniz">V</span>
+            <div><strong>Dott. Viggiano</strong><em>Medico in formazione specialistica</em></div></div>
+        </div>
+      </div>
+      <div class="info-sez">
+        <h4>Versione e archivio</h4>
+        <div class="info-blocco" id="smInfo"></div>
+      </div>
       <p class="pan-nota">&copy; 2026 StructuRad. All rights reserved.<br>Powered by RadioPako.</p>
     </section>
 

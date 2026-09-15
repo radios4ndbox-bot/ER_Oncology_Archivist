@@ -688,6 +688,7 @@ function showView(name) {
   if (name === 'db') applyFilters();
   popSections(name);
   if (name === 'stats') avviaAnimazioniGrafici(true);
+  if (name === 'db') animaArchivio();
 }
 
 /** Sposta il binario e allinea schede, aria e highlight. */
@@ -1911,7 +1912,7 @@ function buildReport(set) {
   html += sezione('04', 'Prevalenza per sede',
       'Percentuale sul totale delle diagnosi oncologiche o sospette') +
     '<div class="rep-blocco rep-blocco-lungo"><div class="rep-tabella zebra">' +
-      (tabellaSede ? tabellaSede.outerHTML : '') + '</div>' +
+      (tabellaSede ? tabellaSede.outerHTML.replace('data-table tab-graf', 'data-table') : '') + '</div>' +
     notaReport('tabSede', set) + '</div></section>';
 
   // 05 — dettaglio mensile
@@ -2381,8 +2382,11 @@ function drawHeatmap(containerId, mesi, tipi, set) {
 }
 
 // ── Selezione e spiegazione sotto al grafico ───────────────────────
-const GRAF_BOX = { donut: 'svgDonut', sede: 'svgBarseSede', mensile: 'svgMensile', heatmap: 'svgHeatmap' };
-let grafScelto = { donut: null, sede: null, mensile: null, heatmap: null };
+const GRAF_BOX = { donut: 'svgDonut', sede: 'svgBarseSede', mensile: 'svgMensile', heatmap: 'svgHeatmap',
+                   tabMensile: 'tableMensileBody', tabSede: 'tableSedeBody' };
+let grafScelto = { donut: null, sede: null, mensile: null, heatmap: null, tabMensile: null, tabSede: null };
+// le righe delle tabelle raccontano gli stessi dati dei grafici sopra
+const GRAF_ALIAS = { tabMensile: 'mensile', tabSede: 'sede' };
 
 function selezionaGrafico(graf, k) {
   if (!GRAF_BOX[graf]) return;
@@ -2412,7 +2416,7 @@ function applicaScelta(graf) {
   const det = el('det-' + graf);
   if (!det) return;
   if (k === null) { det.classList.remove('aperto'); return; }
-  const d = dettaglioGrafico(graf, k, getStatsSubset());
+  const d = dettaglioGrafico(GRAF_ALIAS[graf] || graf, k, getStatsSubset());
   det.innerHTML =
     '<div class="det-corpo"><div class="det-testa">' +
       '<span class="det-punto" style="background:' + d.colore + '"></span>' +
@@ -2592,7 +2596,8 @@ function nascondiTip() {
 }
 
 // ── Animazioni all'apertura della pagina ───────────────────────────
-const GRAF_ANIMATI = ['statsCards', 'svgDonut', 'svgBarseSede', 'svgMensile', 'svgHeatmap', 'tableSedeWrap'];
+const GRAF_ANIMATI = ['statsCards', 'svgDonut', 'svgBarseSede', 'svgMensile', 'svgHeatmap',
+                      'tableMensileWrap', 'tableSedeWrap'];
 let timerAnima = null;
 
 /** Riavvia le animazioni dei grafici. Con dopoPop ognuna parte quando
@@ -2629,18 +2634,52 @@ function contaNumeri(dopoPop) {
   const box = el('statsCards');
   if (!box) return;
   const ritardo = dopoPop ? (parseFloat(box.style.getPropertyValue('--pop-delay')) || 0) + 180 : 0;
-  box.querySelectorAll('.sb-num[data-n]').forEach((n) => {
-    const fine = parseInt(n.getAttribute('data-n'), 10);
+  contaTesto(box.querySelectorAll('.sb-num[data-n]'), ritardo, (n) => parseInt(n.getAttribute('data-n'), 10));
+}
+
+/** Porta ogni numero da zero al suo valore. Senza lettore conta solo i
+ *  testi fatti di sole cifre. Se nel frattempo il testo viene riscritto
+ *  da un nuovo calcolo, il conteggio si ferma e lascia quello. */
+function contaTesto(nodi, ritardo, valore) {
+  Array.prototype.forEach.call(nodi, (n) => {
+    const testo = n.textContent.trim();
+    if (!valore && !/^[0-9]+$/.test(testo)) return;
+    const fine = valore ? valore(n) : parseInt(testo, 10);
     if (!(fine > 0)) return;
     const t0 = performance.now() + ritardo;
-    n.textContent = '0';
+    let scritto = '0';
+    n.textContent = scritto;
     const passo = (ora) => {
+      if (n.textContent !== scritto) return;
       const p = Math.min(1, Math.max(0, (ora - t0) / 900));
-      n.textContent = String(Math.round(fine * (1 - Math.pow(1 - p, 3))));
+      scritto = String(Math.round(fine * (1 - Math.pow(1 - p, 3))));
+      n.textContent = scritto;
       if (p < 1) requestAnimationFrame(passo);
     };
     requestAnimationFrame(passo);
   });
+}
+
+/** Apertura dell'archivio: i contatori salgono e le prime righe entrano
+ *  a cascata, ciascuno dopo il pop della propria scheda. */
+function animaArchivio() {
+  if (PREFS.reduceMotion) return;
+  const vista = el('view-db');
+  const body = el('tblBody');
+  if (!vista || !body) return;
+  const ritardoDi = (sez) => (sez ? parseFloat(sez.style.getPropertyValue('--pop-delay')) || 0 : 0);
+  contaTesto(vista.querySelectorAll('.stats-row .sc-n'), ritardoDi(vista.querySelector('.stats-row')) + 160);
+
+  const base = ritardoDi(vista.querySelector('.tbl-wrap')) + 220;
+  const righe = Array.prototype.slice.call(body.querySelectorAll('tr'), 0, 24);
+  righe.forEach((r, i) => {
+    r.classList.remove('riga-entra');
+    r.style.setProperty('--i', String(i));
+    r.style.setProperty('--ritardo', base + 'ms');
+    void r.offsetWidth;
+    r.classList.add('riga-entra');
+  });
+  setTimeout(() => righe.forEach((r) => r.classList.remove('riga-entra')), base + righe.length * 24 + 600);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -2745,6 +2784,20 @@ function renderStats() {
   azzeraSceltaGrafici();
 }
 
+/** Attributi che rendono una riga di tabella un segno cliccabile, come
+ *  gli elementi dei grafici. */
+function attrGrafico(graf, k, tip, tip2, i) {
+  return ' data-act="grafico" data-graf="' + graf + '" data-k="' + esc(k) + '" data-tip="' + esc(tip) +
+    '" data-tip2="' + esc(tip2) + '" tabindex="0" role="button" aria-pressed="false" style="--i:' + i + '"';
+}
+
+/** Quota come barra duotone, colorata per fascia come la heatmap. */
+function barraQuota(ratio, testo, i) {
+  const fascia = ratio >= 0.3 ? 'alta' : ratio >= 0.1 ? 'media' : 'bassa';
+  return '<div class="tg-quota tg-' + fascia + '"><div class="tg-track"><div class="tg-bar" style="width:' +
+    Math.round(ratio * 100) + '%;--i:' + i + '"></div></div><span>' + esc(testo) + '</span></div>';
+}
+
 function renderTableMensile(mesi, tipi, set, mesiTot, mesiOnco) {
   const head = el('tableMensileHead');
   const body = el('tableMensileBody');
@@ -2757,11 +2810,11 @@ function renderTableMensile(mesi, tipi, set, mesiTot, mesiOnco) {
   }
 
   head.innerHTML = '<th class="st-head st-head-left">Mese</th>' +
-    tipi.map((t) => '<th class="st-head" title="' + esc(t) + '">' +
-      esc(t.length > 16 ? t.slice(0, 15) + '…' : t) + '</th>').join('') +
-    '<th class="st-head">Totale</th><th class="st-head">Onco.</th><th class="st-head">%</th>';
+    tipi.map((t) => '<th class="st-head">' + esc(t) + '</th>').join('') +
+    '<th class="st-head">Totale</th><th class="st-head">Onco.</th>' +
+    '<th class="st-head st-head-left">Quota</th>';
 
-  body.innerHTML = mesi.slice().reverse().map((m) => {
+  body.innerHTML = mesi.slice().reverse().map((m, i) => {
     const rigaTot = {}, rigaOnco = {};
     set.forEach((r) => {
       if (!r.data || r.data.slice(0, 7) !== m) return;
@@ -2772,17 +2825,18 @@ function renderTableMensile(mesi, tipi, set, mesiTot, mesiOnco) {
     const totM = mesiTot[m] || 0;
     const oncoM = mesiOnco[m] || 0;
     const ratio = totM ? oncoM / totM : 0;
-    const cls = ratio >= 0.3 ? 'v-red' : ratio >= 0.1 ? 'v-amber' : 'v-onco';
-    return '<tr><td class="st-month">' + esc(fmtMese(m)) + '</td>' +
+    const quota = pct(oncoM, totM, 1);
+    return '<tr' + attrGrafico('tabMensile', m, fmtMese(m),
+        totM + ' esami · ' + oncoM + ' onco. o sospetti (' + quota + ')', Math.min(i, 20)) + '>' +
+      '<td class="st-month">' + esc(fmtMese(m)) + '</td>' +
       tipi.map((t) => {
         const tv = rigaTot[t] || 0, ov = rigaOnco[t] || 0;
         if (!tv) return '<td class="st-cell st-faint">—</td>';
-        return '<td class="st-cell" title="' + tv + ' esami, ' + ov + ' oncologici">' + tv +
-          '<span class="st-onco"> (' + ov + ')</span></td>';
+        return '<td class="st-cell">' + tv + '<span class="st-onco"> (' + ov + ')</span></td>';
       }).join('') +
       '<td class="st-cell st-strong">' + totM + '</td>' +
       '<td class="st-cell v-onco">' + oncoM + '</td>' +
-      '<td class="st-cell ' + cls + '">' + pct(oncoM, totM, 1) + '</td></tr>';
+      '<td class="st-cell">' + barraQuota(ratio, quota, Math.min(i, 20)) + '</td></tr>';
   }).join('');
 }
 
@@ -2794,24 +2848,30 @@ function renderTableSede(sediSorted, sediPrima, sediMeta, onco, sospetti, prima,
     return;
   }
   const max = sediSorted[0][1] || 1;
+  const totale = onco + sospetti;
+  const pillola = (n, casi, tipo) => n
+    ? '<span class="tg-pill tg-' + tipo + '">' + n + ' <em>' + pct(n, casi, 0) + '</em></span>'
+    : '<span class="tg-zero">0</span>';
+
   body.innerHTML = sediSorted.map((entry, i) => {
     const sede = entry[0], casi = entry[1];
     const ps = sediPrima[sede] || 0;
     const ms = sediMeta[sede] || 0;
-    const barW = Math.round(casi / max * 100);
-    return '<tr><td class="sd-name">' + esc(sede) + '</td>' +
-      '<td class="sd-c">' + casi + '</td>' +
-      '<td class="sd-c v-onco">' + ps + (ps ? ' <span class="sd-pct">(' + pct(ps, casi, 0) + ')</span>' : '') + '</td>' +
-      '<td class="sd-c v-red">' + ms + (ms ? ' <span class="sd-pct">(' + pct(ms, casi, 0) + ')</span>' : '') + '</td>' +
+    return '<tr' + attrGrafico('tabSede', sede, sede,
+        casi + ' casi · ' + pct(casi, totale, 1) + (ms ? ' · ' + ms + ' con metastasi' : ''), Math.min(i, 20)) + '>' +
+      '<td class="sd-name">' + esc(sede) + '</td>' +
+      '<td class="sd-c"><span class="tg-num">' + casi + '</span></td>' +
+      '<td class="sd-c">' + pillola(ps, casi, 'onco') + '</td>' +
+      '<td class="sd-c">' + pillola(ms, casi, 'meta') + '</td>' +
       '<td class="sd-bar-cell"><div class="sd-bar-wrap"><div class="sd-bar-track">' +
-      '<div class="sd-bar" style="width:' + barW + '%;--i:' + i + '"></div></div>' +
-      '<span class="sd-bar-val">' + pct(casi, onco + sospetti, 1) + '</span></div></td></tr>';
+      '<div class="sd-bar" style="width:' + Math.round(casi / max * 100) + '%;--i:' + Math.min(i, 20) + '"></div></div>' +
+      '<span class="sd-bar-val">' + pct(casi, totale, 1) + '</span></div></td></tr>';
   }).join('') +
-    '<tr class="sd-total"><td class="sd-name">TOTALE</td>' +
-    '<td class="sd-c">' + (onco + sospetti) + '</td>' +
-    '<td class="sd-c v-onco">' + prima + '</td>' +
-    '<td class="sd-c v-red">' + meta + '</td>' +
-    '<td class="sd-bar-cell">100%</td></tr>';
+    '<tr class="sd-total"><td class="sd-name">Totale</td>' +
+    '<td class="sd-c"><span class="tg-num">' + totale + '</span></td>' +
+    '<td class="sd-c">' + pillola(prima, totale, 'onco') + '</td>' +
+    '<td class="sd-c">' + pillola(meta, totale, 'meta') + '</td>' +
+    '<td class="sd-bar-cell"><span class="tg-num">100%</span></td></tr>';
 }
 
 // ══════════════════════════════════════════════════════════════════

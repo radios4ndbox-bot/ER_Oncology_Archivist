@@ -822,17 +822,7 @@ body.printing #printRoot { display: block; }
 /* Il copyright sta nel flusso, in fondo alla pagina: da fisso finiva
    sopra didascalie e pulsanti delle schede. Il body in colonna lo tiene
    in basso anche nelle pagine corte. */
-body { display: flex; flex-direction: column; min-height: 100vh; }
-.views-port { flex: 1 0 auto; }
-
-.app-footer {
-  margin-top: auto; text-align: right; padding: 6px 1.4rem 12px;
-  font-family: var(--sans); font-size: 10px; letter-spacing: .02em;
-  color: #B5B3AC; pointer-events: none;
-}
-@media (max-width: 700px) {
-  .app-footer { font-size: 9px; padding: 6px .8rem 10px; }
-}
+/* posizione e aspetto del copyright: in fondo al file, sezione dedicata */
 
 /* ══════════════════════════════════════════════════════════════════
    Uscita dell'intro: il logo SD vola in alto a sinistra e l'interfaccia
@@ -1841,3 +1831,233 @@ body.rail-aperto .rail-pannello { box-shadow: -18px 0 40px -24px rgba(0,0,0,.5);
 .views-port.rientra { animation: contenutoRientra .38s ease-out both; }
 @keyframes contenutoRientra { from { opacity: .45; } }
 body.reduce-motion .pan.attivo > *, body.reduce-motion .views-port.rientra { animation: none; }
+
+/* ══════════════════════════════════════════════════════════════════
+   Menu a tendina dei filtri sopra le schede
+
+   Il pop di comparsa lascia su ogni sezione una transform, che crea un
+   contesto di sovrapposizione: lo z-index del menu restava chiuso dentro
+   la barra dei filtri e le schede successive gli passavano sopra. La
+   barra sale di livello, e ancora di più mentre un menu è aperto.
+   ══════════════════════════════════════════════════════════════════ */
+.db-topbar, .stats-filters { position: relative; z-index: 30; }
+.pop-section:has(.sel-wrap.aperto) { position: relative; z-index: 60; }
+
+/* ══════════════════════════════════════════════════════════════════
+   Pagine senza coda vuota
+
+   Le viste stanno affiancate sullo stesso binario, che è alto quanto la
+   più lunga: le statistiche ereditavano l'altezza delle 200 righe
+   dell'archivio. Le viste fuori campo vengono tagliate all'altezza della
+   finestra; lo scorrimento torna in cima a ogni cambio, quindi il taglio
+   non si vede mai.
+   ══════════════════════════════════════════════════════════════════ */
+.views-track > .view[aria-hidden="true"] { max-height: 100vh; overflow: hidden; }
+
+/* ══════════════════════════════════════════════════════════════════
+   Copyright fisso in basso a destra, in tutte le pagine
+   ══════════════════════════════════════════════════════════════════ */
+body { padding-bottom: 2.8rem; }
+.app-footer {
+  position: fixed; right: calc(var(--rail-w) + 1rem); bottom: .7rem; z-index: 80;
+  padding: 3px 11px; border-radius: 999px;
+  background: rgba(244,243,239,.86); backdrop-filter: blur(6px);
+  font-family: var(--sans); font-size: 10px; letter-spacing: .02em;
+  color: #A8A69F; pointer-events: none;
+  transition: right .5s cubic-bezier(.22,1,.36,1);
+}
+body.rail-aperto .app-footer { right: calc(var(--rail-w) + var(--pan-w) + 1rem); }
+@media (max-width: 700px) { .app-footer { font-size: 9px; bottom: .4rem; } }
+
+/* ══════════════════════════════════════════════════════════════════
+   Archivio: stesse forme morbide delle statistiche
+   ══════════════════════════════════════════════════════════════════ */
+.stats-row { gap: 12px; }
+.stats-row .sc {
+  position: relative; overflow: hidden;
+  border-radius: 14px; padding: 1.05rem 1.15rem .95rem;
+  transition: transform .32s cubic-bezier(.34,1.45,.64,1), box-shadow .32s ease;
+}
+.stats-row .sc::before {
+  content: ''; position: absolute; left: 14px; right: 14px; top: 0; height: 3px;
+  border-radius: 0 0 4px 4px; background: var(--k, var(--accent));
+}
+.stats-row .sc:hover { transform: translateY(-3px); box-shadow: 0 14px 26px -18px rgba(24,23,15,.45); }
+.stats-row .sc:nth-child(1) { --k: #18170F; }
+.stats-row .sc:nth-child(2) { --k: #6B1A7A; }
+.stats-row .sc:nth-child(3) { --k: #E8A020; }
+.stats-row .sc:nth-child(4) { --k: #C2185B; }
+.stats-row .sc:nth-child(5) { --k: #1A6040; }
+.stats-row .sc:nth-child(6) { --k: #8B1A1A; }
+.stats-row .sc:nth-child(7) { --k: #1A3F7A; }
+.stats-row .sc-n { font-size: 26px; margin-bottom: 6px; }
+
+.db-topbar {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; padding: 1rem 1.2rem; gap: 12px;
+}
+.stats-filters { border-radius: 16px; }
+.flt input, .flt select {
+  border-radius: 10px; padding: 7px 12px;
+  transition: border-color .15s, box-shadow .15s;
+}
+.flt input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+.flt .sel-trigger { border-radius: 10px; padding: 7px 12px; }
+.flt .sel-wrap.aperto .sel-trigger { box-shadow: 0 0 0 3px var(--accent-bg); }
+.sel-opzioni { border-radius: 12px; }
+.sel-opzione { border-radius: 8px; }
+.db-topbar .btn, .stats-filters .btn, .tbl-bar .btn, .cell-actions .btn { border-radius: 999px; }
+
+.tbl-wrap { border-radius: 16px; }
+.tbl-bar { padding: .8rem 1.1rem; }
+.tbl-count {
+  padding: 3px 11px; border-radius: 999px;
+  background: var(--accent-bg); color: var(--accent);
+}
+
+/* righe come pillole staccate: lo sfondo sta sulle celle, così gli
+   angoli arrotondati tagliano davvero il colore della riga */
+#view-db table { border-collapse: separate; border-spacing: 0 4px; padding: 0 10px 8px; }
+#view-db thead th {
+  background: transparent; border: none; padding: 10px 12px 4px;
+}
+#view-db tbody tr, #view-db tbody tr:hover { border: none; background: transparent; }
+#view-db tbody tr { --rbg: #FAF9F6; --rbg-h: #F1EFE9; }
+#view-db tbody tr.row-onco { --rbg: #FBF3FC; --rbg-h: #F3E3F6; }
+#view-db tbody tr.row-sospetto { --rbg: #FEF8EA; --rbg-h: #FBEDCC; }
+#view-db tbody td {
+  background: var(--rbg); padding: 9px 12px; vertical-align: middle;
+  transition: background .15s ease;
+}
+#view-db tbody tr:hover td { background: var(--rbg-h); }
+#view-db tbody td:first-child { border-radius: 12px 0 0 12px; }
+#view-db tbody td:last-child { border-radius: 0 12px 12px 0; }
+#view-db tbody tr.row-onco td:first-child { box-shadow: inset 3px 0 0 #6B1A7A; }
+#view-db tbody tr.row-sospetto td:first-child { box-shadow: inset 3px 0 0 #E8A020; }
+#view-db tbody td[colspan] { background: transparent; }
+.badge { border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
+.badge-fu { margin-left: 4px; }
+
+.riga-entra {
+  animation: rigaEntra .45s cubic-bezier(.22,1,.36,1) calc(var(--ritardo, 0ms) + var(--i, 0) * 24ms) both;
+}
+@keyframes rigaEntra { from { opacity: 0; transform: translateY(10px); } }
+
+/* ══════════════════════════════════════════════════════════════════
+   Tabelle delle statistiche nello stile dei grafici
+   ══════════════════════════════════════════════════════════════════ */
+.tab-card .tbl-scroll { margin: 0 -4px; padding: 0 4px; }
+.tab-graf { border-collapse: separate; border-spacing: 0 4px; margin-top: -4px; }
+.tab-graf th {
+  background: transparent; border: none; cursor: default;
+  padding: 4px 10px 6px; vertical-align: bottom;
+  font-size: 9.5px; font-weight: 600; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--muted);
+  white-space: normal; line-height: 1.25;
+}
+.tab-graf tbody tr, .tab-graf tbody tr:hover { border: none; background: transparent; }
+.tab-graf tbody tr[data-k] { cursor: pointer; }
+.tab-graf td {
+  border: none; background: #F7F6F2; padding: 8px 10px; vertical-align: middle;
+  transition: background .15s ease;
+}
+.tab-graf td:first-child { border-radius: 10px 0 0 10px; }
+.tab-graf td:last-child { border-radius: 0 10px 10px 0; }
+.tab-graf tbody tr[data-k]:hover td, .tab-graf tbody tr.scelto td { background: var(--accent-bg); }
+.tab-graf tr[data-k]:focus-visible td { box-shadow: inset 0 0 0 2px var(--accent); }
+.tab-graf .st-month, .tab-graf .sd-name { font-weight: 600; white-space: nowrap; }
+.tab-graf .st-month { font-family: var(--mono); font-size: 12px; }
+.tab-graf .st-cell { font-family: var(--mono); font-size: 12px; }
+.tab-graf .st-onco { font-size: 10px; }
+.tab-graf .st-strong { font-weight: 600; }
+.tab-graf tr.sd-total td {
+  background: transparent; border-top: 1.5px solid var(--border); padding-top: 10px;
+}
+.tab-graf tr.sd-total td:first-child, .tab-graf tr.sd-total td:last-child { border-radius: 0; }
+
+.tg-num { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+.tg-pill {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  padding: 2px 9px; border-radius: 999px;
+  font-family: var(--mono); font-size: 12px; font-weight: 600;
+}
+.tg-pill em { font-style: normal; font-size: 10px; font-weight: 500; opacity: .75; }
+.tg-onco { background: var(--onco-bg); color: var(--onco); }
+.tg-meta { background: var(--red-bg); color: var(--red); }
+.tg-zero { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+
+/* barre: stesso duotone dei grafici, metà chiara e metà piena */
+.sd-bar-track, .tg-track {
+  flex: 1; height: 12px; border-radius: 999px; overflow: hidden;
+  background: #ECEAE4;
+}
+.sd-bar, .tg-bar {
+  height: 100%; border-radius: 999px; opacity: 1; transform-origin: left center;
+  background: linear-gradient(180deg, rgba(107,26,122,.42) 50%, #6B1A7A 50%);
+}
+.tg-quota { display: flex; align-items: center; gap: 8px; min-width: 128px; }
+.tg-quota span { font-family: var(--mono); font-size: 12px; font-weight: 600; min-width: 46px; text-align: right; }
+.tg-media .tg-bar { background: linear-gradient(180deg, rgba(232,160,32,.42) 50%, #E8A020 50%); }
+.tg-alta .tg-bar { background: linear-gradient(180deg, rgba(168,34,85,.42) 50%, #A82255 50%); }
+.tg-bassa span { color: var(--onco); }
+.tg-media span { color: #B57607; }
+.tg-alta span { color: var(--accent); }
+
+.anima .tg-bar {
+  animation: grafCrescitaX .75s cubic-bezier(.22,1,.36,1) calc(var(--ritardo, 0ms) + var(--i, 0) * 45ms) both;
+}
+.anima .tab-graf tbody tr {
+  animation: rigaEntra .45s cubic-bezier(.22,1,.36,1) calc(var(--ritardo, 0ms) + var(--i, 0) * 35ms) both;
+}
+body.reduce-motion .riga-entra { animation: none; }
+
+/* ══════════════════════════════════════════════════════════════════
+   Impostazioni → Info
+   ══════════════════════════════════════════════════════════════════ */
+.info-hero {
+  position: relative; overflow: hidden;
+  background: var(--text); color: #fff;
+  border-radius: 14px; padding: 14px 16px 15px 20px; margin-bottom: 16px;
+}
+.info-hero::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+  background: linear-gradient(180deg, #FF4D6D, #A855D0);
+}
+.info-etichetta {
+  font-size: 9px; font-weight: 600; letter-spacing: .18em;
+  text-transform: uppercase; color: #FF4D6D;
+}
+.info-titolo { font-size: 17px; font-weight: 600; margin: 5px 0 4px; }
+.info-hero p { margin: 0; font-size: 11.5px; line-height: 1.55; color: #C8C6BE; }
+.info-sez { margin-bottom: 16px; }
+.info-sez h4 {
+  margin: 0 0 7px; font-size: 10px; font-weight: 600;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+}
+.info-sez p { margin: 0; font-size: 12px; line-height: 1.62; color: var(--text); }
+.info-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.info-lista li {
+  position: relative; padding: 8px 10px 8px 30px;
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
+  font-size: 11.5px; line-height: 1.5; color: var(--text);
+}
+.info-lista li::before {
+  content: ''; position: absolute; left: 12px; top: 13px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg);
+}
+.info-autori { display: flex; flex-direction: column; gap: 6px; }
+.info-autore {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface);
+}
+.info-iniz {
+  width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #A82255, #6B1A7A);
+  color: #fff; font-size: 12px; font-weight: 600;
+}
+.info-autore strong { display: block; font-size: 12.5px; font-weight: 600; }
+.info-autore em { display: block; font-style: normal; font-size: 10.5px; color: var(--muted); }
+.info-blocco { border-radius: 10px; }
