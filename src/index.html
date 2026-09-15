@@ -342,6 +342,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
         <div class="field">
           <label for="w_richiesta">Richiesta del PS *</label>
           <textarea id="w_richiesta" class="ta-md" placeholder="Motivo per cui il pronto soccorso ha richiesto l'esame…"></textarea>
+          <div class="crono" id="richiestaCrono" aria-live="polite"></div>
         </div>
       </div>
       <div class="step-footer">
@@ -368,14 +369,12 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
                 <div class="toggle-label c-onco">Diagnosi oncologica — reperto positivo</div>
                 <div class="toggle-desc">L'esame ha evidenziato una lesione oncologica</div>
               </div>
-              <div class="toggle-pill" id="pill_onco_si"></div>
             </div>
             <div class="toggle-item" id="tog_onco_sospetto" data-act="set-onco" data-val="sospetto" data-apre="oncoSection">
               <div>
                 <div class="toggle-label c-amber">Sospetto — reperto da approfondire</div>
                 <div class="toggle-desc">Reperto sospetto per oncologia, richiede follow-up o ulteriori accertamenti</div>
               </div>
-              <div class="toggle-pill" id="pill_onco_sospetto"></div>
             </div>
           </div>
         </div>
@@ -392,7 +391,6 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
                     <div class="toggle-label c-onco">Tumore di primo riscontro</div>
                     <div class="toggle-desc">Prima diagnosi oncologica per questo paziente</div>
                   </div>
-                  <div class="toggle-pill" id="pill_primo"></div>
                 </div>
               </div>
             </div>
@@ -406,14 +404,12 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
                       <div class="toggle-label">Unica patologia</div>
                       <div class="toggle-desc">Nessuna altra patologia oncologica o rilevante presente</div>
                     </div>
-                    <div class="toggle-pill" id="pill_unica"></div>
                   </div>
                   <div class="toggle-item" id="tog_associata" data-act="set-sottocat" data-val="associata" data-apre="patAssocField">
                     <div>
                       <div class="toggle-label">Patologie associate</div>
                       <div class="toggle-desc">Presenza di altre patologie oncologiche o comorbidità rilevanti</div>
                     </div>
-                    <div class="toggle-pill" id="pill_associata"></div>
                   </div>
                 </div>
                 <div id="patAssocField" class="reveal-block mt-12">
@@ -450,14 +446,12 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
                     <div class="toggle-label c-red">Sì — lesione metastatica</div>
                     <div class="toggle-desc">La lesione è una metastasi di un tumore primitivo</div>
                   </div>
-                  <div class="toggle-pill" id="pill_meta_si"></div>
                 </div>
                 <div class="toggle-item" id="tog_meta_no" data-act="set-meta" data-val="no">
                   <div>
                     <div class="toggle-label">No — tumore primitivo</div>
                     <div class="toggle-desc">La lesione è il tumore di origine</div>
                   </div>
-                  <div class="toggle-pill" id="pill_meta_no"></div>
                 </div>
               </div>
             </div>
@@ -495,9 +489,29 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
     <div class="step-card pop-section">
       <div class="step-head">
         <div class="step-num">4</div>
-        <div><div class="step-title">Anatomia patologica &amp; riepilogo</div><div class="step-desc">Riscontro istologico e follow-up progressivi</div></div>
+        <div><div class="step-title">Riepilogo &amp; anatomia patologica</div><div class="step-desc">Controllo dei dati inseriti, riscontro istologico e follow-up</div></div>
       </div>
       <div class="step-body">
+        <div class="review-box" id="reviewBox">
+          <div class="review-block"><h4>Anagrafica</h4>
+            <div class="review-row"><span class="review-key">Paziente</span><span class="review-val" id="rv_paz">—</span></div>
+            <div class="review-row"><span class="review-key">Sesso</span><span class="review-val" id="rv_sesso">—</span></div>
+            <div class="review-row"><span class="review-key">Data nascita / Età</span><span class="review-val" id="rv_eta">—</span></div>
+            <div class="review-row"><span class="review-key">Prima diagnosi oncologica?</span><span class="review-val" id="rv_prima">—</span></div>
+          </div>
+          <div class="review-block"><h4>Esame</h4>
+            <div class="review-row"><span class="review-key">Data</span><span class="review-val" id="rv_data">—</span></div>
+            <div class="review-row"><span class="review-key">Tipo esame</span><span class="review-val" id="rv_tipo">—</span></div>
+            <div class="review-row"><span class="review-key">Richiesta PS</span><span class="review-val" id="rv_rich">—</span></div>
+          </div>
+          <div class="review-block"><h4>Diagnosi</h4>
+            <div class="review-row"><span class="review-key">Esito</span><span class="review-val" id="rv_onco">—</span></div>
+            <div class="review-row"><span class="review-key">Classificazione</span><span class="review-val" id="rv_classtumore">—</span></div>
+            <div class="review-row"><span class="review-key">Sede / Dimensioni</span><span class="review-val" id="rv_sede">—</span></div>
+            <div class="review-row"><span class="review-key">Metastasi</span><span class="review-val" id="rv_meta">—</span></div>
+          </div>
+        </div>
+        <h4 class="step-sez">Anatomia patologica</h4>
         <div class="field">
           <label for="w_anat">Referto anatomia patologica</label>
           <textarea id="w_anat" class="ta-md" placeholder="Referto istologico (compilare quando disponibile)…"></textarea>
@@ -521,25 +535,6 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
         <div class="field mt-12">
           <label for="w_note">Note cliniche aggiuntive</label>
           <textarea id="w_note" placeholder="Osservazioni, follow-up programmati, altre informazioni…"></textarea>
-        </div>
-        <div class="review-box" id="reviewBox">
-          <div class="review-block"><h4>Anagrafica</h4>
-            <div class="review-row"><span class="review-key">Paziente</span><span class="review-val" id="rv_paz">—</span></div>
-            <div class="review-row"><span class="review-key">Sesso</span><span class="review-val" id="rv_sesso">—</span></div>
-            <div class="review-row"><span class="review-key">Data nascita / Età</span><span class="review-val" id="rv_eta">—</span></div>
-            <div class="review-row"><span class="review-key">Prima diagnosi oncologica?</span><span class="review-val" id="rv_prima">—</span></div>
-          </div>
-          <div class="review-block"><h4>Esame</h4>
-            <div class="review-row"><span class="review-key">Data</span><span class="review-val" id="rv_data">—</span></div>
-            <div class="review-row"><span class="review-key">Tipo esame</span><span class="review-val" id="rv_tipo">—</span></div>
-            <div class="review-row"><span class="review-key">Richiesta PS</span><span class="review-val" id="rv_rich">—</span></div>
-          </div>
-          <div class="review-block"><h4>Diagnosi</h4>
-            <div class="review-row"><span class="review-key">Esito</span><span class="review-val" id="rv_onco">—</span></div>
-            <div class="review-row"><span class="review-key">Classificazione</span><span class="review-val" id="rv_classtumore">—</span></div>
-            <div class="review-row"><span class="review-key">Sede / Dimensioni</span><span class="review-val" id="rv_sede">—</span></div>
-            <div class="review-row"><span class="review-key">Metastasi</span><span class="review-val" id="rv_meta">—</span></div>
-          </div>
         </div>
       </div>
       <div class="step-footer">

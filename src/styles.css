@@ -1399,7 +1399,7 @@ body.reduce-motion .sel-freccia { transition: none; }
   color: var(--faint); text-align: center; padding-bottom: 4px;
 }
 .rullo {
-  height: 168px; overflow-y: auto; scroll-behavior: smooth;
+  height: 168px; overflow-y: auto; scroll-behavior: auto;
   border: 1px solid var(--border); border-radius: 7px;
   background: var(--surface2); padding: 3px;
   scrollbar-width: thin;
@@ -2060,3 +2060,76 @@ body.reduce-motion .riga-entra { animation: none; }
 .info-autore strong { display: block; font-size: 12.5px; font-weight: 600; }
 .info-autore em { display: block; font-style: normal; font-size: 10.5px; color: var(--muted); }
 .info-blocco { border-radius: 10px; }
+
+/* ══════════════════════════════════════════════════════════════════
+   Diagnosi oncologica: niente interruttori
+   Le voci che aprono una sezione mostrano solo la freccia; le altre un
+   segno di spunta che si riempie con il colore della scelta.
+   ══════════════════════════════════════════════════════════════════ */
+#ws-3 .toggle-item:not([data-apre])::after {
+  content: ''; flex-shrink: 0; box-sizing: border-box;
+  width: 18px; height: 18px; margin-left: 12px; border-radius: 50%;
+  border: 1.5px solid var(--border2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; line-height: 1; color: #fff;
+  transition: background-color .2s, border-color .2s, transform .3s cubic-bezier(.34,1.56,.64,1);
+}
+#ws-3 .toggle-item.active-yes:not([data-apre])::after {
+  content: '✓'; background: var(--onco); border-color: var(--onco); transform: scale(1.06);
+}
+#ws-3 .toggle-item.active-no:not([data-apre])::after {
+  content: '✓'; background: var(--green); border-color: var(--green); transform: scale(1.06);
+}
+.toggle-item[data-apre].active-yes::after { color: var(--onco); }
+.toggle-item[data-apre].active-inc::after { color: var(--amber); }
+
+/* reperto sospetto: la sezione prende il colore del suo toggle */
+#oncoSection .onco-section { transition: background-color .35s ease, border-color .35s ease; }
+#oncoSection .onco-section-title { transition: color .35s ease; }
+#oncoSection.esito-sospetto .onco-section { background: var(--amber-bg); border-color: #E8D090; }
+#oncoSection.esito-sospetto .onco-section-title { color: var(--amber); }
+#oncoSection.esito-sospetto .toggle-item.active-yes { border-color: #D9A53A; background: #FFF8E6; }
+#oncoSection.esito-sospetto .toggle-item[data-apre].active-yes::after { color: var(--amber); }
+#oncoSection.esito-sospetto .toggle-item.active-yes:not([data-apre])::after { background: var(--amber); border-color: var(--amber); }
+#oncoSection.esito-sospetto .sottocat-section { background: #FFFBF2; border-color: #EEDDB5; }
+
+/* ══════════════════════════════════════════════════════════════════
+   Cronologia delle richieste del PS
+   ══════════════════════════════════════════════════════════════════ */
+.crono { margin-top: 8px; }
+.crono:empty { display: none; }
+.crono-testa { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 7px; }
+.crono-tit {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+}
+.crono-tit::before { content: '↺'; font-size: 13px; color: var(--accent); }
+.crono-chiavi { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 10.5px; color: var(--faint); }
+.crono-chiavi b {
+  font-weight: 600; font-size: 10.5px; color: var(--accent);
+  background: var(--accent-bg); padding: 1px 8px; border-radius: 999px;
+}
+.crono-lista { display: flex; flex-wrap: wrap; gap: 6px; }
+.crono-voce {
+  display: inline-flex; align-items: center; gap: 7px; max-width: 100%;
+  padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface2); color: var(--text);
+  font-family: var(--sans); font-size: 12px;
+  transition: background .14s, border-color .14s, transform .25s cubic-bezier(.34,1.45,.64,1);
+}
+.crono-voce:hover, .crono-voce:focus-visible {
+  background: var(--accent-bg); border-color: var(--accent); transform: translateY(-1px); outline: none;
+}
+.crono-testo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
+.crono-n { font-family: var(--mono); font-size: 10px; font-weight: 600; color: var(--accent); }
+.crono-vuota { font-size: 11px; color: var(--faint); }
+
+/* ══════════════════════════════════════════════════════════════════
+   Passo 4: riepilogo in testa, poi anatomia patologica
+   ══════════════════════════════════════════════════════════════════ */
+#ws-4 .step-body > .review-box:first-child { margin-top: 0; }
+.step-sez {
+  margin: 1.5rem 0 .9rem; padding-top: 1.1rem; border-top: 1px solid var(--border);
+  font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--accent);
+}
+#oncoSection.esito-sospetto .toggle-label.c-onco { color: var(--amber); }

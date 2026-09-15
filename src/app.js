@@ -934,8 +934,15 @@ function setOnco(v) {
   wOnco = v;
   toggleClass('tog_onco_si', 'toggle-item', v === 'si' ? ' active-yes' : '');
   toggleClass('tog_onco_sospetto', 'toggle-item', v === 'sospetto' ? ' active-inc' : '');
-  toggleClass('pill_onco_si', 'toggle-pill', v === 'si' ? ' on-onco' : '');
-  toggleClass('pill_onco_sospetto', 'toggle-pill', v === 'sospetto' ? ' on-amber' : '');
+  // Il reperto sospetto colora la sezione di ambra come il suo toggle.
+  // Chiudendo si lascia il colore com'è: la sezione si richiude con
+  // quello, senza cambiare tinta a metà animazione.
+  const sezione = el('oncoSection');
+  if (sezione && v) {
+    sezione.classList.toggle('esito-sospetto', v === 'sospetto');
+    const titolo = sezione.querySelector('.onco-section-title');
+    if (titolo) titolo.textContent = v === 'sospetto' ? 'Dettaglio reperto sospetto' : 'Dettaglio diagnosi';
+  }
   mostraSezione('oncoSection', v === 'si' || v === 'sospetto');
   if (!v) { setClassTumore(null); setMetastasi(null); }
 }
@@ -943,7 +950,6 @@ function setOnco(v) {
 function setClassTumore(v) {
   wPrimo = (v === 'primo');
   toggleClass('tog_primo', 'toggle-item', wPrimo ? ' active-yes' : '');
-  toggleClass('pill_primo', 'toggle-pill', wPrimo ? ' on-onco' : '');
   mostraSezione('sottoCategSection', wPrimo);
   if (!wPrimo) setSottocat(null);
 }
@@ -952,7 +958,6 @@ function setSottocat(v) {
   wSottocat = v;
   ['unica', 'associata'].forEach((k) => {
     toggleClass('tog_' + k, 'toggle-item', v === k ? ' active-yes' : '');
-    toggleClass('pill_' + k, 'toggle-pill', v === k ? ' on-onco' : '');
   });
   mostraSezione('patAssocField', v === 'associata');
 }
@@ -961,8 +966,6 @@ function setMetastasi(v) {
   wMetastasi = v;
   toggleClass('tog_meta_si', 'toggle-item', v === 'si' ? ' active-yes' : '');
   toggleClass('tog_meta_no', 'toggle-item', v === 'no' ? ' active-no' : '');
-  toggleClass('pill_meta_si', 'toggle-pill', v === 'si' ? ' on' : '');
-  toggleClass('pill_meta_no', 'toggle-pill', v === 'no' ? ' on-green' : '');
   mostraSezione('metaSection', v === 'si');
 }
 
@@ -1137,6 +1140,7 @@ function resetWizard() {
   renderFUList();
   liveValidate1();
   liveValidate2();
+  renderCronologia();
   goStep(1);
 }
 
@@ -1164,10 +1168,234 @@ function loadIntoWizard(id) {
   onNomeInput();
   updateAge();
   liveValidate2();
+  renderCronologia();
 
   showView('wizard');
   goStep(1);
   notify('Esame caricato per la modifica.');
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  CRONOLOGIA DELLE RICHIESTE DEL PS
+//  Le richieste già registrate diventano suggerimenti sotto il campo.
+//  Un piccolo motore di parole chiave le confronta ignorando maiuscole,
+//  accenti, punteggiatura, plurali e sinonimi clinici: "addominalgia" e
+//  "dolori addominali" sono la stessa richiesta. Le richieste equivalenti
+//  si raggruppano, e si ordinano per somiglianza con quanto si sta
+//  scrivendo; a campo vuoto, per frequenza e recenza.
+//  Nessun dato nuovo: tutto si ricava dall'archivio.
+// ══════════════════════════════════════════════════════════════════
+const CRONO_MAX = 6;
+
+const PAROLE_VUOTE = new Set((
+  'a ad al alla alle allo agli ai all che chi con col coi da dal dalla dalle dallo dai dagli ' +
+  'dei del della delle dello degli di e ed gli i il in la le lo nei nel nella nelle negli o od ' +
+  'per su sul sulla sulle sui tra fra un una uno si ha ho sono x pz pt paziente circa ecc riferito riferita'
+).split(' '));
+
+/** Concetti clinici: la prima voce è il nome mostrato, le altre sono
+ *  modi diversi di scrivere la stessa cosa. */
+const CONCETTI_RICHIESTA = [
+  ['dolore addominale', 'addominalgia', 'dolore addome', 'algia addominale', 'dolenzia addominale', 'addome acuto'],
+  ['dolore toracico', 'toracoalgia', 'dolore torace', 'dolore retrosternale'],
+  ['dispnea', 'affanno', 'difficolta respiratoria', 'insufficienza respiratoria', 'desaturazione'],
+  ['calo ponderale', 'dimagrimento', 'perdita di peso', 'calo di peso', 'perdita peso'],
+  ['febbre', 'iperpiressia', 'piressia', 'febbricola', 'rialzo termico', 'febbre persistente'],
+  ['cefalea', 'mal di testa', 'emicrania'],
+  ['trauma', 'caduta', 'politrauma', 'incidente stradale', 'contusione'],
+  ['ittero', 'subittero', 'iperbilirubinemia'],
+  ['emottisi', 'sangue nell espettorato'],
+  ['ematuria', 'sangue nelle urine'],
+  ['sanguinamento digestivo', 'melena', 'ematochezia', 'rettorragia', 'ematemesi'],
+  ['tosse', 'tosse persistente', 'tosse secca'],
+  ['massa palpabile', 'tumefazione', 'nodulo palpabile', 'neoformazione', 'massa'],
+  ['anemia', 'anemizzazione', 'calo emoglobina', 'hb bassa'],
+  ['deficit neurologico', 'deficit focale', 'ictus', 'stroke', 'afasia', 'emiparesi', 'stato confusionale'],
+  ['vomito', 'emesi', 'nausea e vomito'],
+  ['occlusione intestinale', 'subocclusione', 'alvo chiuso', 'stipsi ostinata'],
+  ['astenia', 'stanchezza', 'spossatezza'],
+  ['linfoadenopatia', 'adenopatia', 'linfonodi ingranditi', 'linfoadenomegalia'],
+  ['versamento pleurico', 'versamento'],
+  ['ascite', 'distensione addominale'],
+  ['dolore osseo', 'lombalgia', 'rachialgia', 'dorsalgia'],
+  ['crisi convulsiva', 'convulsioni', 'crisi epilettica'],
+  ['sospetta neoplasia', 'sospetto tumore', 'sospetta lesione', 'lesione sospetta']
+];
+
+function normalizzaTesto(testo) {
+  return String(testo == null ? '' : testo)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+/** Radice grossolana: toglie le desinenze di genere e numero, così
+ *  "addominale" e "addominali" coincidono. */
+function radice(parola) {
+  return parola.length > 4 ? parola.replace(/(zioni|zione|i|e|o|a)$/, '') : parola;
+}
+
+function paroleChiave(testo) {
+  return normalizzaTesto(testo).split(' ').filter((p) => p && !PAROLE_VUOTE.has(p)).map(radice);
+}
+
+// ogni variante come sequenza di radici, dalla più lunga: "dolore
+// addominale" deve vincere su un eventuale "dolore" isolato
+const VARIANTI_CONCETTI = [];
+CONCETTI_RICHIESTA.forEach((voci) => {
+  voci.forEach((v) => VARIANTI_CONCETTI.push({ nome: voci[0], parole: paroleChiave(v) }));
+});
+VARIANTI_CONCETTI.sort((x, y) => y.parole.length - x.parole.length);
+
+/** Concetti riconosciuti e parole rimaste, più una chiave che è uguale
+ *  per due richieste equivalenti. */
+function analizzaRichiesta(testo) {
+  const parole = paroleChiave(testo);
+  const usate = parole.map(() => false);
+  const concetti = [];
+  VARIANTI_CONCETTI.forEach((v) => {
+    const n = v.parole.length;
+    if (!n) return;
+    for (let i = 0; i + n <= parole.length; i++) {
+      let ok = true;
+      for (let j = 0; j < n; j++) {
+        if (usate[i + j] || parole[i + j] !== v.parole[j]) { ok = false; break; }
+      }
+      if (!ok) continue;
+      for (let j = 0; j < n; j++) usate[i + j] = true;
+      if (concetti.indexOf(v.nome) === -1) concetti.push(v.nome);
+    }
+  });
+  const termini = parole.filter((_p, i) => !usate[i]);
+  const normale = normalizzaTesto(testo);
+  // l'ultima parola, se la si sta ancora scrivendo, vale anche come inizio
+  const parziale = /[a-z0-9]$/i.test(String(testo || '')) && parole.length ? parole[parole.length - 1] : '';
+  return {
+    concetti: concetti,
+    termini: termini,
+    normale: normale,
+    parziale: parziale,
+    chiave: concetti.slice().sort().join('+') + '|' + termini.slice().sort().join('+')
+  };
+}
+
+let indiceCrono = { firma: null, gruppi: [], df: new Map() };
+
+/** Indice delle richieste in archivio, ricostruito solo quando cambia. */
+function indiceCronologia() {
+  let ultimo = 0;
+  DB.forEach((r) => { if (r.updatedAt > ultimo) ultimo = r.updatedAt; });
+  const firma = DB.length + ':' + ultimo;
+  if (indiceCrono.firma === firma) return indiceCrono;
+
+  const gruppi = new Map();
+  DB.forEach((r) => {
+    const testo = String(r.richiesta || '').trim();
+    if (!testo) return;
+    const an = analizzaRichiesta(testo);
+    if (!an.concetti.length && !an.termini.length) return;
+    let g = gruppi.get(an.chiave);
+    if (!g) {
+      g = { chiave: an.chiave, concetti: an.concetti, termini: an.termini, varianti: new Map(),
+            conteggio: 0, ultima: 0, testo: testo };
+      gruppi.set(an.chiave, g);
+    }
+    g.conteggio++;
+    g.ultima = Math.max(g.ultima, r.updatedAt || 0);
+    g.varianti.set(testo, (g.varianti.get(testo) || 0) + 1);
+  });
+
+  const df = new Map();
+  const lista = Array.from(gruppi.values());
+  lista.forEach((g) => {
+    // si propone la forma scritta più spesso
+    let migliore = 0;
+    g.varianti.forEach((n, t) => { if (n > migliore) { migliore = n; g.testo = t; } });
+    g.normale = normalizzaTesto(g.testo);
+    g.concetti.forEach((c) => df.set('c:' + c, (df.get('c:' + c) || 0) + 1));
+    g.termini.forEach((t) => df.set('t:' + t, (df.get('t:' + t) || 0) + 1));
+  });
+  indiceCrono = { firma: firma, gruppi: lista, df: df };
+  return indiceCrono;
+}
+
+/** Suggerimenti ordinati per somiglianza (parole rare pesano di più). */
+function suggerimentiRichiesta(testo) {
+  const ind = indiceCronologia();
+  const q = analizzaRichiesta(testo);
+  const vuoto = !q.concetti.length && !q.termini.length;
+  const peso = (f) => Math.log(1 + ind.gruppi.length / (1 + (ind.df.get(f) || 0)));
+  const adesso = Date.now();
+
+  const voci = [];
+  ind.gruppi.forEach((g) => {
+    if (!vuoto && g.normale === q.normale) return;      // è già quello che c'è scritto
+    let punti = 0;
+    if (vuoto) {
+      punti = Math.log(1 + g.conteggio);
+    } else {
+      q.concetti.forEach((c) => { if (g.concetti.indexOf(c) !== -1) punti += 3 * peso('c:' + c); });
+      q.termini.forEach((t) => {
+        if (g.termini.indexOf(t) !== -1) {
+          punti += peso('t:' + t);
+        } else if (t === q.parziale && t.length >= 3) {
+          const inizia = g.termini.some((x) => x.indexOf(t) === 0) ||
+                         g.concetti.some((c) => normalizzaTesto(c).split(' ').some((p) => p.indexOf(t) === 0));
+          if (inizia) punti += 0.6 * peso('t:' + t);
+        }
+      });
+      if (punti <= 0) return;
+      punti *= 1 + 0.15 * Math.log(1 + g.conteggio);
+    }
+    // recenza: fino a sei mesi pesa, poi non conta più
+    const eta = adesso - (g.ultima || 0);
+    punti += 0.3 * Math.max(0, 1 - eta / (180 * 86400000));
+    voci.push({ g: g, punti: punti });
+  });
+  voci.sort((x, y) => y.punti - x.punti || y.g.conteggio - x.g.conteggio);
+  return { analisi: q, voci: voci.slice(0, CRONO_MAX) };
+}
+
+function renderCronologia() {
+  const box = el('richiestaCrono');
+  const campo = el('w_richiesta');
+  if (!box || !campo) return;
+  const s = suggerimentiRichiesta(campo.value);
+  if (!s.voci.length && !s.analisi.concetti.length) { box.innerHTML = ''; return; }
+
+  box.innerHTML =
+    '<div class="crono-testa"><span class="crono-tit">Cronologia</span>' +
+      (s.analisi.concetti.length
+        ? '<span class="crono-chiavi">riconosciute ' +
+          s.analisi.concetti.map((c) => '<b>' + esc(c) + '</b>').join('') + '</span>'
+        : '') +
+    '</div>' +
+    (s.voci.length
+      ? '<div class="crono-lista">' + s.voci.map((v) =>
+          '<button type="button" class="crono-voce" data-act="richiesta-usa" data-testo="' + esc(v.g.testo) +
+            '" title="Usa questa richiesta">' +
+            '<span class="crono-testo">' + esc(v.g.testo) + '</span>' +
+            (v.g.conteggio > 1 ? '<span class="crono-n">×' + v.g.conteggio + '</span>' : '') +
+          '</button>').join('') + '</div>'
+      : '<div class="crono-vuota">Nessuna richiesta simile in archivio.</div>');
+}
+
+let timerCrono = null;
+function pianificaCronologia() {
+  clearTimeout(timerCrono);
+  timerCrono = setTimeout(renderCronologia, 120);
+}
+
+function usaRichiesta(testo) {
+  const campo = el('w_richiesta');
+  if (!campo) return;
+  campo.value = testo || '';
+  liveValidate2();
+  renderCronologia();
+  campo.focus();
+  campo.setSelectionRange(campo.value.length, campo.value.length);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1190,6 +1418,7 @@ function updateSuggests() {
   const sedi = uniqueValues('sede');
   const metaSedi = uniqueValues('meta_sede');
 
+  renderCronologia();
   setHtml('tipoEsameList', tipi.map((t) => '<option value="' + esc(t) + '"></option>').join(''));
   setHtml('sedeList', sedi.map((s) => '<option value="' + esc(s) + '"></option>').join(''));
   setHtml('metaSedeList', metaSedi.map((s) => '<option value="' + esc(s) + '"></option>').join(''));
@@ -3491,12 +3720,7 @@ function apriRulli(campo) {
   pannello.style.top = y + 'px';
 
   // ogni colonna si posiziona sulla voce scelta
-  requestAnimationFrame(() => {
-    pannello.querySelectorAll('.rullo').forEach((rullo) => {
-      const sel = rullo.querySelector('.rullo-voce.scelta');
-      if (sel) rullo.scrollTop = sel.offsetTop - rullo.clientHeight / 2 + sel.offsetHeight / 2;
-    });
-  });
+  requestAnimationFrame(centraRulli);
 }
 
 function chiudiRulli() {
@@ -3505,6 +3729,25 @@ function chiudiRulli() {
   rulliCampo = null;
 }
 
+function vociRullo(tipo, voci, scelto) {
+  return voci.map((v) =>
+    '<button type="button" class="rullo-voce' + (v.val === scelto ? ' scelta' : '') +
+    '" data-act="rullo-scegli" data-tipo="' + tipo + '" data-val="' + v.val + '">' +
+    esc(v.txt) + '</button>').join('');
+}
+
+function vociGiorni(maxG) {
+  const giorni = [];
+  for (let i = 1; i <= maxG; i++) giorni.push({ val: i, txt: String(i).padStart(2, '0') });
+  return giorni;
+}
+
+function ecoRulli() {
+  const eta = calcAge(isoRulli());
+  return fmtDate(isoRulli()) + (eta !== null ? ' · ' + eta + ' anni' : '');
+}
+
+/** Costruzione completa del pannello: solo all'apertura. */
 function renderRulli() {
   const pannello = el('rulliPanel');
   if (!pannello) return;
@@ -3514,33 +3757,62 @@ function renderRulli() {
 
   const colonna = (tipo, voci, scelto, etichetta) =>
     '<div class="rullo-col"><div class="rullo-tit">' + etichetta + '</div>' +
-    '<div class="rullo" data-tipo="' + tipo + '">' +
-    voci.map((v) =>
-      '<button type="button" class="rullo-voce' + (v.val === scelto ? ' scelta' : '') +
-      '" data-act="rullo-scegli" data-tipo="' + tipo + '" data-val="' + v.val + '">' +
-      esc(v.txt) + '</button>').join('') +
-    '</div></div>';
+    '<div class="rullo" data-tipo="' + tipo + '">' + vociRullo(tipo, voci, scelto) + '</div></div>';
 
-  const giorni = [];
-  for (let i = 1; i <= maxG; i++) giorni.push({ val: i, txt: String(i).padStart(2, '0') });
   const mesi = MESI_LUNGHI.map((n, i) => ({ val: i + 1, txt: n }));
   const anni = [];
   for (let a = annoMax(); a >= ANNO_MIN; a--) anni.push({ val: a, txt: String(a) });
 
-  const eta = calcAge(isoRulli());
   pannello.innerHTML =
     '<div class="rulli-head">Data di nascita</div>' +
     '<div class="rulli-corpo">' +
-      colonna('g', giorni, rulliScelta.g, 'Giorno') +
+      colonna('g', vociGiorni(maxG), rulliScelta.g, 'Giorno') +
       colonna('m', mesi, rulliScelta.m, 'Mese') +
       colonna('a', anni, rulliScelta.a, 'Anno') +
     '</div>' +
     '<div class="rulli-piede">' +
-      '<span class="rulli-eco">' + esc(fmtDate(isoRulli())) +
-        (eta !== null ? ' · ' + eta + ' anni' : '') + '</span>' +
+      '<span class="rulli-eco">' + esc(ecoRulli()) + '</span>' +
       '<button type="button" class="cal-azione" data-act="rulli-annulla">Annulla</button>' +
       '<button type="button" class="cal-azione rulli-ok" data-act="rulli-conferma">Conferma</button>' +
     '</div>';
+}
+
+/** Porta le colonne sulla voce scelta, senza animazione. */
+function centraRulli() {
+  const pannello = el('rulliPanel');
+  if (!pannello) return;
+  pannello.querySelectorAll('.rullo').forEach((r) => {
+    const sel = r.querySelector('.rullo-voce.scelta');
+    if (sel) r.scrollTop = sel.offsetTop - r.clientHeight / 2 + sel.offsetHeight / 2;
+  });
+}
+
+/** Aggiorna le colonne sul posto. Prima ogni scelta ridisegnava il
+ *  pannello: lo scorrimento ripartiva da zero e la colonna degli anni
+ *  scorreva di nuovo fino al valore a ogni click. Ora cambia solo la
+ *  voce evidenziata; i giorni si ricostruiscono solo se il mese ne ha
+ *  un numero diverso, e mantenendo la posizione. */
+function sincronizzaRulli(centra) {
+  const pannello = el('rulliPanel');
+  const colG = pannello && pannello.querySelector('.rullo[data-tipo="g"]');
+  if (!colG) { renderRulli(); centraRulli(); return; }
+
+  const maxG = giorniNelMese(rulliScelta.m, rulliScelta.a);
+  if (rulliScelta.g > maxG) rulliScelta.g = maxG;
+  if (colG.children.length !== maxG) {
+    const pos = colG.scrollTop;
+    colG.innerHTML = vociRullo('g', vociGiorni(maxG), rulliScelta.g);
+    colG.scrollTop = pos;
+  }
+  pannello.querySelectorAll('.rullo').forEach((r) => {
+    const scelto = rulliScelta[r.getAttribute('data-tipo')];
+    r.querySelectorAll('.rullo-voce').forEach((v) => {
+      v.classList.toggle('scelta', parseInt(v.getAttribute('data-val'), 10) === scelto);
+    });
+  });
+  const eco = pannello.querySelector('.rulli-eco');
+  if (eco) eco.textContent = ecoRulli();
+  if (centra) centraRulli();
 }
 
 function isoRulli() {
@@ -3554,25 +3826,8 @@ function scegliRullo(tipo, valore) {
   if (tipo === 'g') rulliScelta.g = n;
   else if (tipo === 'm') rulliScelta.m = n;
   else if (tipo === 'a') rulliScelta.a = n;
-
-  // conserva la posizione delle colonne: ridisegnare e ripartire da capo
-  // farebbe perdere il punto in cui si stava scorrendo
-  const pannello = el('rulliPanel');
-  const posizioni = {};
-  if (pannello) {
-    pannello.querySelectorAll('.rullo').forEach((r) => { posizioni[r.getAttribute('data-tipo')] = r.scrollTop; });
-  }
-  renderRulli();
-  if (pannello) {
-    pannello.querySelectorAll('.rullo').forEach((r) => {
-      const t = r.getAttribute('data-tipo');
-      if (posizioni[t] != null && t !== tipo) r.scrollTop = posizioni[t];
-      else {
-        const sel = r.querySelector('.rullo-voce.scelta');
-        if (sel) r.scrollTop = sel.offsetTop - r.clientHeight / 2 + sel.offsetHeight / 2;
-      }
-    });
-  }
+  // la voce cliccata è già sotto gli occhi: nessuna colonna si sposta
+  sincronizzaRulli(false);
 }
 
 function confermaRulli() {
@@ -3880,7 +4135,7 @@ function setupCalendari() {
       if (conRulli) {
         const p = iso.split('-');
         rulliScelta = { g: +p[2], m: +p[1], a: +p[0] };
-        if (rulliCampo === campo) renderRulli();
+        if (rulliCampo === campo) sincronizzaRulli(true);
       } else {
         calMese = new Date(iso + 'T00:00:00');
         calMese.setDate(1);
@@ -4415,6 +4670,7 @@ const CLICK_ACTIONS = {
     activateFolder(true);
   },
   'safety-net': () => safetyNet(),
+  'richiesta-usa': (t) => usaRichiesta(t.getAttribute('data-testo')),
   'pick': (t) => {
     const target = el(t.getAttribute('data-target'));
     if (target) { target.value = t.getAttribute('data-value') || ''; }
@@ -4445,7 +4701,7 @@ function wireEvents() {
     liveValidate2();
   });
   on('tipiNuovo', 'keydown', (ev) => { if (ev.key === 'Enter') aggiungiTipoEsame(); });
-  on('w_richiesta', 'input', liveValidate2);
+  on('w_richiesta', 'input', () => { liveValidate2(); pianificaCronologia(); });
 
   ['fOnco', 'fPrima', 'fClassTumore', 'fMeta', 'fSesso', 'fTipo'].forEach((id) => on(id, 'change', applyFilters));
   on('fSearch', 'input', applyFilters);
