@@ -246,7 +246,7 @@ nav{background:var(--text);height:52px;display:flex;align-items:center;justify-c
 .review-val{font-weight:500;text-align:right;max-width:340px;}
 
 /* ══════════════ DATABASE ══════════════ */
-.stats-row{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px;margin-bottom:1.2rem;}
+.stats-row{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:1.2rem;}
 .sc{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:.9rem 1.1rem;}
 .sc-n{font-family:var(--mono);font-size:22px;font-weight:500;line-height:1;margin-bottom:4px;}
 .sc-l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
@@ -1889,7 +1889,6 @@ body.rail-aperto .app-footer { right: calc(var(--rail-w) + var(--pan-w) + 1rem);
 .stats-row .sc:nth-child(4) { --k: #C2185B; }
 .stats-row .sc:nth-child(5) { --k: #1A6040; }
 .stats-row .sc:nth-child(6) { --k: #8B1A1A; }
-.stats-row .sc:nth-child(7) { --k: #1A3F7A; }
 .stats-row .sc-n { font-size: 26px; margin-bottom: 6px; }
 
 .db-topbar {

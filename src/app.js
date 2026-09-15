@@ -1132,8 +1132,7 @@ function updateStatsBar() {
     sSosp: DB.filter((r) => r.onco === 'sospetto').length,
     sPrimo: DB.filter((r) => r.primo_riscontro).length,
     sPrima: DB.filter((r) => r.onco === 'si' && r.prima_onco === 'si').length,
-    sMeta: DB.filter((r) => r.metastasi === 'si').length,
-    sM: DB.filter((r) => r.sesso === 'M').length
+    sMeta: DB.filter((r) => r.metastasi === 'si').length
   };
   Object.keys(counts).forEach((id) => {
     const e = el(id);
@@ -1147,6 +1146,7 @@ function applyFilters() {
   const ft = val('fTipo');
   const fct = val('fClassTumore');
   const fm = val('fMeta');
+  const fs = val('fSesso');
   const q = rawVal('fSearch').toLowerCase().trim();
 
   filtered = DB.filter((r) => {
@@ -1157,6 +1157,7 @@ function applyFilters() {
     if (fct === 'unica' && r.sottocat !== 'unica') return false;
     if (fct === 'associata' && r.sottocat !== 'associata') return false;
     if (fm && r.metastasi !== fm) return false;
+    if (fs && r.sesso !== fs) return false;
     if (q && (r.cognome + ' ' + r.nome).toLowerCase().indexOf(q) === -1) return false;
     return true;
   });
@@ -1187,10 +1188,12 @@ function applyFilters() {
 }
 
 function resetFilters() {
-  ['fOnco', 'fPrima', 'fTipo', 'fClassTumore', 'fMeta', 'fSearch'].forEach((id) => {
+  ['fOnco', 'fPrima', 'fTipo', 'fClassTumore', 'fMeta', 'fSesso', 'fSearch'].forEach((id) => {
     const e = el(id);
     if (e) e.value = '';
   });
+  // i menu personalizzati mostrano il valore del select nativo: vanno riallineati
+  document.querySelectorAll('#view-db .sel-wrap').forEach((w) => syncSelect(w));
   applyFilters();
 }
 
@@ -4344,7 +4347,7 @@ function wireEvents() {
   on('tipiNuovo', 'keydown', (ev) => { if (ev.key === 'Enter') aggiungiTipoEsame(); });
   on('w_richiesta', 'input', liveValidate2);
 
-  ['fOnco', 'fPrima', 'fClassTumore', 'fMeta', 'fTipo'].forEach((id) => on(id, 'change', applyFilters));
+  ['fOnco', 'fPrima', 'fClassTumore', 'fMeta', 'fSesso', 'fTipo'].forEach((id) => on(id, 'change', applyFilters));
   on('fSearch', 'input', applyFilters);
   ['sfDal', 'sfAl', 'sfTipo', 'sfFocus'].forEach((id) => on(id, 'change', () => {
     renderStats();
