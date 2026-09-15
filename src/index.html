@@ -331,12 +331,12 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
             <div class="tipo-riga">
               <div class="tipo-campo" id="tipoSelHost"><select id="w_tipo_sel"></select></div>
               <input id="w_tipo_esame" class="tipo-campo nascosto" type="text" list="tipoEsameList"
-                     placeholder="es. TC torace, Ecografia addome, RMN…" autocomplete="off">
+                     placeholder="es. TC torace, TC encefalo, Ecografia addome…" autocomplete="off">
               <datalist id="tipoEsameList"></datalist>
               <button type="button" class="btn btn-outline btn-sm tipo-modifica" id="btnTipoModifica"
                       data-act="tipo-modifica" title="Scrivi un tipo di esame a mano">Modifica</button>
             </div>
-            <div class="field-hint">L'elenco si gestisce da <strong>Impostazioni &rarr; Modalità di esame</strong>.</div>
+            <div class="field-hint">L'elenco si gestisce da <strong>Impostazioni &rarr; Personalizzazione</strong>.</div>
           </div>
         </div>
         <div class="field">
@@ -731,13 +731,13 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
     </button>
 
     <button type="button" class="rail-btn" data-act="rail" data-pan="esami"
-            role="tab" aria-selected="false" title="Modalità di esame">
+            role="tab" aria-selected="false" title="Personalizzazione del reparto">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M8 6h13M8 12h13M8 18h13"/>
-        <path d="M3 6h.01M3 12h.01M3 18h.01"/>
+        <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/>
+        <path d="M1 14h6M9 8h6M17 16h6"/>
       </svg>
-      <span class="rail-eco">Esami</span>
+      <span class="rail-eco">Reparto</span>
     </button>
 
     <button type="button" class="rail-btn" data-act="rail" data-pan="aspetto"
@@ -782,9 +782,12 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
     </section>
 
     <section class="pan" data-pan="esami">
-      <h3 class="pan-tit">Modalità di esame</h3>
-      <p class="pan-desc">I tipi elencati qui compaiono nel menu <strong>Tipo di esame</strong>.
-      L'elenco sta nel file condiviso: vale per entrambe le postazioni.</p>
+      <h3 class="pan-tit">Personalizzazione</h3>
+      <p class="pan-desc">Tipi di esame e categorie delle richieste del PS, in un solo posto.
+      Tutto sta nel file condiviso: vale per entrambe le postazioni.</p>
+      <h4 class="pan-sez">Tipi di esame</h4>
+      <p class="pan-desc">Compaiono nel menu <strong>Tipo di esame</strong> e fra gli esami
+      proposti dalla cronologia.</p>
       <div class="tipi-lista" id="tipiLista"></div>
       <div class="tipi-aggiungi">
         <input id="tipiNuovo" type="text" placeholder="es. TC addome con e senza mdc"
@@ -792,7 +795,15 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
         <button type="button" class="btn btn-primary btn-sm" data-act="tipi-aggiungi">Aggiungi</button>
       </div>
       <button type="button" class="pan-voce pan-voce-sm" data-act="tipi-ripristina">
-        <span class="pan-ico">&#8634;</span><span><strong>Ripristina predefiniti</strong></span>
+        <span class="pan-ico">&#8634;</span><span><strong>Ripristina tipi predefiniti</strong></span>
+      </button>
+      <h4 class="pan-sez">Categorie delle richieste</h4>
+      <p class="pan-desc">Per ogni categoria l'esame proposto nella cronologia e le parole chiave
+      che la riconoscono. In <strong>Automatico</strong> vale l'esame tipico, o quello più usato
+      in archivio.</p>
+      <div class="pers-lista" id="categorieLista"></div>
+      <button type="button" class="pan-voce pan-voce-sm" data-act="pers-ripristina">
+        <span class="pan-ico">&#8634;</span><span><strong>Ripristina categorie predefinite</strong></span>
       </button>
     </section>
 

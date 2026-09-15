@@ -42,6 +42,7 @@ let DB = [];                 // record normalizzati
 let deletedIds = {};         // id → timestamp cancellazione (tombstone)
 let tipiEsame = { lista: [], updatedAt: 0 };   // tassonomia condivisa
 let noteGrafici = { updatedAt: 0 };           // descrizioni corrette a mano
+let personalizzazione = personalizzazioneVuota();  // categorie della cronologia
 let filtered = [];
 let selected = new Set();
 let sortKey = 'data';
@@ -292,6 +293,7 @@ function parseStore(input) {
   const deleted = Object.create(null);
   let tipi = { lista: [], updatedAt: 0 };
   let note = { updatedAt: 0 };
+  let pers = personalizzazioneVuota();
   if (Array.isArray(raw)) {
     list = raw;
   } else if (raw && typeof raw === 'object') {
@@ -312,6 +314,9 @@ function parseStore(input) {
         updatedAt: num(raw.tipiEsame.updatedAt)
       };
     }
+    if (raw.personalizzazione && typeof raw.personalizzazione === 'object') {
+      pers = normalizzaPersonalizzazione(raw.personalizzazione);
+    }
     if (raw.deleted && typeof raw.deleted === 'object') {
       Object.keys(raw.deleted).forEach((k) => {
         const t = Number(raw.deleted[k]);
@@ -326,7 +331,7 @@ function parseStore(input) {
     const rec = normalizeRecord(r, i);
     if (rec) records.push(rec);
   });
-  return { records: records, deleted: deleted, tipi: tipi, note: note };
+  return { records: records, deleted: deleted, tipi: tipi, note: note, personalizzazione: pers };
 }
 
 function serializeStore(store) {
@@ -336,7 +341,8 @@ function serializeStore(store) {
     records: store.records,
     deleted: store.deleted,
     tipiEsame: store.tipi || { lista: [], updatedAt: 0 },
-    note: store.note || { updatedAt: 0 }
+    note: store.note || { updatedAt: 0 },
+    personalizzazione: store.personalizzazione || personalizzazioneVuota()
   }, null, 2);
 }
 
@@ -375,7 +381,11 @@ function mergeStores(a, b) {
   const noteB = b.note || { updatedAt: 0 };
   const note = noteB.updatedAt > noteA.updatedAt ? noteB : noteA;
 
-  return { records: records, deleted: deleted, tipi: tipi, note: note };
+  const persA = a.personalizzazione || personalizzazioneVuota();
+  const persB = b.personalizzazione || personalizzazioneVuota();
+  const pers = persB.updatedAt > persA.updatedAt ? persB : persA;
+
+  return { records: records, deleted: deleted, tipi: tipi, note: note, personalizzazione: pers };
 }
 
 /** Impronta dello stato: record, cancellazioni, tipi di esame e
@@ -388,11 +398,12 @@ function storeSignature(store) {
     .join('|') +
     '#' + Object.keys(store.deleted || {}).length +
     '#' + ((store.tipi && store.tipi.updatedAt) || 0) +
-    '#' + ((store.note && store.note.updatedAt) || 0);
+    '#' + ((store.note && store.note.updatedAt) || 0) +
+    '#' + ((store.personalizzazione && store.personalizzazione.updatedAt) || 0);
 }
 
 function statoLocale() {
-  return { records: DB, deleted: deletedIds, tipi: tipiEsame, note: noteGrafici };
+  return { records: DB, deleted: deletedIds, tipi: tipiEsame, note: noteGrafici, personalizzazione: personalizzazione };
 }
 
 function applicaStore(store) {
@@ -400,6 +411,7 @@ function applicaStore(store) {
   deletedIds = store.deleted;
   tipiEsame = store.tipi || tipiEsame;
   noteGrafici = store.note || noteGrafici;
+  personalizzazione = store.personalizzazione || personalizzazione;
 }
 
 /** true se `check` contiene tutto ciò che avevamo scritto. */
@@ -483,7 +495,8 @@ async function selectFolder() {
     if (!stessa) {
       clearTimeout(saveTimer);
       saveTimer = null;
-      applicaStore({ records: [], deleted: Object.create(null), tipi: { lista: [], updatedAt: 0 }, note: { updatedAt: 0 } });
+      applicaStore({ records: [], deleted: Object.create(null), tipi: { lista: [], updatedAt: 0 },
+        note: { updatedAt: 0 }, personalizzazione: personalizzazioneVuota() });
       versioneSalvata = versioneModifiche;
     }
     dataFolder = folder;
@@ -623,6 +636,7 @@ async function refreshFromRemote() {
     if (before === after) return;
     applicaStore(merged);
     aggiornaSelettoreTipo();
+    if (railAperto === 'esami') { renderTipiEsame(); renderCategorieRichieste(); }
     refreshViews();
     notify('Archivio aggiornato con le modifiche dell’altra postazione.');
   } catch (e) { /* transitorio: si riprova al giro successivo */ }
@@ -1251,7 +1265,7 @@ const CATEGORIA_ALTRO = { id: 'altro', nome: 'Altre richieste', colore: '#8A8880
 /** Categoria prevalente fra i concetti riconosciuti. */
 function categoriaDi(concetti) {
   let migliore = null, conta = 0;
-  CATEGORIE_RICHIESTA.forEach((c) => {
+  categorieEffettive().categorie.forEach((c) => {
     const n = concetti.filter((x) => c.concetti.indexOf(x) !== -1).length;
     if (n > conta) { migliore = c; conta = n; }
   });
@@ -1277,13 +1291,37 @@ function paroleChiave(testo) {
   return normalizzaTesto(testo).split(' ').filter((p) => p && !PAROLE_VUOTE.has(p)).map(radice);
 }
 
-// ogni variante come sequenza di radici, dalla più lunga: "dolore
-// addominale" deve vincere su un eventuale "dolore" isolato
-const VARIANTI_CONCETTI = [];
-CONCETTI_RICHIESTA.forEach((voci) => {
-  voci.forEach((v) => VARIANTI_CONCETTI.push({ nome: voci[0], parole: paroleChiave(v) }));
-});
-VARIANTI_CONCETTI.sort((x, y) => y.parole.length - x.parole.length);
+let cacheCategorie = { stamp: null, categorie: null, varianti: null };
+
+/** Categorie e varianti effettive: le predefinite più quanto il reparto
+ *  ha personalizzato (esame fisso, parole chiave aggiunte). Ricalcolate
+ *  solo quando la personalizzazione cambia. */
+function categorieEffettive() {
+  const stamp = personalizzazione.updatedAt || 0;
+  if (cacheCategorie.stamp === stamp && cacheCategorie.categorie) return cacheCategorie;
+
+  const categorie = CATEGORIE_RICHIESTA.map((c) => {
+    const fisso = personalizzazione.esamiCategoria[c.id] || '';
+    const aggiunte = personalizzazione.parole.filter((p) => p.categoria === c.id).map((p) => p.testo);
+    return Object.assign({}, c, {
+      esameFisso: fisso,
+      esami: fisso ? [fisso] : c.esami,
+      concetti: c.concetti.concat(aggiunte)
+    });
+  });
+
+  // ogni variante come sequenza di radici, dalla più lunga: "dolore
+  // addominale" deve vincere su un eventuale "dolore" isolato
+  const varianti = [];
+  CONCETTI_RICHIESTA.forEach((voci) => {
+    voci.forEach((v) => varianti.push({ nome: voci[0], parole: paroleChiave(v) }));
+  });
+  personalizzazione.parole.forEach((p) => varianti.push({ nome: p.testo, parole: paroleChiave(p.testo) }));
+  varianti.sort((x, y) => y.parole.length - x.parole.length);
+
+  cacheCategorie = { stamp: stamp, categorie: categorie, varianti: varianti };
+  return cacheCategorie;
+}
 
 /** Concetti riconosciuti e parole rimaste, più una chiave che è uguale
  *  per due richieste equivalenti. */
@@ -1291,7 +1329,7 @@ function analizzaRichiesta(testo) {
   const parole = paroleChiave(testo);
   const usate = parole.map(() => false);
   const concetti = [];
-  VARIANTI_CONCETTI.forEach((v) => {
+  categorieEffettive().varianti.forEach((v) => {
     const n = v.parole.length;
     if (!n) return;
     for (let i = 0; i + n <= parole.length; i++) {
@@ -1325,7 +1363,8 @@ let indiceCrono = { firma: null, gruppi: [], df: new Map(), stat: {} };
 function indiceCronologia() {
   let ultimo = 0;
   DB.forEach((r) => { if (r.updatedAt > ultimo) ultimo = r.updatedAt; });
-  const firma = DB.length + ':' + ultimo;
+  // anche la personalizzazione cambia categorie e concetti
+  const firma = DB.length + ':' + ultimo + ':' + (personalizzazione.updatedAt || 0);
   if (indiceCrono.firma === firma) return indiceCrono;
 
   const gruppi = new Map();
@@ -1437,8 +1476,11 @@ function esameConsigliato(categoria) {
     // reparto: mostrarlo confonderebbe più che aiutare
     if (archivio.quota < 0.4) archivio = null;
   }
-  const scelto = archivio && archivio.quota >= 0.5 ? archivio.tipo : tipico;
-  return { tipico: tipico, archivio: archivio, scelto: scelto };
+  // l'esame fissato dal reparto vince su tutto, archivio compreso
+  const scelto = categoria.esameFisso
+    ? categoria.esameFisso
+    : (archivio && archivio.quota >= 0.5 ? archivio.tipo : tipico);
+  return { tipico: tipico, archivio: archivio, scelto: scelto, fisso: !!categoria.esameFisso };
 }
 
 function cronoAperta() {
@@ -1492,7 +1534,8 @@ function renderCronologia() {
     const giaImpostato = normalizzaTesto(tipoAttuale) === normalizzaTesto(esame.scelto);
     rigaEsame = '<div class="crono-esame" title="Indicazione orientativa: la scelta dell’esame resta del radiologo">' +
       etichettaCategoria(categoria) +
-      '<span>esame tipico <b>' + esc(esame.tipico) + '</b></span>' +
+      '<span>' + (esame.fisso ? 'esame del reparto' : 'esame tipico') + ' <b>' +
+        esc(esame.fisso ? esame.scelto : esame.tipico) + '</b></span>' +
       (esame.archivio
         ? '<span class="crono-archivio">in archivio ' + esc(esame.archivio.tipo) + ' ' +
           pct(esame.archivio.n, esame.archivio.tot, 0) + ' su ' + esame.archivio.tot + '</span>'
@@ -3466,10 +3509,10 @@ function dockTick(ts) {
 //  entrambe le postazioni. Si unisce come i record, last-write-wins
 //  sul proprio updatedAt.
 // ══════════════════════════════════════════════════════════════════
+// Al PS di Desio non si esegue risonanza magnetica: nessun tipo RMN.
 const TIPI_PREDEFINITI = [
   'TC torace', 'TC addome con mdc', 'TC addome senza mdc',
-  'TC total body', 'TC encefalo', 'Ecografia addome',
-  'RMN encefalo', 'RX torace'
+  'TC total body', 'TC encefalo', 'Ecografia addome', 'RX torace'
 ];
 
 /** Elenco effettivo: quello configurato, o i predefiniti se mai toccato,
@@ -3493,6 +3536,7 @@ function salvaTipiEsame(lista) {
   scheduleSave();
   aggiornaSelettoreTipo();
   renderTipiEsame();
+  renderCategorieRichieste();      // gli esami proposti si scelgono da questo elenco
   updateSuggests();
 }
 
@@ -3602,6 +3646,164 @@ function ripristinaTipiEsame() {
   if (!confirm('Ripristinare l’elenco predefinito dei tipi di esame?')) return;
   salvaTipiEsame(TIPI_PREDEFINITI.slice());
   notify('Elenco ripristinato.');
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  PERSONALIZZAZIONE
+//  Un'unica sezione per ciò che il reparto adatta a sé: i tipi di esame
+//  (sopra) e le categorie della cronologia, cioè l'esame proposto per
+//  ciascuna e le parole chiave che la riconoscono. Vive nel file
+//  condiviso con la stessa unione last-write-wins dei tipi di esame.
+// ══════════════════════════════════════════════════════════════════
+const PAROLE_UTENTE_MAX = 200;
+
+function personalizzazioneVuota() {
+  return { updatedAt: 0, esamiCategoria: {}, parole: [] };
+}
+
+/** Il file è condiviso e non fidato: solo categorie esistenti, testi brevi. */
+function normalizzaPersonalizzazione(raw) {
+  const p = personalizzazioneVuota();
+  p.updatedAt = num(raw.updatedAt);
+  const ids = CATEGORIE_RICHIESTA.map((c) => c.id);
+  if (raw.esamiCategoria && typeof raw.esamiCategoria === 'object') {
+    ids.forEach((id) => {
+      const v = raw.esamiCategoria[id];
+      if (typeof v === 'string' && v.trim()) p.esamiCategoria[id] = str(v.trim(), 200);
+    });
+  }
+  if (Array.isArray(raw.parole)) {
+    raw.parole.slice(0, PAROLE_UTENTE_MAX).forEach((w) => {
+      if (w && typeof w.testo === 'string' && w.testo.trim() && ids.indexOf(w.categoria) !== -1) {
+        p.parole.push({ testo: str(w.testo.trim(), 60), categoria: w.categoria });
+      }
+    });
+  }
+  return p;
+}
+
+function categoriaPredefinita(id) {
+  return CATEGORIE_RICHIESTA.find((c) => c.id === id) || null;
+}
+
+/** Ogni modifica crea una nuova versione datata, che l'unione riconosce. */
+function salvaPersonalizzazione(modifica) {
+  const p = {
+    updatedAt: Date.now(),
+    esamiCategoria: Object.assign({}, personalizzazione.esamiCategoria),
+    parole: personalizzazione.parole.slice()
+  };
+  modifica(p);
+  personalizzazione = p;
+  scheduleSave();
+  renderCategorieRichieste();
+  renderCronologia();
+}
+
+function renderCategorieRichieste() {
+  const wrap = el('categorieLista');
+  if (!wrap) return;
+  // le schede aperte restano aperte dopo ogni modifica
+  const aperte = new Set(Array.prototype.map.call(wrap.querySelectorAll('details[open]'),
+    (d) => d.getAttribute('data-cat')));
+  const tipi = tipiEsameCorrenti();
+
+  wrap.innerHTML = categorieEffettive().categorie.map((c) => {
+    const base = categoriaPredefinita(c.id);
+    const fisso = personalizzazione.esamiCategoria[c.id] || '';
+    const automatico = esameConsigliato(Object.assign({}, c, { esameFisso: '', esami: base.esami }));
+    const elenco = tipi.slice();
+    if (fisso && elenco.indexOf(fisso) === -1) elenco.push(fisso);
+    const opzioni = '<option value="">Automatico — ' + esc(automatico ? automatico.scelto : '—') + '</option>' +
+      elenco.map((t) => '<option value="' + esc(t) + '"' + (t === fisso ? ' selected' : '') + '>' +
+        esc(t) + '</option>').join('');
+    const aggiunte = personalizzazione.parole
+      .map((w, i) => ({ w: w, i: i }))
+      .filter((x) => x.w.categoria === c.id);
+
+    return '<details class="pers-cat" data-cat="' + c.id + '" style="--c:' + c.colore + '"' +
+        (aperte.has(c.id) ? ' open' : '') + '>' +
+      '<summary>' + etichettaCategoria(c) +
+        '<span class="pers-esame-eco">' + esc(fisso || (automatico ? automatico.scelto : '')) +
+          (fisso ? '' : ' · auto') + '</span>' +
+        (aggiunte.length ? '<span class="pers-conta">+' + aggiunte.length + '</span>' : '') +
+      '</summary>' +
+      '<div class="pers-corpo">' +
+        '<div class="pers-etichetta">Esame proposto</div>' +
+        '<select class="pers-esame" data-cat="' + c.id + '" aria-label="Esame proposto per ' + esc(c.nome) + '">' +
+          opzioni + '</select>' +
+        '<div class="pers-etichetta">Parole chiave</div>' +
+        '<div class="pers-parole">' +
+          base.concetti.map((w) => '<span class="pers-parola">' + esc(w) + '</span>').join('') +
+          aggiunte.map((x) => '<span class="pers-parola utente">' + esc(x.w.testo) +
+            '<button type="button" data-act="pers-parola-elimina" data-idx="' + x.i +
+            '" aria-label="Rimuovi ' + esc(x.w.testo) + '">&times;</button></span>').join('') +
+        '</div>' +
+        '<div class="tipi-aggiungi pers-aggiungi">' +
+          '<input type="text" class="pers-nuova" data-cat="' + c.id + '" maxlength="60" autocomplete="off" ' +
+            'placeholder="nuova parola chiave">' +
+          '<button type="button" class="btn btn-outline btn-sm" data-act="pers-parola-aggiungi" data-cat="' + c.id +
+            '">Aggiungi</button>' +
+        '</div>' +
+      '</div>' +
+    '</details>';
+  }).join('');
+
+  wrap.querySelectorAll('select.pers-esame').forEach(avvolgiSelect);
+}
+
+function impostaEsameCategoria(id, tipo) {
+  if (!categoriaPredefinita(id)) return;
+  salvaPersonalizzazione((p) => {
+    if (tipo) p.esamiCategoria[id] = str(tipo, 200);
+    else delete p.esamiCategoria[id];
+  });
+  const c = categoriaPredefinita(id);
+  notify(tipo ? c.nome + ': esame proposto ' + tipo : c.nome + ': esame proposto automatico');
+}
+
+function aggiungiParolaChiave(id) {
+  const c = categoriaPredefinita(id);
+  if (!c) return;
+  const campo = document.querySelector('.pers-nuova[data-cat="' + c.id + '"]');
+  if (!campo) return;
+  const testo = String(campo.value || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+  const radici = paroleChiave(testo);
+  if (!radici.length || normalizzaTesto(testo).length < 3) {
+    notify('Scrivi una parola chiave di almeno 3 lettere.');
+    return;
+  }
+  // una parola già riconosciuta, qui o altrove, non si duplica: in due
+  // categorie diverse renderebbe la classificazione ambigua
+  const firma = radici.join(' ');
+  const esistente = categorieEffettive().varianti.find((v) => v.parole.join(' ') === firma);
+  if (esistente) {
+    const dove = categoriaDi([esistente.nome]);
+    notify('«' + testo + '» è già riconosciuta' +
+      (dove !== CATEGORIA_ALTRO ? ' in ' + dove.nome : '') + ' (come ' + esistente.nome + ').');
+    return;
+  }
+  if (personalizzazione.parole.length >= PAROLE_UTENTE_MAX) {
+    notify('Raggiunto il limite di ' + PAROLE_UTENTE_MAX + ' parole chiave aggiunte.');
+    return;
+  }
+  salvaPersonalizzazione((p) => p.parole.push({ testo: testo, categoria: c.id }));
+  notify('Aggiunta a ' + c.nome + ': ' + testo);
+  const nuovo = document.querySelector('.pers-nuova[data-cat="' + c.id + '"]');
+  if (nuovo) nuovo.focus();
+}
+
+function eliminaParolaChiave(i) {
+  if (!(i >= 0 && i < personalizzazione.parole.length)) return;
+  const testo = personalizzazione.parole[i].testo;
+  salvaPersonalizzazione((p) => p.parole.splice(i, 1));
+  notify('Rimossa: ' + testo);
+}
+
+function ripristinaCategorie() {
+  if (!confirm('Ripristinare esami proposti e parole chiave predefiniti per tutte le categorie?')) return;
+  salvaPersonalizzazione((p) => { p.esamiCategoria = {}; p.parole = []; });
+  notify('Categorie ripristinate.');
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -4038,50 +4240,54 @@ function formattaDigitazioneData(campo) {
 // ══════════════════════════════════════════════════════════════════
 let selAperto = null;
 
-function setupSelects() {
-  document.querySelectorAll('select').forEach((nativo) => {
-    if (nativo.closest('.sel-wrap')) return;
+/** Avvolge un select nativo nel menu personalizzato, una volta sola.
+ *  Serve anche per i select creati dopo l'avvio. */
+function avvolgiSelect(nativo) {
+  if (nativo.closest('.sel-wrap')) return;
 
-    const wrap = document.createElement('div');
-    wrap.className = 'sel-wrap';
-    nativo.parentNode.insertBefore(wrap, nativo);
-    wrap.appendChild(nativo);
+  const wrap = document.createElement('div');
+  wrap.className = 'sel-wrap';
+  nativo.parentNode.insertBefore(wrap, nativo);
+  wrap.appendChild(nativo);
 
-    const trigger = document.createElement('button');
-    trigger.type = 'button';
-    trigger.className = 'sel-trigger';
-    trigger.setAttribute('aria-haspopup', 'listbox');
-    trigger.setAttribute('aria-expanded', 'false');
-    trigger.innerHTML = '<span class="sel-valore"></span>' +
-      '<svg class="sel-freccia" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-      'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-      '<path d="m6 9 6 6 6-6"/></svg>';
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'sel-trigger';
+  trigger.setAttribute('aria-haspopup', 'listbox');
+  trigger.setAttribute('aria-expanded', 'false');
+  trigger.innerHTML = '<span class="sel-valore"></span>' +
+    '<svg class="sel-freccia" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="m6 9 6 6 6-6"/></svg>';
 
-    const lista = document.createElement('div');
-    lista.className = 'sel-opzioni';
-    lista.setAttribute('role', 'listbox');
+  const lista = document.createElement('div');
+  lista.className = 'sel-opzioni';
+  lista.setAttribute('role', 'listbox');
 
-    wrap.appendChild(trigger);
-    wrap.appendChild(lista);
+  wrap.appendChild(trigger);
+  wrap.appendChild(lista);
 
-    trigger.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      toggleSelect(wrap, !wrap.classList.contains('aperto'));
-    });
-    trigger.addEventListener('keydown', (ev) => {
-      if (ev.key === 'ArrowDown' || ev.key === 'Enter' || ev.key === ' ') {
-        ev.preventDefault();
-        toggleSelect(wrap, true);
-      } else if (ev.key === 'Escape') {
-        toggleSelect(wrap, false);
-      }
-    });
-
-    // Se il codice cambia il valore da solo (reset filtri, caricamento
-    // di un esame), l'etichetta deve seguirlo.
-    nativo.addEventListener('change', () => syncSelect(wrap));
-    syncSelect(wrap);
+  trigger.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    toggleSelect(wrap, !wrap.classList.contains('aperto'));
   });
+  trigger.addEventListener('keydown', (ev) => {
+    if (ev.key === 'ArrowDown' || ev.key === 'Enter' || ev.key === ' ') {
+      ev.preventDefault();
+      toggleSelect(wrap, true);
+    } else if (ev.key === 'Escape') {
+      toggleSelect(wrap, false);
+    }
+  });
+
+  // Se il codice cambia il valore da solo (reset filtri, caricamento
+  // di un esame), l'etichetta deve seguirlo.
+  nativo.addEventListener('change', () => syncSelect(wrap));
+  syncSelect(wrap);
+}
+
+function setupSelects() {
+  document.querySelectorAll('select').forEach(avvolgiSelect);
 
   document.addEventListener('click', () => toggleSelect(null, false));
   document.addEventListener('keydown', (ev) => {
@@ -4435,7 +4641,7 @@ function toggleRail(pan) {
   });
 
   if (railAperto === 'info' || railAperto === 'archivio') refreshSettingsInfo();
-  if (railAperto === 'esami') renderTipiEsame();
+  if (railAperto === 'esami') { renderTipiEsame(); renderCategorieRichieste(); }
   // il fondino è relativo al dock: si riallinea subito
   requestAnimationFrame(moveTabHighlight);
 }
@@ -4853,6 +5059,9 @@ const CLICK_ACTIONS = {
   'safety-net': () => safetyNet(),
   'richiesta-usa': (t) => usaRichiesta(t.getAttribute('data-testo')),
   'crono-apri': () => apriCronologia(),
+  'pers-parola-aggiungi': (t) => aggiungiParolaChiave(t.getAttribute('data-cat')),
+  'pers-parola-elimina': (t) => eliminaParolaChiave(parseInt(t.getAttribute('data-idx'), 10)),
+  'pers-ripristina': () => ripristinaCategorie(),
   'crono-esame': (t) => impostaTipoEsame(t.getAttribute('data-tipo')),
   'pick': (t) => {
     const target = el(t.getAttribute('data-target'));
@@ -4885,6 +5094,17 @@ function wireEvents() {
     renderCronologia();
   });
   on('tipiNuovo', 'keydown', (ev) => { if (ev.key === 'Enter') aggiungiTipoEsame(); });
+  on('categorieLista', 'change', (ev) => {
+    if (ev.target.classList.contains('pers-esame')) {
+      impostaEsameCategoria(ev.target.getAttribute('data-cat'), ev.target.value);
+    }
+  });
+  on('categorieLista', 'keydown', (ev) => {
+    if (ev.key === 'Enter' && ev.target.classList.contains('pers-nuova')) {
+      ev.preventDefault();
+      aggiungiParolaChiave(ev.target.getAttribute('data-cat'));
+    }
+  });
   on('w_richiesta', 'input', () => { liveValidate2(); pianificaCronologia(); });
 
   ['fOnco', 'fPrima', 'fClassTumore', 'fMeta', 'fSesso', 'fTipo'].forEach((id) => on(id, 'change', applyFilters));

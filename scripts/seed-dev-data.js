@@ -24,7 +24,7 @@ const NOMI_M = ['Mario', 'Luigi', 'Giuseppe', 'Antonio', 'Francesco', 'Paolo', '
 const NOMI_F = ['Anna', 'Maria', 'Giulia', 'Chiara', 'Elena', 'Laura', 'Francesca',
   'Silvia', 'Paola', 'Martina'];
 const ESAMI = ['TC torace', 'TC addome', 'TC total body', 'Ecografia addome',
-  'RMN encefalo', 'RX torace', 'Ecografia collo'];
+  'TC encefalo', 'RX torace', 'Ecografia collo'];
 const SEDI = ['Polmone', 'Colon', 'Fegato', 'Pancreas', 'Mammella', 'Rene', 'Stomaco',
   'Encefalo', 'Prostata', 'Ovaio'];
 const META_SEDI = ['Fegato', 'Polmone', 'Encefalo', 'Osso', 'Surrene'];
