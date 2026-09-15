@@ -4807,7 +4807,9 @@ function toggleRail(pan) {
     const vp = el('viewsPort');
     if (vp) { vp.classList.remove('rientra'); void vp.offsetWidth; vp.classList.add('rientra'); }
   }
-  document.querySelectorAll('.rail-btn').forEach((b) => {
+  // Solo i pulsanti con un pannello: Reparto apre una pagina e non ha
+  // data-pan, e a pannelli chiusi "null === null" lo segnava selezionato.
+  document.querySelectorAll('.rail-btn[data-pan]').forEach((b) => {
     b.setAttribute('aria-selected', b.getAttribute('data-pan') === railAperto ? 'true' : 'false');
   });
   document.querySelectorAll('.pan').forEach((sez) => {
