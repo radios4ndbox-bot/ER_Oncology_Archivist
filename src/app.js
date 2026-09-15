@@ -1514,10 +1514,16 @@ let indiceCrono = { firma: null, gruppi: [], df: new Map(), stat: {} };
  *  gruppi di richieste equivalenti, frequenza delle parole e, per ogni
  *  categoria, quali tipi di esame sono stati eseguiti davvero. */
 function indiceCronologia() {
-  let ultimo = 0;
-  DB.forEach((r) => { if (r.updatedAt > ultimo) ultimo = r.updatedAt; });
+  // Firma: numero di esami, ultima modifica e somma delle date di modifica.
+  // Con le sole prime due, un'eliminazione e un arrivo remoto nello stesso
+  // giro lasciavano l'indice vecchio.
+  let ultimo = 0, somma = 0;
+  DB.forEach((r) => {
+    if (r.updatedAt > ultimo) ultimo = r.updatedAt;
+    somma = (somma + (r.updatedAt % 1000000007)) % 9007199254740;
+  });
   // anche la personalizzazione cambia categorie e concetti
-  const firma = DB.length + ':' + ultimo + ':' + (personalizzazione.updatedAt || 0);
+  const firma = DB.length + ':' + ultimo + ':' + somma + ':' + (personalizzazione.updatedAt || 0);
   if (indiceCrono.firma === firma) return indiceCrono;
 
   const gruppi = new Map();
@@ -1537,7 +1543,8 @@ function indiceCronologia() {
     g.ultima = Math.max(g.ultima, r.updatedAt || 0);
     g.varianti.set(testo, (g.varianti.get(testo) || 0) + 1);
 
-    if (r.tipo_esame) {
+    // gli esami RMN già registrati non devono diventare l'esame proposto
+    if (r.tipo_esame && !esameEscluso(r.tipo_esame)) {
       const s = stat[g.categoria.id] || (stat[g.categoria.id] = { tot: 0, tipi: new Map() });
       s.tot++;
       s.tipi.set(r.tipo_esame, (s.tipi.get(r.tipo_esame) || 0) + 1);
@@ -3937,7 +3944,7 @@ function mostraTabPersonalizzazione(tab, senzaAnimazione) {
     const sua = s.getAttribute('data-tab') === tab;
     s.hidden = !sua;
     s.classList.remove('pg-entra');
-    if (sua && (cambia || !senzaAnimazione) && !senzaAnimazione && !PREFS.reduceMotion) {
+    if (sua && cambia && !senzaAnimazione && !PREFS.reduceMotion) {
       void s.offsetWidth;
       s.classList.add('pg-entra');
     }

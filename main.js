@@ -55,6 +55,8 @@ let dataFolder = null;
  *  scelto di chiudere comunque): da lì la finestra si chiude davvero. */
 let chiusuraConsentita = false;
 let timerChiusura = null;
+/** true mentre l'utente decide in una finestra del tool se chiudere. */
+let attesaUtente = false;
 
 // ══════════════════════════════════════════════════════════════════
 //  CONFIG (in AppData, non nella cartella dati)
@@ -210,10 +212,21 @@ function createWindow() {
   mainWindow.on('close', (event) => {
     if (chiusuraConsentita) return;
     event.preventDefault();
-    if (timerChiusura) return;          // richiesta già in corso
+    // Richiesta già in corso, o l'utente sta rispondendo a "Modifiche non
+    // salvate": un altro clic sulla X non deve riavviare il conto alla
+    // rovescia, che chiuderebbe la finestra con la domanda ancora aperta.
+    if (timerChiusura || attesaUtente) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+      return;
+    }
     timerChiusura = setTimeout(consentiChiusura, ATTESA_CHIUSURA);
     mainWindow.webContents.send('app:richiesta-chiusura');
   });
+  // Se la pagina si blocca o cade, nessuno risponderà alla richiesta: la
+  // chiusura deve restare possibile.
+  mainWindow.on('unresponsive', () => { attesaUtente = false; });
+  mainWindow.webContents.on('render-process-gone', () => { attesaUtente = false; chiusuraConsentita = true; });
 
   // loadURL + url.format: loadFile non risolve correttamente nel
   // pacchetto portable distribuito (nota storica del progetto).
@@ -494,6 +507,7 @@ register('app:safetyNet', async (lettera) => copiaSuUsb(lettera));
 register('app:conferma-chiusura', async (esito) => {
   clearTimeout(timerChiusura);
   timerChiusura = null;
+  attesaUtente = esito === 'attendi';
   if (esito === 'chiudi') {
     setImmediate(consentiChiusura);
     return true;
