@@ -2443,3 +2443,44 @@ body.reduce-motion .overlay.in-chiusura .modal { animation: none; }
   .pg-md { grid-template-columns: 1fr; }
 }
 body.reduce-motion .pg-entra { animation: none; }
+
+/* ══════════════════════════════════════════════════════════════════
+   Finestre di conferma e avviso
+   ══════════════════════════════════════════════════════════════════ */
+.overlay-dialogo { z-index: 1000; background: rgba(14,11,16,.5); }
+.modal.modal-dialogo {
+  width: min(470px, 92vw); max-height: none; overflow: hidden;
+  border-radius: 16px; box-shadow: 0 24px 60px -24px rgba(0,0,0,.6);
+}
+.dlg-corpo { display: flex; gap: 14px; padding: 20px 22px 18px; }
+.dlg-icona {
+  width: 42px; height: 42px; border-radius: 13px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent-bg); color: var(--accent);
+}
+.dlg-icona svg { width: 22px; height: 22px; }
+.overlay-dialogo[data-tipo="avviso"] .dlg-icona { background: var(--amber-bg); color: #B86E00; }
+.overlay-dialogo[data-tipo="pericolo"] .dlg-icona,
+.overlay-dialogo[data-tipo="errore"] .dlg-icona { background: var(--red-bg); color: var(--red); }
+.overlay-dialogo.open:not(.in-chiusura) .dlg-icona {
+  animation: grafPop .45s cubic-bezier(.34,1.56,.64,1) .08s both;
+}
+.dlg-testi { min-width: 0; }
+.dlg-titolo { margin-top: 2px; font-size: 15px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.dlg-messaggio { margin: 6px 0 0; font-size: 13px; line-height: 1.55; color: var(--text); overflow-wrap: anywhere; }
+.dlg-dettaglio {
+  margin: 10px 0 0; padding: 8px 11px; border-radius: 8px;
+  background: var(--surface2); border-left: 3px solid var(--border2);
+  font-size: 12px; line-height: 1.55; color: var(--muted); overflow-wrap: anywhere;
+}
+.dlg-dettaglio[hidden] { display: none; }
+.overlay-dialogo[data-tipo="avviso"] .dlg-dettaglio { border-left-color: #E8A020; }
+.overlay-dialogo[data-tipo="pericolo"] .dlg-dettaglio,
+.overlay-dialogo[data-tipo="errore"] .dlg-dettaglio { border-left-color: var(--red); }
+.dlg-scelte {
+  display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px;
+  padding: 12px 22px 16px; border-top: 1px solid var(--border); background: var(--surface2);
+}
+.dlg-scelte .btn { border-radius: 999px; }
+.dlg-scelte .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+body.reduce-motion .overlay-dialogo .dlg-icona { animation: none; }

@@ -92,6 +92,10 @@ esito(mancanti.length === 0, 'ogni id usato dal JS esiste', mancanti.join(', '))
 // 8b. il renderer non può cancellare l'archivio
 esito(/if \(name !== LOCK_FILE\) throw/.test(main), 'fs:deleteFile limitato al lock');
 
+// 8c. nessuna finestra di sistema per conferme e avvisi: sono tutte del tool
+esito(!/\b(confirm|alert|prompt)\(/.test(app), 'nessun confirm/alert/prompt nel renderer');
+esito(main.indexOf('showMessageBox') === -1, 'nessun showMessageBox nel processo principale');
+
 // 9. versione allineata fra package.json e lockfile
 const pkg = JSON.parse(leggi('package.json'));
 const lock = JSON.parse(leggi('package-lock.json'));

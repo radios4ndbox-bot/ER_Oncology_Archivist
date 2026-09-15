@@ -179,6 +179,8 @@ function setStatus(cls, txt) {
 /** Chiude una finestra con un'uscita speculare all'entrata, invece di
  *  farla sparire di colpo. */
 function chiudiOverlay(o) {
+  // la finestra di dialogo chiusa con Esc o dallo sfondo vale come annulla
+  if (o && o.id === 'modDialogo' && dialogoAperto) { dialogoAperto.risolvi(dialogoAperto.annulla); return; }
   if (!o || !o.classList.contains('open') || o.classList.contains('in-chiusura')) return;
   if (PREFS.reduceMotion) {
     o.classList.remove('open');
@@ -339,7 +341,7 @@ function parseStore(input) {
     }
     if (raw.tipiEsame && typeof raw.tipiEsame === 'object' && Array.isArray(raw.tipiEsame.lista)) {
       tipi = {
-        lista: raw.tipiEsame.lista.map((t) => str(t, 200)).filter(Boolean).slice(0, 200),
+        lista: raw.tipiEsame.lista.map((t) => str(t, 200)).filter((t) => t && !esameEscluso(t)).slice(0, 200),
         updatedAt: num(raw.tipiEsame.updatedAt)
       };
     }
@@ -520,6 +522,15 @@ async function selectFolder() {
     await scaricaSalvataggi();
     const folder = await API.selectDataFolder();
     if (!folder) return;
+    if (typeof folder === 'object') {
+      await avviso({
+        tipo: 'errore',
+        titolo: 'Cartella non utilizzabile',
+        messaggio: 'La cartella selezionata non esiste o non è scrivibile.',
+        dettaglio: 'Verificare i permessi sulla condivisione di rete e riprovare.'
+      });
+      return;
+    }
     const stessa = folder === dataFolder;
     if (!stessa) {
       clearTimeout(saveTimer);
@@ -600,19 +611,39 @@ function modifichePendenti() {
 
 /** Chiusura della finestra: si salva quanto resta, poi si risponde al
  *  processo principale, che chiede conferma se qualcosa non è andato. */
+let chiusuraInCorso = false;
+
+/** Chiusura della finestra: si salva quanto resta; se qualcosa non va,
+ *  decide l'utente in una finestra del tool. */
 async function preparaChiusura() {
-  try { await scaricaSalvataggi(); } catch (_) { /* resta pendente, si segnala */ }
-  if (!modifichePendenti()) {
-    await releaseLock();
-    await API.confermaChiusura(true, '');
-    return;
+  if (chiusuraInCorso) return;          // secondo clic sulla X mentre si decide
+  chiusuraInCorso = true;
+  try {
+    try { await scaricaSalvataggi(); } catch (_) { /* resta pendente, si segnala */ }
+    if (!modifichePendenti()) {
+      await releaseLock();
+      await API.confermaChiusura('chiudi');
+      return;
+    }
+    await API.confermaChiusura('attendi');
+    const motivo = readOnly
+      ? 'L’archivio è aperto in sola lettura: gli esami inseriti in questa sessione non sono stati scritti.'
+      : !storageReady
+        ? 'Nessuna cartella dati attiva: gli esami inseriti sono solo in memoria.'
+        : 'L’ultimo salvataggio non è andato a buon fine (rete non raggiungibile o file occupato).';
+    const scelta = await dialogo({
+      tipo: 'avviso',
+      titolo: 'Modifiche non salvate',
+      messaggio: 'Alcune modifiche non risultano salvate sul file condiviso.',
+      dettaglio: motivo + ' Chiudendo ora andranno perse.',
+      pulsanti: [{ testo: 'Chiudi comunque', stile: 'pericolo' }, { testo: 'Resta aperto', stile: 'primario' }],
+      predefinito: 1,
+      annulla: 1
+    });
+    await API.confermaChiusura(scelta === 0 ? 'chiudi' : 'resta');
+  } finally {
+    chiusuraInCorso = false;
   }
-  const motivo = readOnly
-    ? 'L’archivio è aperto in sola lettura: gli esami inseriti in questa sessione non sono stati scritti.'
-    : !storageReady
-      ? 'Nessuna cartella dati attiva: gli esami inseriti sono solo in memoria.'
-      : 'L’ultimo salvataggio non è andato a buon fine (rete non raggiungibile o file occupato).';
-  await API.confermaChiusura(false, motivo);
 }
 
 function persistDB() {
@@ -772,6 +803,95 @@ async function releaseLock() {
     const info = JSON.parse(raw);
     if (info && info.owner === SESSION_ID) await API.deleteFile(LOCK_FILE);
   } catch (_) { /* niente da fare in chiusura */ }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  FINESTRE DI DIALOGO
+//  Conferme e avvisi hanno lo stesso aspetto e le stesse animazioni del
+//  resto del tool: niente conferme native del browser e niente finestre di
+//  Windows dal processo principale. Esc e clic sullo sfondo annullano.
+// ══════════════════════════════════════════════════════════════════
+const ICONE_DIALOGO = {
+  info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
+  avviso: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
+  pericolo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg>',
+  errore: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></svg>'
+};
+
+let dialogoAperto = null;
+
+/** Mostra la finestra e restituisce l'indice del pulsante scelto.
+ *  opzioni: { tipo, titolo, messaggio, dettaglio,
+ *             pulsanti: [{ testo, stile: 'primario'|'pericolo'|'' }],
+ *             predefinito: indice con il fuoco, annulla: indice per Esc } */
+function dialogo(opzioni) {
+  return new Promise((risolvi) => {
+    const o = el('modDialogo');
+    const pulsanti = opzioni.pulsanti && opzioni.pulsanti.length ? opzioni.pulsanti : [{ testo: 'OK', stile: 'primario' }];
+    const annulla = opzioni.annulla != null ? opzioni.annulla : 0;
+    if (!o) { risolvi(annulla); return; }
+    if (dialogoAperto) dialogoAperto.risolvi(dialogoAperto.annulla);
+
+    const tipo = ICONE_DIALOGO[opzioni.tipo] ? opzioni.tipo : 'info';
+    o.setAttribute('data-tipo', tipo);
+    el('dlgIcona').innerHTML = ICONE_DIALOGO[tipo];
+    el('dlgTitolo').textContent = opzioni.titolo || '';
+    el('dlgMessaggio').textContent = opzioni.messaggio || '';
+    const dettaglio = el('dlgDettaglio');
+    dettaglio.textContent = opzioni.dettaglio || '';
+    dettaglio.hidden = !opzioni.dettaglio;
+
+    const scelte = el('dlgScelte');
+    scelte.textContent = '';
+    pulsanti.forEach((p, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn btn-sm ' + (p.stile === 'pericolo' ? 'btn-danger' : p.stile === 'primario' ? 'btn-primary' : 'btn-outline');
+      b.textContent = p.testo;
+      b.setAttribute('data-act', 'dialogo-scelta');
+      b.setAttribute('data-idx', String(i));
+      scelte.appendChild(b);
+    });
+
+    const fuocoPrima = document.activeElement;
+    dialogoAperto = {
+      annulla: annulla,
+      risolvi: (indice) => {
+        dialogoAperto = null;
+        chiudiOverlay(o);
+        if (fuocoPrima && typeof fuocoPrima.focus === 'function' && document.contains(fuocoPrima)) {
+          fuocoPrima.focus({ preventScroll: true });
+        }
+        risolvi(indice);
+      }
+    };
+    apriOverlay(o);
+    const fuoco = scelte.children[opzioni.predefinito != null ? opzioni.predefinito : pulsanti.length - 1];
+    if (fuoco) setTimeout(() => fuoco.focus({ preventScroll: true }), 40);
+  });
+}
+
+function sceltaDialogo(indice) {
+  if (dialogoAperto && indice >= 0) dialogoAperto.risolvi(indice);
+}
+
+/** Conferma a due pulsanti: Annulla a sinistra, l'azione a destra. Per
+ *  le azioni distruttive il fuoco parte su Annulla. */
+async function conferma(opzioni) {
+  const distruttiva = opzioni.tipo === 'pericolo';
+  const scelta = await dialogo({
+    tipo: opzioni.tipo, titolo: opzioni.titolo, messaggio: opzioni.messaggio, dettaglio: opzioni.dettaglio,
+    pulsanti: [{ testo: opzioni.annulla || 'Annulla' },
+               { testo: opzioni.conferma || 'Conferma', stile: distruttiva ? 'pericolo' : 'primario' }],
+    predefinito: distruttiva ? 0 : 1,
+    annulla: 0
+  });
+  return scelta === 1;
+}
+
+function avviso(opzioni) {
+  return dialogo({ tipo: opzioni.tipo || 'info', titolo: opzioni.titolo, messaggio: opzioni.messaggio,
+    dettaglio: opzioni.dettaglio, pulsanti: [{ testo: opzioni.pulsante || 'Ho capito', stile: 'primario' }] });
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1676,7 +1796,7 @@ function updateSuggests() {
   const metaSedi = uniqueValues('meta_sede');
 
   renderCronologia();
-  setHtml('tipoEsameList', tipi.map((t) => '<option value="' + esc(t) + '"></option>').join(''));
+  setHtml('tipoEsameList', tipi.filter((t) => !esameEscluso(t)).map((t) => '<option value="' + esc(t) + '"></option>').join(''));
   setHtml('sedeList', sedi.map((s) => '<option value="' + esc(s) + '"></option>').join(''));
   setHtml('metaSedeList', metaSedi.map((s) => '<option value="' + esc(s) + '"></option>').join(''));
 
@@ -1859,12 +1979,20 @@ function markDeleted(ids) {
   DB = DB.filter((r) => ids.indexOf(r.id) === -1);
 }
 
-function deleteSelected() {
+async function deleteSelected() {
   if (!selected.size) return;
-  const n = selected.size;
-  if (!confirm('Eliminare ' + n + ' esam' + (n === 1 ? 'e' : 'i') + '?')) return;
-  markDeleted(Array.from(selected));
-  selected.clear();
+  const ids = Array.from(selected);
+  const n = ids.length;
+  const ok = await conferma({
+    tipo: 'pericolo',
+    titolo: n === 1 ? 'Eliminare l’esame selezionato?' : 'Eliminare ' + n + ' esami selezionati?',
+    messaggio: 'Gli esami spariscono dall’archivio condiviso, su entrambe le postazioni.',
+    dettaglio: 'L’operazione non si può annullare.',
+    conferma: n === 1 ? 'Elimina' : 'Elimina ' + n + ' esami'
+  });
+  if (!ok) return;
+  markDeleted(ids);
+  ids.forEach((id) => selected.delete(id));
   scheduleSave();
   refreshViews();
   notify(n === 1 ? 'Esame eliminato.' : n + ' esami eliminati.');
@@ -1932,12 +2060,22 @@ function openDetail(id) {
   apriOverlay(el('modDetail'));
 }
 
-function deleteDetail() {
-  if (!detailId) return;
-  if (!confirm('Eliminare definitivamente questo esame?')) return;
-  markDeleted([detailId]);
-  selected.delete(detailId);
-  detailId = null;
+async function deleteDetail() {
+  const id = detailId;
+  const r = id ? DB.find((p) => p.id === id) : null;
+  if (!r) return;
+  const paziente = (r.cognome + ' ' + r.nome).trim() || 'questo paziente';
+  const ok = await conferma({
+    tipo: 'pericolo',
+    titolo: 'Eliminare definitivamente questo esame?',
+    messaggio: paziente + (r.data ? ' · esame del ' + fmtDate(r.data) : '') + (r.tipo_esame ? ' · ' + r.tipo_esame : ''),
+    dettaglio: 'L’esame sparisce dall’archivio condiviso, su entrambe le postazioni. L’operazione non si può annullare.',
+    conferma: 'Elimina esame'
+  });
+  if (!ok) return;
+  markDeleted([id]);
+  selected.delete(id);
+  if (detailId === id) detailId = null;
   scheduleSave();
   refreshViews();
   closeOverlay('modDetail');
@@ -3543,6 +3681,13 @@ function dockTick(ts) {
 //  sul proprio updatedAt.
 // ══════════════════════════════════════════════════════════════════
 // Al PS di Desio non si esegue risonanza magnetica: nessun tipo RMN.
+/** Modalità che il PS non esegue: non si propongono, non si aggiungono e
+ *  spariscono dagli elenchi salvati. Gli esami già registrati restano. */
+function esameEscluso(tipo) {
+  const t = String(tipo == null ? '' : tipo).trim();
+  return /^(rmn|rm|mri)(\s|-|$)/i.test(t) || /risonanza/i.test(t) || /^angio-?rm(\s|$)/i.test(t);
+}
+
 const TIPI_PREDEFINITI = [
   'TC torace', 'TC addome con mdc', 'TC addome senza mdc',
   'TC total body', 'TC encefalo', 'Ecografia addome', 'RX torace'
@@ -3551,12 +3696,12 @@ const TIPI_PREDEFINITI = [
 /** Elenco effettivo: quello configurato, o i predefiniti se mai toccato,
  *  più i tipi già presenti in archivio che non fossero in elenco. */
 function tipiEsameCorrenti() {
-  const base = (tipiEsame.lista && tipiEsame.lista.length)
+  const base = ((tipiEsame.lista && tipiEsame.lista.length)
     ? tipiEsame.lista.slice()
-    : TIPI_PREDEFINITI.slice();
+    : TIPI_PREDEFINITI.slice()).filter((t) => !esameEscluso(t));
   const visti = new Set(base.map((t) => t.toLowerCase()));
   DB.forEach((r) => {
-    if (r.tipo_esame && !visti.has(r.tipo_esame.toLowerCase())) {
+    if (r.tipo_esame && !esameEscluso(r.tipo_esame) && !visti.has(r.tipo_esame.toLowerCase())) {
       visti.add(r.tipo_esame.toLowerCase());
       base.push(r.tipo_esame);
     }
@@ -3616,9 +3761,9 @@ function apriTipiEsame() {
 function renderTipiEsame() {
   const wrap = el('tipiLista');
   if (!wrap) return;
-  const lista = (tipiEsame.lista && tipiEsame.lista.length)
+  const lista = ((tipiEsame.lista && tipiEsame.lista.length)
     ? tipiEsame.lista
-    : TIPI_PREDEFINITI;
+    : TIPI_PREDEFINITI).filter((t) => !esameEscluso(t));
 
   if (!lista.length) {
     wrap.innerHTML = '<div class="tipi-vuoto">Nessun tipo in elenco.</div>';
@@ -3642,6 +3787,7 @@ function aggiungiTipoEsame() {
   if (!campo) return;
   const nome = String(campo.value || '').trim().slice(0, 200);
   if (!nome) { notify('Scrivi il nome del tipo di esame.'); return; }
+  if (esameEscluso(nome)) { notify('La risonanza magnetica non si esegue in PS: tipo non aggiunto.'); return; }
   const lista = (tipiEsame.lista && tipiEsame.lista.length)
     ? tipiEsame.lista.slice() : TIPI_PREDEFINITI.slice();
   if (lista.some((t) => t.toLowerCase() === nome.toLowerCase())) {
@@ -3663,20 +3809,39 @@ function spostaTipoEsame(i, delta) {
   salvaTipiEsame(lista);
 }
 
-function eliminaTipoEsame(i) {
+async function eliminaTipoEsame(i) {
   const lista = (tipiEsame.lista && tipiEsame.lista.length)
     ? tipiEsame.lista.slice() : TIPI_PREDEFINITI.slice();
   if (i < 0 || i >= lista.length) return;
-  const usato = DB.filter((r) => r.tipo_esame === lista[i]).length;
-  if (usato && !confirm('«' + lista[i] + '» è usato in ' + usato +
-      ' esam' + (usato === 1 ? 'e' : 'i') + '.\nRimuoverlo dall’elenco? ' +
-      'Gli esami già registrati non cambiano.')) return;
-  lista.splice(i, 1);
-  salvaTipiEsame(lista);
+  const nome = lista[i];
+  const usato = DB.filter((r) => r.tipo_esame === nome).length;
+  if (usato) {
+    const ok = await conferma({
+      tipo: 'avviso',
+      titolo: 'Rimuovere «' + nome + '» dall’elenco?',
+      messaggio: 'È usato in ' + usato + (usato === 1 ? ' esame' : ' esami') + ' già registrati.',
+      dettaglio: 'Gli esami registrati non cambiano: il tipo non verrà più proposto nel menu.',
+      conferma: 'Rimuovi'
+    });
+    if (!ok) return;
+  }
+  // l'elenco può essere cambiato mentre la finestra era aperta
+  const attuale = (tipiEsame.lista && tipiEsame.lista.length) ? tipiEsame.lista.slice() : TIPI_PREDEFINITI.slice();
+  const k = attuale.indexOf(nome);
+  if (k === -1) return;
+  attuale.splice(k, 1);
+  salvaTipiEsame(attuale);
 }
 
-function ripristinaTipiEsame() {
-  if (!confirm('Ripristinare l’elenco predefinito dei tipi di esame?')) return;
+async function ripristinaTipiEsame() {
+  const ok = await conferma({
+    tipo: 'avviso',
+    titolo: 'Ripristinare i tipi di esame predefiniti?',
+    messaggio: 'L’elenco torna a: ' + TIPI_PREDEFINITI.join(', ') + '.',
+    dettaglio: 'I tipi aggiunti dal reparto vengono tolti dall’elenco; gli esami già registrati non cambiano.',
+    conferma: 'Ripristina'
+  });
+  if (!ok) return;
   salvaTipiEsame(TIPI_PREDEFINITI.slice());
   notify('Elenco ripristinato.');
 }
@@ -3702,7 +3867,7 @@ function normalizzaPersonalizzazione(raw) {
   if (raw.esamiCategoria && typeof raw.esamiCategoria === 'object') {
     ids.forEach((id) => {
       const v = raw.esamiCategoria[id];
-      if (typeof v === 'string' && v.trim()) p.esamiCategoria[id] = str(v.trim(), 200);
+      if (typeof v === 'string' && v.trim() && !esameEscluso(v)) p.esamiCategoria[id] = str(v.trim(), 200);
     });
   }
   if (Array.isArray(raw.parole)) {
@@ -3979,8 +4144,18 @@ function eliminaParolaChiave(i) {
   notify('Rimossa: ' + testo);
 }
 
-function ripristinaCategorie() {
-  if (!confirm('Ripristinare esami proposti e parole chiave predefiniti per tutte le categorie?')) return;
+async function ripristinaCategorie() {
+  const aggiunte = personalizzazione.parole.length;
+  const fissati = Object.keys(personalizzazione.esamiCategoria).length;
+  const ok = await conferma({
+    tipo: 'avviso',
+    titolo: 'Ripristinare le categorie predefinite?',
+    messaggio: 'Tutte le categorie tornano all’esame automatico e alle sole parole chiave predefinite.',
+    dettaglio: 'Si perdono ' + aggiunte + (aggiunte === 1 ? ' parola chiave aggiunta' : ' parole chiave aggiunte') +
+      ' e ' + fissati + (fissati === 1 ? ' esame fissato' : ' esami fissati') + ' dal reparto.',
+    conferma: 'Ripristina'
+  });
+  if (!ok) return;
   salvaPersonalizzazione((p) => { p.esamiCategoria = {}; p.parole = []; });
   notify('Categorie ripristinate.');
 }
@@ -4862,26 +5037,58 @@ function refreshSettingsInfo() {
 /** Copia di sicurezza dell'archivio su chiavetta USB.
  *  La ricerca dell'unità, la conferma e la scrittura avvengono nel
  *  processo principale: il renderer non tocca mai un percorso. */
+/** Copia di sicurezza dell'archivio su chiavetta USB. Il processo
+ *  principale rileva le unità e scrive; scelta e avvertenza sono finestre
+ *  del tool. Il renderer passa solo una lettera di unità, che il processo
+ *  principale accetta solo se è davvero rimovibile. */
 async function safetyNet() {
   if (!IS_ELECTRON) { notify('Disponibile solo nell’applicazione desktop.'); return; }
   if (!storageReady) { notify('Serve prima una cartella dati leggibile.'); return; }
   notify('Cerco un’unità rimovibile…');
   try {
-    const r = await API.safetyNet();
+    const unita = await API.unitaRimovibili();
+    if (!unita || !unita.length) {
+      await avviso({ tipo: 'info', titolo: 'Nessuna chiavetta USB rilevata',
+        messaggio: 'Inserisci una chiavetta e riprova.',
+        dettaglio: 'Le unità protette in scrittura non vengono proposte.' });
+      return;
+    }
+    let scelta = unita[0];
+    if (unita.length > 1) {
+      const indice = await dialogo({
+        tipo: 'info',
+        titolo: 'Su quale unità salvare la copia?',
+        messaggio: 'Sono collegate ' + unita.length + ' unità rimovibili.',
+        pulsanti: [{ testo: 'Annulla' }].concat(unita.map((u) => ({ testo: u.lettera + '  ' + u.etichetta, stile: 'primario' }))),
+        predefinito: 1,
+        annulla: 0
+      });
+      if (indice < 1) { notify('Copia annullata.'); return; }
+      scelta = unita[indice - 1];
+    }
+    // sono dati sanitari: la conferma deve essere esplicita e informata
+    const ok = await conferma({
+      tipo: 'avviso',
+      titolo: 'Copiare l’archivio su ' + scelta.lettera + ' (' + scelta.etichetta + ')?',
+      messaggio: 'Il file contiene dati sanitari in chiaro: nomi, date di nascita e diagnosi.',
+      dettaglio: 'Conserva la chiavetta come si conserva una cartella clinica, e cancellala quando non serve più.',
+      conferma: 'Copia'
+    });
+    if (!ok) { notify('Copia annullata.'); return; }
+
+    const r = await API.safetyNet(scelta.lettera);
     if (!r || r.stato === 'nessuna-unita') {
-      notify('Nessuna chiavetta USB rilevata: inseriscine una e riprova.');
-    } else if (r.stato === 'annullato') {
-      notify('Copia annullata.');
+      notify('La chiavetta non è più disponibile: reinseriscila e riprova.');
     } else if (r.stato === 'senza-cartella') {
       notify('Cartella dati non configurata.');
     } else if (r.stato === 'ok') {
       notify('Copia salvata su ' + r.unita + ' (' + r.esami + ' esami).');
       refreshSettingsInfo();
     } else {
-      notify('Copia non riuscita: ' + (r.messaggio || 'errore sconosciuto'));
+      await avviso({ tipo: 'errore', titolo: 'Copia non riuscita', messaggio: r.messaggio || 'Errore sconosciuto.' });
     }
   } catch (e) {
-    notify('Copia non riuscita: ' + e.message);
+    await avviso({ tipo: 'errore', titolo: 'Copia non riuscita', messaggio: e.message });
   }
 }
 
@@ -5241,6 +5448,7 @@ const CLICK_ACTIONS = {
   'safety-net': () => safetyNet(),
   'richiesta-usa': (t) => usaRichiesta(t.getAttribute('data-testo')),
   'crono-apri': () => apriCronologia(),
+  'dialogo-scelta': (t) => sceltaDialogo(parseInt(t.getAttribute('data-idx'), 10)),
   'personalizza-apri': () => apriPersonalizzazione(),
   'pers-tab': (t) => mostraTabPersonalizzazione(t.getAttribute('data-tab')),
   'pers-categoria': (t) => selezionaCategoria(t.getAttribute('data-cat')),
@@ -5315,6 +5523,8 @@ function wireEvents() {
 
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') {
+      // con una finestra di dialogo aperta, Esc chiude solo quella
+      if (dialogoAperto) { chiudiOverlay(el('modDialogo')); return; }
       toggleRail(null);
       document.querySelectorAll('.overlay.open').forEach(chiudiOverlay);
     }

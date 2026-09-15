@@ -973,6 +973,22 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
   </div>
 </div>
 
+<!-- Finestra di conferma e avviso: sostituisce quelle di Windows -->
+<div class="overlay overlay-dialogo" id="modDialogo" role="alertdialog" aria-modal="true"
+     aria-labelledby="dlgTitolo" aria-describedby="dlgMessaggio" data-tipo="info">
+  <div class="modal modal-dialogo">
+    <div class="dlg-corpo">
+      <div class="dlg-icona" id="dlgIcona" aria-hidden="true"></div>
+      <div class="dlg-testi">
+        <div class="dlg-titolo" id="dlgTitolo"></div>
+        <p class="dlg-messaggio" id="dlgMessaggio"></p>
+        <p class="dlg-dettaglio" id="dlgDettaglio" hidden></p>
+      </div>
+    </div>
+    <div class="dlg-scelte" id="dlgScelte"></div>
+  </div>
+</div>
+
 <div class="welcome-overlay" id="welcomeOverlay" style="display:none;">
   <div class="welcome-box">
     <div class="welcome-header"><h2>&#9632; ER Oncology Archivist</h2><p>Emergency Radiology — Oncology Data</p></div>

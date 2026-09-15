@@ -294,15 +294,8 @@ register('fs:selectDataFolder', async () => {
   if (res.canceled || !res.filePaths.length) return null;
 
   const folder = validateFolder(res.filePaths[0]);
-  if (!folder) {
-    await dialog.showMessageBox(mainWindow, {
-      type: 'error',
-      title: 'Cartella non utilizzabile',
-      message: 'La cartella selezionata non esiste o non è scrivibile.',
-      detail: 'Verificare i permessi sulla condivisione di rete e riprovare.'
-    });
-    return null;
-  }
+  // l'avviso lo mostra il renderer, con le finestre del tool
+  if (!folder) return { stato: 'non-valida' };
   dataFolder = folder;
   const cfg = readConfig();
   cfg.dataFolder = folder;
@@ -450,8 +443,18 @@ function marcaTemporale() {
          '-' + due(d.getHours()) + due(d.getMinutes());
 }
 
-async function copiaSuUsb() {
+/** Copia sull'unità scelta dall'utente. La lettera arriva dal renderer:
+ *  vale solo se è fra le unità rimovibili rilevate adesso, quindi non si
+ *  può usare per scrivere altrove. Scelta e avvertenza le mostra il
+ *  renderer con le finestre del tool. */
+async function copiaSuUsb(lettera) {
   if (!dataFolder) return { stato: 'senza-cartella' };
+  if (typeof lettera !== 'string' || !/^[A-Z]:$/.test(lettera)) {
+    return { stato: 'errore', messaggio: 'Unità non valida.' };
+  }
+  const unita = await trovaUnitaRimovibili();
+  const scelta = unita.find((u) => u.lettera === lettera);
+  if (!scelta) return { stato: 'nessuna-unita' };
 
   const sorgente = path.join(dataFolder, DATA_FILE);
   let contenuto;
@@ -460,38 +463,6 @@ async function copiaSuUsb() {
   } catch (err) {
     return { stato: 'errore', messaggio: descrizioneErrore(err) };
   }
-
-  const unita = await trovaUnitaRimovibili();
-  if (!unita.length) return { stato: 'nessuna-unita' };
-
-  let scelta = unita[0];
-  if (unita.length > 1) {
-    const res = await dialog.showMessageBox(mainWindow, {
-      type: 'question',
-      title: 'Safety net',
-      message: 'Su quale unità rimovibile salvare la copia?',
-      buttons: unita.map((u) => u.lettera + '  ' + u.etichetta).concat(['Annulla']),
-      cancelId: unita.length,
-      defaultId: 0
-    });
-    if (res.response >= unita.length) return { stato: 'annullato' };
-    scelta = unita[res.response];
-  }
-
-  // Sono dati sanitari: la conferma dev'essere esplicita e informata.
-  const conferma = await dialog.showMessageBox(mainWindow, {
-    type: 'warning',
-    title: 'Copia di sicurezza su unità rimovibile',
-    message: 'Copiare l’archivio su ' + scelta.lettera + ' (' + scelta.etichetta + ')?',
-    detail: 'Il file contiene dati sanitari in chiaro: nomi, date di nascita e ' +
-            'diagnosi.\n\nConservare la chiavetta come si conserva una cartella ' +
-            'clinica, e cancellarla quando non serve più.',
-    buttons: ['Copia', 'Annulla'],
-    cancelId: 1,
-    defaultId: 1,
-    noLink: true
-  });
-  if (conferma.response !== 0) return { stato: 'annullato' };
 
   const cartella = path.join(scelta.lettera + path.sep, CARTELLA_BACKUP);
   const destinazione = path.join(cartella, 'ps_onco_data_' + marcaTemporale() + '.json');
@@ -512,28 +483,22 @@ async function copiaSuUsb() {
   return { stato: 'ok', percorso: destinazione, unita: scelta.lettera, esami: esami };
 }
 
-register('app:safetyNet', async () => copiaSuUsb());
+register('app:unitaRimovibili', async () => trovaUnitaRimovibili());
+register('app:safetyNet', async (lettera) => copiaSuUsb(lettera));
 
-/** Risposta del renderer alla richiesta di chiusura. Se qualcosa non è
- *  stato salvato si chiede all'utente, invece di perderlo in silenzio. */
-register('app:conferma-chiusura', async (ok, motivo) => {
+/** Risposta del renderer alla richiesta di chiusura:
+ *  'chiudi'  → la finestra si chiude;
+ *  'attendi' → l'utente sta decidendo in una finestra del tool, niente
+ *              chiusura forzata allo scadere dell'attesa;
+ *  'resta'   → la finestra resta aperta. */
+register('app:conferma-chiusura', async (esito) => {
   clearTimeout(timerChiusura);
   timerChiusura = null;
-  if (!ok) {
-    const scelta = await dialog.showMessageBox(mainWindow, {
-      type: 'warning',
-      title: 'Modifiche non salvate',
-      message: 'Alcune modifiche non risultano salvate sul file condiviso.',
-      detail: String(motivo || '').slice(0, 400) + '\n\nChiudendo ora andranno perse.',
-      buttons: ['Resta aperto', 'Chiudi comunque'],
-      defaultId: 0,
-      cancelId: 0,
-      noLink: true
-    });
-    if (scelta.response !== 1) return false;
+  if (esito === 'chiudi') {
+    setImmediate(consentiChiusura);
+    return true;
   }
-  setImmediate(consentiChiusura);
-  return true;
+  return false;
 });
 
 /** Nome file proposto nella finestra di salvataggio: mai un percorso. */
