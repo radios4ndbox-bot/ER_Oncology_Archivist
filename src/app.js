@@ -1185,7 +1185,9 @@ function loadIntoWizard(id) {
 //  scrivendo; a campo vuoto, per frequenza e recenza.
 //  Nessun dato nuovo: tutto si ricava dall'archivio.
 // ══════════════════════════════════════════════════════════════════
-const CRONO_MAX = 6;
+const CRONO_MAX = 12;          // suggerimenti a menu aperto
+const CRONO_PER_CATEGORIA = 3;  // a campo vuoto, i più usati di ogni categoria
+const CRONO_STATO_KEY = 'psonco-crono-aperta';
 
 const PAROLE_VUOTE = new Set((
   'a ad al alla alle allo agli ai all che chi con col coi da dal dalla dalle dallo dai dagli ' +
@@ -1206,6 +1208,7 @@ const CONCETTI_RICHIESTA = [
   ['ittero', 'subittero', 'iperbilirubinemia'],
   ['emottisi', 'sangue nell espettorato'],
   ['ematuria', 'sangue nelle urine'],
+  ['colica renale', 'colica', 'idronefrosi', 'dolore lombare colico'],
   ['sanguinamento digestivo', 'melena', 'ematochezia', 'rettorragia', 'ematemesi'],
   ['tosse', 'tosse persistente', 'tosse secca'],
   ['massa palpabile', 'tumefazione', 'nodulo palpabile', 'neoformazione', 'massa'],
@@ -1221,6 +1224,39 @@ const CONCETTI_RICHIESTA = [
   ['crisi convulsiva', 'convulsioni', 'crisi epilettica'],
   ['sospetta neoplasia', 'sospetto tumore', 'sospetta lesione', 'lesione sospetta']
 ];
+
+/** Categorie cliniche con l'esame TC generalmente richiesto. L'ordine
+ *  conta: quando una richiesta tocca più categorie vince quella con più
+ *  concetti e, a parità, la più specifica (un trauma prima di un sintomo
+ *  sistemico). È un'indicazione orientativa, non una prescrizione: la
+ *  scelta dell'esame resta del radiologo. */
+const CATEGORIE_RICHIESTA = [
+  { id: 'trauma', nome: 'Trauma', colore: '#8B1A1A', esami: ['TC total body'],
+    concetti: ['trauma'] },
+  { id: 'neuro', nome: 'Neurologico', colore: '#1A3F7A', esami: ['TC encefalo', 'TC encefalo senza mdc'],
+    concetti: ['cefalea', 'deficit neurologico', 'crisi convulsiva'] },
+  { id: 'torace', nome: 'Torace', colore: '#1A6040', esami: ['TC torace', 'TC torace con mdc'],
+    concetti: ['dispnea', 'dolore toracico', 'emottisi', 'tosse', 'versamento pleurico'] },
+  { id: 'addome', nome: 'Addome', colore: '#B86E00', esami: ['TC addome con mdc', 'TC addome'],
+    concetti: ['dolore addominale', 'ittero', 'occlusione intestinale', 'ascite', 'sanguinamento digestivo', 'vomito'] },
+  { id: 'uro', nome: 'Urologico', colore: '#6B1A7A', esami: ['Uro-TC', 'TC addome con mdc'],
+    concetti: ['ematuria', 'colica renale'] },
+  { id: 'osseo', nome: 'Muscoloscheletrico', colore: '#5A5850', esami: ['TC rachide', 'TC distrettuale'],
+    concetti: ['dolore osseo'] },
+  { id: 'sistemico', nome: 'Stadiazione / sistemico', colore: '#A82255', esami: ['TC total body'],
+    concetti: ['calo ponderale', 'febbre', 'astenia', 'anemia', 'linfoadenopatia', 'sospetta neoplasia', 'massa palpabile'] }
+];
+const CATEGORIA_ALTRO = { id: 'altro', nome: 'Altre richieste', colore: '#8A8880', esami: [], concetti: [] };
+
+/** Categoria prevalente fra i concetti riconosciuti. */
+function categoriaDi(concetti) {
+  let migliore = null, conta = 0;
+  CATEGORIE_RICHIESTA.forEach((c) => {
+    const n = concetti.filter((x) => c.concetti.indexOf(x) !== -1).length;
+    if (n > conta) { migliore = c; conta = n; }
+  });
+  return migliore || CATEGORIA_ALTRO;
+}
 
 function normalizzaTesto(testo) {
   return String(testo == null ? '' : testo)
@@ -1281,9 +1317,11 @@ function analizzaRichiesta(testo) {
   };
 }
 
-let indiceCrono = { firma: null, gruppi: [], df: new Map() };
+let indiceCrono = { firma: null, gruppi: [], df: new Map(), stat: {} };
 
-/** Indice delle richieste in archivio, ricostruito solo quando cambia. */
+/** Indice delle richieste in archivio, ricostruito solo quando cambia:
+ *  gruppi di richieste equivalenti, frequenza delle parole e, per ogni
+ *  categoria, quali tipi di esame sono stati eseguiti davvero. */
 function indiceCronologia() {
   let ultimo = 0;
   DB.forEach((r) => { if (r.updatedAt > ultimo) ultimo = r.updatedAt; });
@@ -1291,6 +1329,7 @@ function indiceCronologia() {
   if (indiceCrono.firma === firma) return indiceCrono;
 
   const gruppi = new Map();
+  const stat = {};
   DB.forEach((r) => {
     const testo = String(r.richiesta || '').trim();
     if (!testo) return;
@@ -1299,12 +1338,18 @@ function indiceCronologia() {
     let g = gruppi.get(an.chiave);
     if (!g) {
       g = { chiave: an.chiave, concetti: an.concetti, termini: an.termini, varianti: new Map(),
-            conteggio: 0, ultima: 0, testo: testo };
+            conteggio: 0, ultima: 0, testo: testo, categoria: categoriaDi(an.concetti) };
       gruppi.set(an.chiave, g);
     }
     g.conteggio++;
     g.ultima = Math.max(g.ultima, r.updatedAt || 0);
     g.varianti.set(testo, (g.varianti.get(testo) || 0) + 1);
+
+    if (r.tipo_esame) {
+      const s = stat[g.categoria.id] || (stat[g.categoria.id] = { tot: 0, tipi: new Map() });
+      s.tot++;
+      s.tipi.set(r.tipo_esame, (s.tipi.get(r.tipo_esame) || 0) + 1);
+    }
   });
 
   const df = new Map();
@@ -1317,11 +1362,12 @@ function indiceCronologia() {
     g.concetti.forEach((c) => df.set('c:' + c, (df.get('c:' + c) || 0) + 1));
     g.termini.forEach((t) => df.set('t:' + t, (df.get('t:' + t) || 0) + 1));
   });
-  indiceCrono = { firma: firma, gruppi: lista, df: df };
+  indiceCrono = { firma: firma, gruppi: lista, df: df, stat: stat };
   return indiceCrono;
 }
 
-/** Suggerimenti ordinati per somiglianza (parole rare pesano di più). */
+/** Suggerimenti ordinati per somiglianza (le parole rare pesano di più).
+ *  A campo vuoto: i più usati di ogni categoria. */
 function suggerimentiRichiesta(testo) {
   const ind = indiceCronologia();
   const q = analizzaRichiesta(testo);
@@ -1329,7 +1375,7 @@ function suggerimentiRichiesta(testo) {
   const peso = (f) => Math.log(1 + ind.gruppi.length / (1 + (ind.df.get(f) || 0)));
   const adesso = Date.now();
 
-  const voci = [];
+  let voci = [];
   ind.gruppi.forEach((g) => {
     if (!vuoto && g.normale === q.normale) return;      // è già quello che c'è scritto
     let punti = 0;
@@ -1346,6 +1392,10 @@ function suggerimentiRichiesta(testo) {
           if (inizia) punti += 0.6 * peso('t:' + t);
         }
       });
+      // stessa categoria clinica senza parole in comune: vicina, ma dopo
+      if (punti <= 0 && q.concetti.length && g.categoria === categoriaDi(q.concetti) && g.categoria !== CATEGORIA_ALTRO) {
+        punti = 0.4;
+      }
       if (punti <= 0) return;
       punti *= 1 + 0.15 * Math.log(1 + g.conteggio);
     }
@@ -1355,7 +1405,68 @@ function suggerimentiRichiesta(testo) {
     voci.push({ g: g, punti: punti });
   });
   voci.sort((x, y) => y.punti - x.punti || y.g.conteggio - x.g.conteggio);
-  return { analisi: q, voci: voci.slice(0, CRONO_MAX) };
+
+  if (vuoto) {
+    const perCategoria = {};
+    voci = voci.filter((v) => {
+      const id = v.g.categoria.id;
+      perCategoria[id] = (perCategoria[id] || 0) + 1;
+      return perCategoria[id] <= CRONO_PER_CATEGORIA;
+    });
+  }
+  return { analisi: q, vuoto: vuoto, voci: voci.slice(0, CRONO_MAX) };
+}
+
+/** Esame da proporre per una categoria: quello tipico, presente
+ *  nell'elenco del reparto se c'è, e quello davvero più usato in
+ *  archivio. Con almeno 5 casi e oltre metà delle richieste, vince
+ *  l'archivio: riflette le abitudini reali del reparto. */
+function esameConsigliato(categoria) {
+  if (!categoria || !categoria.esami.length) return null;
+  const tipi = tipiEsameCorrenti();
+  const inElenco = (nome) => tipi.find((t) => normalizzaTesto(t) === normalizzaTesto(nome));
+  const tipico = categoria.esami.map(inElenco).find(Boolean) || categoria.esami[0];
+
+  let archivio = null;
+  const s = indiceCronologia().stat[categoria.id];
+  if (s && s.tot >= 5) {
+    s.tipi.forEach((n, tipo) => { if (!archivio || n > archivio.n) archivio = { tipo: tipo, n: n }; });
+    archivio.quota = archivio.n / s.tot;
+    archivio.tot = s.tot;
+    // un esame usato in meno del 40% dei casi non è un'abitudine del
+    // reparto: mostrarlo confonderebbe più che aiutare
+    if (archivio.quota < 0.4) archivio = null;
+  }
+  const scelto = archivio && archivio.quota >= 0.5 ? archivio.tipo : tipico;
+  return { tipico: tipico, archivio: archivio, scelto: scelto };
+}
+
+function cronoAperta() {
+  try { return localStorage.getItem(CRONO_STATO_KEY) === '1'; } catch (_) { return false; }
+}
+
+/** Apre o chiude il menu senza ridisegnarlo: così l'altezza si anima. */
+function apriCronologia() {
+  const aperta = !cronoAperta();
+  try { localStorage.setItem(CRONO_STATO_KEY, aperta ? '1' : '0'); } catch (_) {}
+  const corpo = el('cronoCorpo');
+  const bottone = document.querySelector('.crono-apri');
+  if (corpo) corpo.classList.toggle('aperto', aperta);
+  if (bottone) bottone.setAttribute('aria-expanded', aperta ? 'true' : 'false');
+  const box = el('richiestaCrono');
+  if (box) box.classList.toggle('crono-aperta', aperta);
+}
+
+function etichettaCategoria(c) {
+  return '<span class="crono-cat" style="--c:' + c.colore + '">' + esc(c.nome) + '</span>';
+}
+
+function chipRichiesta(v, classe) {
+  return '<button type="button" class="crono-voce' + (classe ? ' ' + classe : '') +
+    '" data-act="richiesta-usa" data-testo="' + esc(v.g.testo) + '" title="Usa questa richiesta">' +
+    '<span class="crono-testo">' + esc(v.g.testo) + '</span>' +
+    (v.g.conteggio > 1 ? '<span class="crono-n">×' + v.g.conteggio + '</span>' : '') +
+    '</button>';
 }
 
 function renderCronologia() {
@@ -1365,21 +1476,91 @@ function renderCronologia() {
   const s = suggerimentiRichiesta(campo.value);
   if (!s.voci.length && !s.analisi.concetti.length) { box.innerHTML = ''; return; }
 
-  box.innerHTML =
-    '<div class="crono-testa"><span class="crono-tit">Cronologia</span>' +
-      (s.analisi.concetti.length
-        ? '<span class="crono-chiavi">riconosciute ' +
-          s.analisi.concetti.map((c) => '<b>' + esc(c) + '</b>').join('') + '</span>'
+  const aperta = cronoAperta();
+  box.classList.toggle('crono-aperta', aperta);
+  const n = s.voci.length;
+  const conta = s.vuoto
+    ? 'più usate'
+    : (n ? n + (n === 1 ? ' simile' : ' simili') : 'nessuna simile');
+
+  // esame suggerito per quanto è scritto nel campo
+  const categoria = s.analisi.concetti.length ? categoriaDi(s.analisi.concetti) : null;
+  const esame = esameConsigliato(categoria);
+  const tipoAttuale = val('w_tipo_esame');
+  let rigaEsame = '';
+  if (esame) {
+    const giaImpostato = normalizzaTesto(tipoAttuale) === normalizzaTesto(esame.scelto);
+    rigaEsame = '<div class="crono-esame" title="Indicazione orientativa: la scelta dell’esame resta del radiologo">' +
+      etichettaCategoria(categoria) +
+      '<span>esame tipico <b>' + esc(esame.tipico) + '</b></span>' +
+      (esame.archivio
+        ? '<span class="crono-archivio">in archivio ' + esc(esame.archivio.tipo) + ' ' +
+          pct(esame.archivio.n, esame.archivio.tot, 0) + ' su ' + esame.archivio.tot + '</span>'
         : '') +
+      (giaImpostato
+        ? '<span class="crono-ok">✓ impostato</span>'
+        : '<button type="button" class="crono-imposta" data-act="crono-esame" data-tipo="' + esc(esame.scelto) +
+          '">Imposta ' + esc(esame.scelto) + '</button>') +
+      '</div>';
+  }
+
+  // suggerimenti raggruppati per categoria, nell'ordine del migliore
+  const ordine = [];
+  const perCat = new Map();
+  s.voci.forEach((v) => {
+    const c = v.g.categoria;
+    if (!perCat.has(c)) { perCat.set(c, []); ordine.push(c); }
+    perCat.get(c).push(v);
+  });
+  const gruppi = ordine.map((c) => {
+    const e = esameConsigliato(c);
+    return '<div class="crono-gruppo" style="--c:' + c.colore + '">' +
+      '<div class="crono-gruppo-testa">' + etichettaCategoria(c) +
+        (e ? '<span class="crono-gruppo-esame">' + esc(e.scelto) + '</span>' : '') + '</div>' +
+      '<div class="crono-lista">' + perCat.get(c).map((v) => chipRichiesta(v)).join('') + '</div>' +
+    '</div>';
+  }).join('');
+
+  box.innerHTML =
+    '<div class="crono-testa">' +
+      '<button type="button" class="crono-apri" data-act="crono-apri" aria-controls="cronoCorpo" aria-expanded="' +
+        (aperta ? 'true' : 'false') + '">' +
+        '<span class="crono-tit">Cronologia</span><span class="crono-conta">' + conta + '</span>' +
+        '<span class="crono-freccia" aria-hidden="true">›</span>' +
+      '</button>' +
+      (s.analisi.concetti.length
+        ? '<span class="crono-chiavi">' + s.analisi.concetti.map((c) => '<b>' + esc(c) + '</b>').join('') + '</span>'
+        : '') +
+      // a menu chiuso resta a portata di click la corrispondenza migliore
+      (!s.vuoto && n ? '<span class="crono-rapida">' + chipRichiesta(s.voci[0], 'crono-migliore') + '</span>' : '') +
     '</div>' +
-    (s.voci.length
-      ? '<div class="crono-lista">' + s.voci.map((v) =>
-          '<button type="button" class="crono-voce" data-act="richiesta-usa" data-testo="' + esc(v.g.testo) +
-            '" title="Usa questa richiesta">' +
-            '<span class="crono-testo">' + esc(v.g.testo) + '</span>' +
-            (v.g.conteggio > 1 ? '<span class="crono-n">×' + v.g.conteggio + '</span>' : '') +
-          '</button>').join('') + '</div>'
-      : '<div class="crono-vuota">Nessuna richiesta simile in archivio.</div>');
+    rigaEsame +
+    '<div class="crono-corpo' + (aperta ? ' aperto' : '') + '" id="cronoCorpo">' +
+      '<div class="crono-interno">' +
+        (gruppi || '<div class="crono-vuota">Nessuna richiesta simile in archivio.</div>') +
+      '</div>' +
+    '</div>';
+}
+
+/** Imposta il tipo di esame del passo 2: dall'elenco se c'è, altrimenti
+ *  come testo libero. */
+function impostaTipoEsame(tipo) {
+  if (!tipo) return;
+  const sel = el('w_tipo_sel');
+  const campo = el('w_tipo_esame');
+  const opzione = sel && Array.prototype.find.call(sel.options,
+    (o) => o.value && normalizzaTesto(o.value) === normalizzaTesto(tipo));
+  if (opzione) {
+    modalitaTipoLibera(false);
+    sel.value = opzione.value;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  } else if (campo) {
+    modalitaTipoLibera(true);
+    campo.value = tipo;
+  }
+  liveValidate2();
+  renderCronologia();
+  notify('Tipo di esame impostato: ' + tipo);
 }
 
 let timerCrono = null;
@@ -4671,6 +4852,8 @@ const CLICK_ACTIONS = {
   },
   'safety-net': () => safetyNet(),
   'richiesta-usa': (t) => usaRichiesta(t.getAttribute('data-testo')),
+  'crono-apri': () => apriCronologia(),
+  'crono-esame': (t) => impostaTipoEsame(t.getAttribute('data-tipo')),
   'pick': (t) => {
     const target = el(t.getAttribute('data-target'));
     if (target) { target.value = t.getAttribute('data-value') || ''; }
@@ -4699,6 +4882,7 @@ function wireEvents() {
     const campo = el('w_tipo_esame');
     if (campo) campo.value = val('w_tipo_sel');
     liveValidate2();
+    renderCronologia();
   });
   on('tipiNuovo', 'keydown', (ev) => { if (ev.key === 'Enter') aggiungiTipoEsame(); });
   on('w_richiesta', 'input', () => { liveValidate2(); pianificaCronologia(); });

@@ -2133,3 +2133,82 @@ body.reduce-motion .riga-entra { animation: none; }
   font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--accent);
 }
 #oncoSection.esito-sospetto .toggle-label.c-onco { color: var(--amber); }
+
+/* ══════════════════════════════════════════════════════════════════
+   Cronologia richiudibile, per categorie
+   ══════════════════════════════════════════════════════════════════ */
+.crono-testa { margin-bottom: 0; gap: 8px; }
+.crono-apri {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 10px 4px 8px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface);
+  font-family: var(--sans); color: var(--muted);
+  transition: border-color .15s, background .15s;
+}
+.crono-apri:hover, .crono-apri:focus-visible { border-color: var(--accent); background: var(--accent-bg); outline: none; }
+.crono-conta { font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+.crono-freccia {
+  display: inline-block; font-size: 17px; line-height: 1; color: var(--muted);
+  rotate: 90deg; transition: rotate .35s cubic-bezier(.34,1.45,.64,1);
+}
+.crono-apri[aria-expanded="true"] .crono-freccia { rotate: -90deg; color: var(--accent); }
+.crono-rapida { display: inline-flex; min-width: 0; margin-left: auto; }
+.crono-migliore { border-style: dashed; }
+
+.crono-esame {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
+  margin-top: 8px; padding: 7px 10px; border-radius: 10px;
+  background: var(--surface2); border: 1px solid var(--border);
+  font-size: 11.5px; color: var(--muted);
+}
+.crono-esame b { color: var(--text); font-weight: 600; }
+.crono-archivio { font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+.crono-imposta {
+  margin-left: auto; padding: 4px 11px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--accent-bg); color: var(--accent);
+  font-family: var(--sans); font-size: 11px; font-weight: 600;
+  transition: background .15s, color .15s;
+}
+.crono-imposta:hover { background: var(--accent); color: #fff; }
+.crono-ok { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--green); }
+
+.crono-cat {
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--c, var(--muted));
+}
+.crono-cat::before {
+  content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--c, var(--muted));
+}
+
+/* il menu si apre come le sezioni del passo 3 */
+.crono-corpo {
+  display: grid; grid-template-rows: 0fr; margin-top: 0;
+  overflow: clip; overflow-clip-margin: 4px; visibility: hidden;
+  transition: grid-template-rows .4s ease-out, margin-top .4s ease-out, visibility 0s linear .4s;
+}
+.crono-corpo.aperto {
+  grid-template-rows: 1fr; margin-top: 8px; visibility: visible;
+  transition: grid-template-rows .4s ease, margin-top .4s ease, visibility 0s;
+}
+.crono-interno {
+  min-height: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 6px;
+  opacity: 0; transform: translateY(8px);
+  transition: opacity .35s ease, transform .35s ease;
+}
+.crono-corpo.aperto .crono-interno { opacity: 1; transform: none; }
+.crono-gruppo {
+  padding: 8px 10px 9px; border-radius: 12px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-left: 3px solid var(--c, var(--border2));
+}
+.crono-gruppo-testa { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.crono-gruppo-esame { font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crono-gruppo .crono-lista { gap: 5px; }
+.crono-gruppo .crono-voce { padding: 4px 10px; font-size: 11.5px; background: var(--surface); }
+.crono-gruppo .crono-testo { max-width: 200px; }
+.crono-interno > .crono-vuota { grid-column: 1 / -1; }
+
+body.reduce-motion .crono-corpo, body.reduce-motion .crono-interno,
+body.reduce-motion .crono-freccia { transition: none; }
