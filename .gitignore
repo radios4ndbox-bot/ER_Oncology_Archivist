@@ -16,3 +16,6 @@ psonco-config.json
 *.tmp
 .DS_Store
 Thumbs.db
+
+# archivio dimostrativo: solo pazienti inventati (npm run demo)
+!demo/ps_onco_data.json

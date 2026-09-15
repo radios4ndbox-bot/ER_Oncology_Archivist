@@ -626,7 +626,9 @@ if (!app.requestSingleInstanceLock()) {
     });
 
     dataFolder = validateFolder(readConfig().dataFolder);
-    if (DEV_MODE && !dataFolder) useDevDataFolder();
+    // --demo (npm run demo) usa sempre dev-data, anche se una cartella è
+    // già configurata: la demo non deve mai aprire l'archivio vero
+    if (DEV_MODE && (!dataFolder || process.argv.indexOf('--demo') !== -1)) useDevDataFolder();
     createWindow();
     if (DEV_MODE) watchSources();
 

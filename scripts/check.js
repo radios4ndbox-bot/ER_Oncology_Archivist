@@ -96,6 +96,16 @@ esito(/if \(name !== LOCK_FILE\) throw/.test(main), 'fs:deleteFile limitato al l
 esito(!/\b(confirm|alert|prompt)\(/.test(app), 'nessun confirm/alert/prompt nel renderer');
 esito(main.indexOf('showMessageBox') === -1, 'nessun showMessageBox nel processo principale');
 
+// 8d. l'archivio demo è leggibile e contiene solo pazienti inventati
+try {
+  const demo = JSON.parse(leggi('demo/ps_onco_data.json'));
+  const solo = Array.isArray(demo.records) && demo.records.length > 0 &&
+    demo.records.every((r) => /^seed-\d+$/.test(r.id));
+  esito(solo, 'archivio demo valido e solo generato', (demo.records || []).length + ' esami');
+} catch (err) {
+  esito(false, 'archivio demo valido e solo generato', err.message);
+}
+
 // 9. versione allineata fra package.json e lockfile
 const pkg = JSON.parse(leggi('package.json'));
 const lock = JSON.parse(leggi('package-lock.json'));

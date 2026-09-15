@@ -349,10 +349,12 @@ Il path traversal resta strutturalmente impossibile (allowlist dei nomi).
 
 ## Sicurezza — da decidere con il reparto (non modificato)
 
-- **Electron 35 è uscito dal periodo di supporto.** Il Chromium incluso
-  non riceve più correzioni. Il rischio pratico è contenuto (l'app carica
-  solo file locali, con CSP rigida e sandbox), ma l'aggiornamento va fatto,
-  con una prova completa di stampa PDF ed export.
+- ~~**Electron 35 è uscito dal periodo di supporto.**~~ Risolto il
+  16/09/2026: aggiornati Electron a 44.4.0 ed electron-builder a 26.15.3
+  (`npm audit`: 0 vulnerabilità, prima 14 fra cui una critica in `tar`).
+  Riprovati nell'app aggiornata stampa PDF, export PowerPoint, finestre di
+  dialogo, chiusura con modifiche non salvate; build locale di installer e
+  portable riuscita.
 - **`asar: false` e portable su cartella scrivibile.** Chi può scrivere
   nella cartella dell'eseguibile può modificare `app.js` e agire su
   entrambe le postazioni. L'eseguibile va tenuto in una cartella di sola

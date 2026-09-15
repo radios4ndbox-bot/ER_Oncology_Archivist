@@ -1,7 +1,7 @@
 {
   "name": "er-oncology-archivist",
   "productName": "ER Oncology Archivist",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "description": "Raccolta dati Pronto Soccorso Oncologico — Radiologia d'Urgenza",
   "main": "main.js",
   "private": true,
@@ -9,13 +9,14 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
+    "demo": "node scripts/demo.js",
     "seed": "node scripts/seed-dev-data.js",
     "check": "node scripts/check.js",
     "dist": "electron-builder --win portable nsis"
   },
   "devDependencies": {
-    "electron": "^35.0.0",
-    "electron-builder": "^25.1.8"
+    "electron": "^44.4.0",
+    "electron-builder": "^26.15.3"
   },
   "build": {
     "appId": "it.eroncologyarchivist.app",

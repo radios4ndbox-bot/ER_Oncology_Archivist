@@ -102,6 +102,22 @@ La modalità sviluppo è subordinata a `app.isPackaged`: nel `.exe`
 distribuito non può attivarsi, nemmeno passando `--dev`.
 `dev-data/` è escluso dal repository.
 
+### Demo dimostrativa
+
+`demo/ps_onco_data.json` contiene un archivio di **210 esami di pazienti
+inventati** (nomi, date e diagnosi generati), per mostrare il tool con
+archivio, statistiche e cronologia già popolati.
+
+```
+npm run demo
+```
+
+Copia l'archivio demo in `dev-data/` (salvando prima una copia di quello
+che c'era) e avvia l'app su quella cartella, anche se sulla postazione è
+configurata una cartella dati vera. Il file in `demo/` non viene mai
+modificato: ogni demo riparte dagli stessi dati. `npm run check` verifica
+che contenga solo esami generati.
+
 ### Icona
 
 Copiare l'icona in `build/icon.ico` (ICO, almeno 256×256). electron-builder
