@@ -12,7 +12,7 @@
      share di rete
    ══════════════════════════════════════════════════════════════════ */
 
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
@@ -33,11 +33,28 @@ const IS_DEV = !app.isPackaged;
  *  impacchettata. Nel .exe distribuito app.isPackaged è true, quindi
  *  niente di quanto segue può attivarsi. */
 const DEV_MODE = IS_DEV && process.argv.indexOf('--dev') !== -1;
+const ICONA = path.join(__dirname, 'build', 'icon.ico');
+const LOCK_MAX_BYTES = 4096;
+const ATTESA_CHIUSURA = 20000;   // tempo concesso al renderer per salvare
+
+const COLORE_FINESTRA = '#0e1017';
+
+// Piè di pagina del report, nel margine inferiore. Il modello non eredita
+// nulla dalla pagina: dimensione e colore vanno scritti qui.
+const PIEDE_PDF =
+  '<div style="width:100%;padding:0 12mm;display:flex;justify-content:space-between;' +
+  'font-family:Segoe UI,Arial,sans-serif;font-size:7.5px;color:#8A8880;">' +
+  '<span>ER Oncology Archivist · Report statistico · Documento a uso interno, contiene dati clinici aggregati</span>' +
+  '<span>Pagina <span class="pageNumber"></span> di <span class="totalPages"></span></span></div>';
 
 // ── Stato del solo processo principale ────────────────────────────
 let mainWindow = null;
 /** @type {string|null} cartella dati validata; il renderer non la sceglie */
 let dataFolder = null;
+/** true quando il renderer ha scaricato i salvataggi (o l'utente ha
+ *  scelto di chiudere comunque): da lì la finestra si chiude davvero. */
+let chiusuraConsentita = false;
+let timerChiusura = null;
 
 // ══════════════════════════════════════════════════════════════════
 //  CONFIG (in AppData, non nella cartella dati)
@@ -111,19 +128,45 @@ async function atomicWrite(target, content) {
       return;
     } catch (err) {
       const retryable = ['EBUSY', 'EPERM', 'EACCES', 'EEXIST'].indexOf(err.code) !== -1;
-      if (!retryable || attempt === 3) {
-        try {
-          await fsp.writeFile(target, content, 'utf8');
-          await fsp.unlink(tmp).catch(() => {});
-          return;
-        } catch (fallbackErr) {
-          await fsp.unlink(tmp).catch(() => {});
-          throw fallbackErr;
-        }
+      if (!retryable) {
+        // Errore non transitorio (cartella sparita, disco pieno...): la
+        // scrittura diretta fallirebbe allo stesso modo, e troncherebbe
+        // il file buono.
+        await fsp.unlink(tmp).catch(() => {});
+        throw err;
       }
-      await sleep(120 * (attempt + 1));
+      if (attempt < 3) {
+        await sleep(120 * (attempt + 1));
+        continue;
+      }
+      // Ultima risorsa, per le condivisioni che negano il rename sopra un
+      // file esistente. La scrittura diretta non è atomica: se si
+      // interrompe a metà, il file temporaneo con la copia integra resta
+      // dov'è invece di essere cancellato insieme all'unica copia buona.
+      try {
+        await fsp.writeFile(target, content, 'utf8');
+      } catch (fallbackErr) {
+        throw new Error(descrizioneErrore(fallbackErr) +
+          ' La copia integra è conservata in ' + path.basename(tmp) + '.');
+      }
+      await fsp.unlink(tmp).catch(() => {});
+      return;
     }
   }
+}
+
+/** L'archivio si scrive solo se è davvero un archivio: un contenuto vuoto
+ *  o troncato, per un difetto del renderer, cancellerebbe tutti gli esami
+ *  di entrambe le postazioni. */
+function verificaArchivio(content) {
+  let dati;
+  try {
+    dati = JSON.parse(stripBom(content));
+  } catch (_) {
+    throw new Error('Contenuto dell’archivio non valido: scrittura rifiutata.');
+  }
+  const ok = Array.isArray(dati) || (dati && typeof dati === 'object' && Array.isArray(dati.records));
+  if (!ok) throw new Error('Struttura dell’archivio non valida: scrittura rifiutata.');
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -138,6 +181,8 @@ function createWindow() {
     show: false,
     backgroundColor: COLORE_FINESTRA,
     title: 'ER Oncology Archivist',
+    // nel pacchetto l'icona è quella dell'eseguibile; questa vale per npm start
+    icon: fs.existsSync(ICONA) ? ICONA : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -160,6 +205,16 @@ function createWindow() {
   });
   mainWindow.on('closed', () => { mainWindow = null; });
 
+  // Prima di chiudere, il renderer scarica i salvataggi in sospeso: un
+  // esame salvato un istante prima della chiusura restava solo in memoria.
+  mainWindow.on('close', (event) => {
+    if (chiusuraConsentita) return;
+    event.preventDefault();
+    if (timerChiusura) return;          // richiesta già in corso
+    timerChiusura = setTimeout(consentiChiusura, ATTESA_CHIUSURA);
+    mainWindow.webContents.send('app:richiesta-chiusura');
+  });
+
   // loadURL + url.format: loadFile non risolve correttamente nel
   // pacchetto portable distribuito (nota storica del progetto).
   mainWindow.loadURL(url.format({
@@ -171,32 +226,38 @@ function createWindow() {
   if (!IS_DEV) Menu.setApplicationMenu(null);
 }
 
-function safeProtocol(target) {
-  try { return new URL(target).protocol; } catch (_) { return ''; }
+/** Chiude davvero la finestra, senza chiedere altro al renderer. */
+function consentiChiusura() {
+  clearTimeout(timerChiusura);
+  timerChiusura = null;
+  chiusuraConsentita = true;
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
 }
 
 /** Nessuna navigazione fuori dai file locali dell'app, nessuna popup,
  *  nessun link esterno aperto dentro Electron. */
 function hardenWebContents(contents) {
-  const appRoot = path.join(__dirname, 'src');
+  // Il separatore finale conta: senza, anche una cartella "src-altro"
+  // accanto a src/ passava il controllo. Su Windows i percorsi non
+  // distinguono maiuscole e minuscole.
+  const normalizza = (p) => (process.platform === 'win32' ? p.toLowerCase() : p);
+  const radice = normalizza(path.resolve(__dirname, 'src') + path.sep);
 
-  contents.setWindowOpenHandler((details) => {
-    if (/^https?:$/.test(safeProtocol(details.url))) shell.openExternal(details.url);
-    return { action: 'deny' };
-  });
+  // L'app non contiene link esterni: nessuna finestra, nessun browser.
+  contents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
   contents.on('will-navigate', (event, target) => {
     let ok = false;
     try {
-      const parsed = new URL(target);
-      const filePath = path.resolve(decodeURIComponent(parsed.pathname.replace(/^\//, '')));
-      ok = parsed.protocol === 'file:' && filePath.indexOf(appRoot) === 0;
+      ok = new URL(target).protocol === 'file:' &&
+           normalizza(path.resolve(url.fileURLToPath(target))).indexOf(radice) === 0;
     } catch (_) { ok = false; }
     if (!ok) event.preventDefault();
   });
 
   contents.on('will-attach-webview', (event) => event.preventDefault());
   contents.session.setPermissionRequestHandler((_wc, _perm, callback) => callback(false));
+  contents.session.setPermissionCheckHandler(() => false);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -265,6 +326,10 @@ register('fs:writeText', async (name, content) => {
   if (Buffer.byteLength(content, 'utf8') > MAX_TEXT_BYTES) {
     throw new Error('Contenuto troppo grande.');
   }
+  if (name === LOCK_FILE && Buffer.byteLength(content, 'utf8') > LOCK_MAX_BYTES) {
+    throw new Error('Lock non valido.');
+  }
+  if (name === DATA_FILE) verificaArchivio(content);
   try {
     await atomicWrite(target, content);
     return true;
@@ -274,6 +339,8 @@ register('fs:writeText', async (name, content) => {
 });
 
 register('fs:deleteFile', async (name) => {
+  // Dal renderer si cancella solo il lock: l'archivio non si elimina mai.
+  if (name !== LOCK_FILE) throw new Error('Cancellazione non consentita.');
   const target = resolveTarget(name);
   try {
     await fsp.unlink(target);
@@ -307,16 +374,6 @@ register('app:saveExport', async (defaultName, base64) => {
   await fsp.writeFile(res.filePath, Buffer.from(base64, 'base64'));
   return res.filePath;
 });
-
-const COLORE_FINESTRA = '#0e1017';
-
-// Piè di pagina del report, nel margine inferiore. Il modello non eredita
-// nulla dalla pagina: dimensione e colore vanno scritti qui.
-const PIEDE_PDF =
-  '<div style="width:100%;padding:0 12mm;display:flex;justify-content:space-between;' +
-  'font-family:Segoe UI,Arial,sans-serif;font-size:7.5px;color:#8A8880;">' +
-  '<span>ER Oncology Archivist · Report statistico · Documento a uso interno, contiene dati clinici aggregati</span>' +
-  '<span>Pagina <span class="pageNumber"></span> di <span class="totalPages"></span></span></div>';
 
 register('app:savePdf', async (defaultName) => {
   const safeName = sanitizeFileName(defaultName, '.pdf');
@@ -456,6 +513,28 @@ async function copiaSuUsb() {
 }
 
 register('app:safetyNet', async () => copiaSuUsb());
+
+/** Risposta del renderer alla richiesta di chiusura. Se qualcosa non è
+ *  stato salvato si chiede all'utente, invece di perderlo in silenzio. */
+register('app:conferma-chiusura', async (ok, motivo) => {
+  clearTimeout(timerChiusura);
+  timerChiusura = null;
+  if (!ok) {
+    const scelta = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'Modifiche non salvate',
+      message: 'Alcune modifiche non risultano salvate sul file condiviso.',
+      detail: String(motivo || '').slice(0, 400) + '\n\nChiudendo ora andranno perse.',
+      buttons: ['Resta aperto', 'Chiudi comunque'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true
+    });
+    if (scelta.response !== 1) return false;
+  }
+  setImmediate(consentiChiusura);
+  return true;
+});
 
 /** Nome file proposto nella finestra di salvataggio: mai un percorso. */
 function sanitizeFileName(name, forcedExt) {

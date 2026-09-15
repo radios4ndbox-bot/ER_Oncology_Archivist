@@ -36,8 +36,11 @@ jobs:
   build:
     needs: verifica
     runs-on: windows-latest
+    # Solo lettura: npm ci esegue gli script di installazione delle
+    # dipendenze, che non devono mai trovarsi accanto a un token capace di
+    # scrivere sul repository o di pubblicare release.
     permissions:
-      contents: write        # necessario solo per pubblicare la release
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -74,10 +77,23 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  release:
+    # Job separato: riceve solo gli eseguibili già compilati, non installa
+    # nulla, e soltanto qui il token può scrivere.
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ER-Oncology-Archivist-Windows
+          path: dist
+
       - name: Release scaricabile
         # Si attiva solo sui tag v*. Usa la gh CLI gia' presente sul runner:
         # nessuna action di terze parti nella catena di build.
-        if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -103,7 +119,7 @@ jobs:
             echo "In PowerShell: \`Get-FileHash .\\nomefile.exe -Algorithm SHA256\`"
           } > note-release.md
 
-          gh release create "$GITHUB_REF_NAME" \
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
             dist/*.exe dist/SHA256SUMS.txt \
             --title "ER Oncology Archivist ${GITHUB_REF_NAME}" \
             --notes-file note-release.md

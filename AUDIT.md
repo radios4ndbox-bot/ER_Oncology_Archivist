@@ -320,3 +320,90 @@ correttamente.
 5. Bumpare Electron all'ultima stabile prima della distribuzione
    (`package.json` fissa `^35.0.0`): le patch di Chromium sono la parte
    che invecchia più in fretta.
+
+
+---
+
+# Revisione del 15 settembre 2026 — sicurezza e bug
+
+Rilettura riga per riga di `main.js`, `preload.js`, `src/app.js`,
+`src/zip.js`, `src/xlsx.js`, `src/index.html` (CSP, script, link),
+`scripts/`, `package.json` e del workflow di build. `src/pptx.js` è stato
+controllato per le interpolazioni non protette; `styles.css` e `names.js`
+non contengono logica e non sono stati rivisti riga per riga.
+
+## Sicurezza — corretti
+
+| # | gravità | problema | correzione |
+|---|---|---|---|
+| S1 | media | `fs:deleteFile` accettava anche `ps_onco_data.json`: un difetto o una compromissione del renderer poteva cancellare l'archivio di entrambe le postazioni | il renderer può cancellare solo il lock |
+| S2 | media | `fs:writeText` scriveva sull'archivio qualunque testo: un contenuto vuoto o troncato azzerava tutti gli esami | il processo principale rifiuta un archivio che non sia JSON con `records`; il lock ha un tetto di 4 KB |
+| S3 | bassa | `will-navigate` confrontava il percorso per prefisso senza separatore (`src-altro` passava) e decodificava l'URL a mano | `url.fileURLToPath`, separatore finale, confronto senza maiuscole su Windows |
+| S4 | bassa | `setWindowOpenHandler` apriva nel browser qualsiasi link http(s) | tutto negato: l'app non ha link esterni; aggiunto anche `setPermissionCheckHandler` |
+| S5 | media | il job di build aveva `contents: write` mentre `npm ci` esegue gli script delle dipendenze | build in sola lettura; pubblicazione in un job separato che scarica solo gli eseguibili |
+| S6 | bassa | chiavi `__proto__` nel file condiviso (in `note` e `deleted`) potevano alterare il prototipo degli oggetti in memoria | oggetti senza prototipo e solo le chiavi delle descrizioni esistenti |
+
+Nessuna XSS trovata: ogni inserimento in `innerHTML` passa da `esc()`, i
+testi dei messaggi usano `textContent`, `script-src 'self'` resta rigido.
+Il path traversal resta strutturalmente impossibile (allowlist dei nomi).
+
+## Sicurezza — da decidere con il reparto (non modificato)
+
+- **Electron 35 è uscito dal periodo di supporto.** Il Chromium incluso
+  non riceve più correzioni. Il rischio pratico è contenuto (l'app carica
+  solo file locali, con CSP rigida e sandbox), ma l'aggiornamento va fatto,
+  con una prova completa di stampa PDF ed export.
+- **`asar: false` e portable su cartella scrivibile.** Chi può scrivere
+  nella cartella dell'eseguibile può modificare `app.js` e agire su
+  entrambe le postazioni. L'eseguibile va tenuto in una cartella di sola
+  lettura per gli utenti.
+- **Archivio in chiaro sulla condivisione.** La protezione dipende solo dai
+  permessi della cartella. Da valutare con il referente privacy.
+- **L'export "anonimo" è pseudonimizzato.** Toglie nome, cognome e data di
+  nascita, ma restano i testi liberi (diagnosi, referti, note), la data
+  dell'esame e l'età: prima di condividerlo fuori va controllato.
+- **Orologi delle postazioni.** L'unione dei dati vince sul timestamp
+  locale: un orologio sfasato può far prevalere la modifica più vecchia.
+  Le due postazioni devono restare sincronizzate con il dominio.
+
+## Bug — corretti
+
+| # | gravità | problema | correzione |
+|---|---|---|---|
+| B1 | alta | un esame salvato mentre un salvataggio era in corso spariva: `doPersist` sostituiva la memoria con lo stato letto prima della scrittura, e il salvataggio successivo non lo trovava più | la memoria si riunisce con lo stato scritto invece di essere sostituita |
+| B2 | alta | chiudendo la finestra entro 400 ms dal salvataggio di un esame (o durante la scrittura) le modifiche restavano solo in memoria | alla chiusura il processo principale aspetta il renderer; se il salvataggio non riesce chiede se chiudere comunque |
+| B3 | media | cambiando cartella con un salvataggio in attesa, gli esami del vecchio archivio finivano nel nuovo | i salvataggi si completano prima del cambio; con una cartella diversa la memoria riparte vuota |
+| B4 | media | il ripiego della scrittura atomica scriveva direttamente sul file anche per errori non transitori e, se falliva, cancellava il temporaneo con l'unica copia integra | ripiego solo per errori transitori; in caso di errore il temporaneo resta sul disco |
+| B5 | media | i pulsanti sposta su, sposta giù ed elimina dei tipi di esame non facevano nulla (`tipo-su` contro il gestore `tipi-su`) | nomi allineati; `npm run check` ora controlla anche le azioni generate dal JavaScript |
+| B6 | media | "Ricarica" scartava le modifiche non ancora scritte, per esempio quelle inserite in sola lettura | per la stessa cartella il file si unisce alla memoria, e le differenze si salvano |
+| B7 | bassa | un record senza id (file modificato a mano) riceveva un id casuale a ogni lettura e si duplicava al primo salvataggio | id stabile ricavato da contenuto e posizione |
+| B8 | bassa | tipi di esame e descrizioni cambiati sull'altra postazione non arrivavano finché non cambiava un esame | l'impronta dello stato include cancellazioni, tipi e descrizioni |
+| B9 | bassa | date impossibili nel file (31/02) venivano accettate e spostate al mese dopo | scartate |
+| B10 | bassa | `COLORE_FINESTRA` era dichiarata dopo la funzione che la usa (funzionava solo per l'ordine di avvio) | spostata fra le costanti |
+
+## Verifiche eseguite
+
+Nell'applicazione Electron in modalità sviluppo, via DevTools Protocol:
+
+- date: `2026-02-31` scartata, `2024-02-29` accettata;
+- id stabile: lo stesso record senza id letto due volte ha lo stesso id;
+- tipi di esame: "sposta giù" scambia davvero le prime due voci;
+- processo principale: rifiutati cancellazione dell'archivio, archivio
+  vuoto, archivio senza `records`, lock di 5 KB, nome file con percorso;
+- salvataggio concorrente: 11 esami inseriti durante salvataggi in corso,
+  nessuno perso in memoria, tutti e 11 sul file;
+- chiusura come con la X (`BrowserWindow.close()` dal processo principale)
+  con un salvataggio ancora in attesa: esame scritto sul file e lock
+  rimosso prima della chiusura.
+
+Build locale dell'installer NSIS: icona dell'eseguibile, intestazione
+scura con il logo e testo bianco nella pagina delle opzioni.
+
+## Icona e installer
+
+`build/icon.ico` è il logo ER OA · Desio ritagliato sul bordo del disco
+(cerchio stimato sui pixel del bordo, scarto mediano 1,5 px) con fondo
+trasparente, in 9 dimensioni da 16 a 256 px. Le immagini dell'installer
+(`installerSidebar.bmp`, `installerHeader.bmp`) e `build/installer.nsh`
+riprendono i colori del tool: radiale scuro dello splash e filo
+rosso-viola.

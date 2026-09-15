@@ -65,6 +65,11 @@ let saveTimer = null;
 let lockInterval = null;
 let pollInterval = null;
 let saveChain = Promise.resolve();
+// Ogni modifica incrementa la prima, ogni salvataggio confermato porta la
+// seconda al valore che aveva quando è partito: se differiscono, c'è
+// qualcosa che vive solo in memoria.
+let versioneModifiche = 0;
+let versioneSalvata = 0;
 let appInfo = {};
 
 // ══════════════════════════════════════════════════════════════════
@@ -106,7 +111,11 @@ function dateStr(value) {
   const s = String(value == null ? '' : value).slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
   const d = new Date(s + 'T00:00:00');
-  return isNaN(d.getTime()) ? '' : s;
+  if (isNaN(d.getTime())) return '';
+  // Date sposta i giorni in eccesso (2026-02-31 diventa il 3 marzo):
+  // una data che non torna identica non esiste e si scarta.
+  const due = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + due(d.getMonth() + 1) + '-' + due(d.getDate()) === s ? s : '';
 }
 
 function uid() {
@@ -214,11 +223,27 @@ function normalizeFollowup(list) {
   }));
 }
 
-function normalizeRecord(raw) {
+/** Id per i record che ne sono privi (file modificati a mano): ricavato
+ *  da contenuto e posizione, quindi uguale a ogni lettura. Con un id
+ *  casuale la copia sul file e quella in memoria sembravano due esami
+ *  diversi, e al salvataggio il record si duplicava. */
+function idStabile(raw, indice) {
+  const testo = JSON.stringify(raw) + '#' + (indice || 0);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < testo.length; i++) {
+    h ^= testo.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return 'imp-' + h.toString(36) + '-' + (indice || 0);
+}
+
+function normalizeRecord(raw, indice) {
   if (!raw || typeof raw !== 'object') return null;
-  const created = num(raw.createdAt) || Date.now();
+  // Senza createdAt si usa 0 e non l'ora corrente, per lo stesso motivo
+  // dell'id: il record letto due volte deve risultare identico.
+  const created = num(raw.createdAt);
   const rec = {
-    id: (typeof raw.id === 'string' && raw.id) ? raw.id.slice(0, 64) : uid(),
+    id: (typeof raw.id === 'string' && raw.id) ? raw.id.slice(0, 64) : idStabile(raw, indice),
     cognome: str(raw.cognome, 120),
     nome: str(raw.nome, 120),
     sesso: oneOf(raw.sesso, ['M', 'F', 'U'], 'U'),
@@ -263,7 +288,8 @@ function parseStore(input) {
     throw new Error('Il file ' + DATA_FILE + ' non contiene JSON valido.');
   }
   let list = [];
-  const deleted = {};
+  // senza prototipo: una chiave "__proto__" nel file resta una chiave qualsiasi
+  const deleted = Object.create(null);
   let tipi = { lista: [], updatedAt: 0 };
   let note = { updatedAt: 0 };
   if (Array.isArray(raw)) {
@@ -274,7 +300,8 @@ function parseStore(input) {
       note = { updatedAt: num(raw.note.updatedAt) };
       Object.keys(raw.note).forEach((k) => {
         const v = raw.note[k];
-        if (v && typeof v === 'object' && typeof v.testo === 'string') {
+        // solo le descrizioni dei grafici esistenti: nessuna chiave arbitraria
+        if (NOTE_CHIAVI.indexOf(k) !== -1 && v && typeof v === 'object' && typeof v.testo === 'string') {
           note[k] = { testo: str(v.testo, 1200), updatedAt: num(v.updatedAt) };
         }
       });
@@ -295,8 +322,8 @@ function parseStore(input) {
     throw new Error('Struttura del file ' + DATA_FILE + ' non riconosciuta.');
   }
   const records = [];
-  list.forEach((r) => {
-    const rec = normalizeRecord(r);
+  list.forEach((r, i) => {
+    const rec = normalizeRecord(r, i);
     if (rec) records.push(rec);
   });
   return { records: records, deleted: deleted, tipi: tipi, note: note };
@@ -315,7 +342,7 @@ function serializeStore(store) {
 
 /** Unione last-write-wins per id, con tombstone per le cancellazioni. */
 function mergeStores(a, b) {
-  const deleted = {};
+  const deleted = Object.create(null);
   [a.deleted, b.deleted].forEach((src) => {
     Object.keys(src || {}).forEach((id) => {
       deleted[id] = Math.max(deleted[id] || 0, src[id]);
@@ -351,11 +378,28 @@ function mergeStores(a, b) {
   return { records: records, deleted: deleted, tipi: tipi, note: note };
 }
 
+/** Impronta dello stato: record, cancellazioni, tipi di esame e
+ *  descrizioni. Con i soli record, un elenco dei tipi modificato
+ *  sull'altra postazione non arrivava finché non cambiava un esame. */
 function storeSignature(store) {
   return store.records
     .map((r) => r.id + ':' + r.updatedAt)
     .sort()
-    .join('|');
+    .join('|') +
+    '#' + Object.keys(store.deleted || {}).length +
+    '#' + ((store.tipi && store.tipi.updatedAt) || 0) +
+    '#' + ((store.note && store.note.updatedAt) || 0);
+}
+
+function statoLocale() {
+  return { records: DB, deleted: deletedIds, tipi: tipiEsame, note: noteGrafici };
+}
+
+function applicaStore(store) {
+  DB = store.records;
+  deletedIds = store.deleted;
+  tipiEsame = store.tipi || tipiEsame;
+  noteGrafici = store.note || noteGrafici;
 }
 
 /** true se `check` contiene tutto ciò che avevamo scritto. */
@@ -397,15 +441,18 @@ async function checkServer() {
   }
 }
 
-async function activateFolder() {
+/** conservaMemoria: ricarica della stessa cartella, quanto è in memoria
+ *  e non ancora sul file si unisce invece di andare perso. */
+async function activateFolder(conservaMemoria) {
   storageReady = true;
   refreshSettingsInfo();
   readOnly = false;
   renderBanners('file');
-  await loadFromFile();
+  const daScrivere = await loadFromFile(conservaMemoria);
   if (storageReady) {
     startLock();
     startPolling();
+    if (daScrivere) scheduleSave();
   }
 }
 
@@ -426,37 +473,54 @@ async function welcomeSelectFolder() {
 async function selectFolder() {
   if (!IS_ELECTRON) return;
   try {
+    // I salvataggi in attesa vanno scritti PRIMA di cambiare cartella: il
+    // processo principale punta subito alla nuova, e un salvataggio
+    // ritardato vi avrebbe riversato gli esami dell'archivio precedente.
+    await scaricaSalvataggi();
     const folder = await API.selectDataFolder();
     if (!folder) return;
+    const stessa = folder === dataFolder;
+    if (!stessa) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      applicaStore({ records: [], deleted: Object.create(null), tipi: { lista: [], updatedAt: 0 }, note: { updatedAt: 0 } });
+      versioneSalvata = versioneModifiche;
+    }
     dataFolder = folder;
-    await activateFolder();
+    await activateFolder(stessa);
   } catch (e) {
     notify('Errore selezione cartella: ' + e.message);
   }
 }
 
-async function loadFromFile() {
+/** Restituisce true se la memoria conteneva modifiche assenti dal file. */
+async function loadFromFile(conservaMemoria) {
   let text;
   try {
     text = await API.readText(DATA_FILE);
   } catch (e) {
     // Rete non disponibile: NON si azzera l'archivio e NON si scrive.
     enterReadOnly('Cartella dati non raggiungibile: ' + e.message);
-    return;
+    return false;
   }
+  let daScrivere = false;
   try {
     const store = parseStore(text);
-    DB = store.records;
-    deletedIds = store.deleted;
-    tipiEsame = store.tipi || tipiEsame;
-    noteGrafici = store.note || noteGrafici;
+    if (conservaMemoria && (DB.length || Object.keys(deletedIds).length)) {
+      const unito = mergeStores(store, statoLocale());
+      daScrivere = storeSignature(unito) !== storeSignature(store);
+      applicaStore(unito);
+    } else {
+      applicaStore(store);
+    }
     aggiornaSelettoreTipo();
     setStatus('saved', '● file locale');
   } catch (e) {
     enterReadOnly(e.message + ' Archivio aperto in sola lettura: nessuna scrittura verrà eseguita.');
-    return;
+    return false;
   }
   refreshViews();
+  return daScrivere;
 }
 
 /** Modalità protettiva: si può consultare ma mai sovrascrivere il file. */
@@ -472,8 +536,41 @@ function enterReadOnly(message) {
 }
 
 function scheduleSave() {
+  versioneModifiche++;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { persistDB(); }, 400);
+  saveTimer = setTimeout(() => { saveTimer = null; persistDB(); }, 400);
+}
+
+/** Porta a termine il salvataggio programmato e quello in corso. */
+async function scaricaSalvataggi() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    await persistDB();
+  } else {
+    await saveChain;
+  }
+}
+
+function modifichePendenti() {
+  return versioneModifiche > versioneSalvata;
+}
+
+/** Chiusura della finestra: si salva quanto resta, poi si risponde al
+ *  processo principale, che chiede conferma se qualcosa non è andato. */
+async function preparaChiusura() {
+  try { await scaricaSalvataggi(); } catch (_) { /* resta pendente, si segnala */ }
+  if (!modifichePendenti()) {
+    await releaseLock();
+    await API.confermaChiusura(true, '');
+    return;
+  }
+  const motivo = readOnly
+    ? 'L’archivio è aperto in sola lettura: gli esami inseriti in questa sessione non sono stati scritti.'
+    : !storageReady
+      ? 'Nessuna cartella dati attiva: gli esami inseriti sono solo in memoria.'
+      : 'L’ultimo salvataggio non è andato a buon fine (rete non raggiungibile o file occupato).';
+  await API.confermaChiusura(false, motivo);
 }
 
 function persistDB() {
@@ -487,19 +584,21 @@ async function doPersist() {
     refreshViews();
     return;
   }
+  const versione = versioneModifiche;
   setStatus('saving', '● salvataggio...');
   try {
     for (let attempt = 0; attempt < 3; attempt++) {
       const remote = parseStore(await API.readText(DATA_FILE));
-      const merged = mergeStores(remote, { records: DB, deleted: deletedIds, tipi: tipiEsame, note: noteGrafici });
+      const merged = mergeStores(remote, statoLocale());
       await API.writeText(DATA_FILE, serializeStore(merged));
 
       const check = parseStore(await API.readText(DATA_FILE));
-      DB = merged.records;
-      deletedIds = merged.deleted;
-      tipiEsame = merged.tipi || tipiEsame;
-      noteGrafici = merged.note || noteGrafici;
+      // Fra lettura, scrittura e verifica l'utente può aver salvato un
+      // altro esame. Sostituire la memoria con `merged` lo cancellava, e
+      // il salvataggio successivo non l'avrebbe più trovato: si unisce.
+      applicaStore(mergeStores(merged, statoLocale()));
       if (storeContains(check, merged)) {
+        versioneSalvata = Math.max(versioneSalvata, versione);
         setStatus('saved', '● salvato');
         refreshViews();
         return;
@@ -518,14 +617,11 @@ async function refreshFromRemote() {
   if (!IS_ELECTRON || !storageReady) return;
   try {
     const remote = parseStore(await API.readText(DATA_FILE));
-    const before = storeSignature({ records: DB, deleted: deletedIds });
-    const merged = mergeStores(remote, { records: DB, deleted: deletedIds, tipi: tipiEsame, note: noteGrafici });
+    const before = storeSignature(statoLocale());
+    const merged = mergeStores(remote, statoLocale());
     const after = storeSignature(merged);
     if (before === after) return;
-    DB = merged.records;
-    deletedIds = merged.deleted;
-    tipiEsame = merged.tipi || tipiEsame;
-    noteGrafici = merged.note || noteGrafici;
+    applicaStore(merged);
     aggiornaSelettoreTipo();
     refreshViews();
     notify('Archivio aggiornato con le modifiche dell’altra postazione.');
@@ -3045,11 +3141,11 @@ function renderTipiEsame() {
     '<div class="tipo-voce">' +
       '<span class="tipo-num">' + (i + 1) + '</span>' +
       '<span class="tipo-nome">' + esc(t) + '</span>' +
-      '<button type="button" class="tipo-btn" data-act="tipo-su" data-idx="' + i +
+      '<button type="button" class="tipo-btn" data-act="tipi-su" data-idx="' + i +
         '" title="Sposta su"' + (i === 0 ? ' disabled' : '') + '>&#8593;</button>' +
-      '<button type="button" class="tipo-btn" data-act="tipo-giu" data-idx="' + i +
+      '<button type="button" class="tipo-btn" data-act="tipi-giu" data-idx="' + i +
         '" title="Sposta giù"' + (i === lista.length - 1 ? ' disabled' : '') + '>&#8595;</button>' +
-      '<button type="button" class="tipo-btn tipo-del" data-act="tipo-elimina" data-idx="' + i +
+      '<button type="button" class="tipo-btn tipo-del" data-act="tipi-elimina" data-idx="' + i +
         '" title="Rimuovi">&times;</button>' +
     '</div>').join('');
 }
@@ -4313,7 +4409,11 @@ const CLICK_ACTIONS = {
   'export-pptx': () => { closeOverlay('modExport'); exportPPTX(); },
   'welcome-select': () => welcomeSelectFolder(),
   'select-folder': () => selectFolder(),
-  'reload': () => { if (IS_ELECTRON && dataFolder) activateFolder(); },
+  'reload': async () => {
+    if (!IS_ELECTRON || !dataFolder) return;
+    await scaricaSalvataggi();
+    activateFolder(true);
+  },
   'safety-net': () => safetyNet(),
   'pick': (t) => {
     const target = el(t.getAttribute('data-target'));
@@ -4375,7 +4475,10 @@ function wireEvents() {
 
   window.addEventListener('resize', moveTabHighlight);
 
-  window.addEventListener('beforeunload', releaseLock);
+  // chiusura della finestra: salvataggi e lock passano da preparaChiusura
+  if (IS_ELECTRON && typeof API.onRichiestaChiusura === 'function') {
+    API.onRichiestaChiusura(preparaChiusura);
+  }
   window.addEventListener('pagehide', releaseLock);
 }
 

@@ -21,5 +21,12 @@ contextBridge.exposeInMainWorld('psApi', {
   exists:           (name)         => ipcRenderer.invoke('fs:exists', str(name)),
   saveExport:       (name, base64) => ipcRenderer.invoke('app:saveExport', str(name), str(base64)),
   savePdf:          (name)         => ipcRenderer.invoke('app:savePdf', str(name)),
-  safetyNet:        ()             => ipcRenderer.invoke('app:safetyNet')
+  safetyNet:        ()             => ipcRenderer.invoke('app:safetyNet'),
+  confermaChiusura: (ok, motivo)   => ipcRenderer.invoke('app:conferma-chiusura', !!ok, str(motivo)),
+  // Il callback non riceve l'evento IPC: nessun oggetto di Electron nella pagina.
+  onRichiestaChiusura: (fn) => {
+    if (typeof fn !== 'function') return;
+    ipcRenderer.removeAllListeners('app:richiesta-chiusura');
+    ipcRenderer.on('app:richiesta-chiusura', () => fn());
+  }
 });

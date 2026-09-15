@@ -22,7 +22,7 @@ function esito(ok, titolo, dettaglio) {
 console.log('\nControlli locali\n');
 
 // 1. sintassi JavaScript
-['main.js', 'preload.js', 'src/app.js', 'src/xlsx.js', 'src/names.js'].forEach((f) => {
+['main.js', 'preload.js', 'src/app.js', 'src/zip.js', 'src/xlsx.js', 'src/pptx.js', 'src/names.js'].forEach((f) => {
   try {
     execFileSync(process.execPath, ['--check', path.join(ROOT, f)], { stdio: 'pipe' });
     esito(true, 'sintassi ' + f);
@@ -60,11 +60,17 @@ esito(/const DEV_MODE = IS_DEV && /.test(main),
   esito(na === nb, 'tag bilanciati ' + a + '>', na + '/' + nb);
 });
 
-// 6. ogni data-act ha un gestore
-const azioniJs = new Set([...app.matchAll(/^\s*'([a-z-]+)':\s*\(?/gm)].map((m) => m[1]));
-const orfane = [...new Set([...html.matchAll(/data-act="([a-z-]+)"/g)].map((m) => m[1]))]
-  .filter((a) => !azioniJs.has(a));
+// 6. ogni data-act ha un gestore, anche quelli scritti dal JavaScript.
+//    Con il solo HTML statico sfuggivano i pulsanti generati a runtime
+//    (i tipi di esame usavano "tipo-su" contro il gestore "tipi-su").
+const bloccoAzioni = app.slice(app.indexOf('const CLICK_ACTIONS = {'), app.indexOf('function wireEvents()'));
+const azioniJs = new Set([...bloccoAzioni.matchAll(/^\s*'([a-z-]+)':/gm)].map((m) => m[1]));
+const reAzione = /data-act="([a-z-]+)"|setAttribute\('data-act', '([a-z-]+)'\)/g;
+const usate = new Set([...html.matchAll(reAzione), ...app.matchAll(reAzione)].map((m) => m[1] || m[2]));
+const orfane = [...usate].filter((a) => !azioniJs.has(a));
 esito(orfane.length === 0, 'ogni data-act ha un gestore', orfane.join(', '));
+const inutili = [...azioniJs].filter((a) => !usate.has(a));
+esito(inutili.length === 0, 'nessun gestore senza pulsanti', inutili.join(', '));
 
 // 7. ogni id usato dal JS esiste nell'HTML
 const idsHtml = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
@@ -82,6 +88,9 @@ esito(mancanti.length === 0, 'ogni id usato dal JS esiste', mancanti.join(', '))
   const brutti = [...testo].filter((c) => c.charCodeAt(0) < 32 && c !== '\n' && c !== '\t');
   esito(brutti.length === 0, 'nessun carattere di controllo in ' + nome, brutti.length || '');
 });
+
+// 8b. il renderer non può cancellare l'archivio
+esito(/if \(name !== LOCK_FILE\) throw/.test(main), 'fs:deleteFile limitato al lock');
 
 // 9. versione allineata fra package.json e lockfile
 const pkg = JSON.parse(leggi('package.json'));
