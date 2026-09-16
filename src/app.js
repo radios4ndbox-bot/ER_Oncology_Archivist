@@ -5189,9 +5189,6 @@ const INTRO_FLIGHT = 800;         // volo del logo verso la nav
 const VELO_DURATA = 950;          // risalita della banda, come nel CSS
 const BARRA_PASSO = 55;           // cascata del contenuto della barra
 const POP_STEP = 90;              // cascata fra una sezione e la successiva
-const HEX_SIZE = 76;              // larghezza di un esagono, px
-const HEX_SPEED = 2.1;            // px al millisecondo del fronte d'onda
-const HEX_CELL_MS = 420;          // durata della sparizione di una cella
 
 let introTimer = null;
 let introClosed = false;
@@ -5354,6 +5351,20 @@ function popBarra() {
     e.style.setProperty('--pop-delay', (i * BARRA_PASSO) + 'ms');
     e.classList.add('pop-barra');
   });
+
+  // Il fondino vive dentro il dock, quindi compariva insieme al
+  // contenitore: una pillola scura su una barra ancora vuota, per i
+  // tre quarti di secondo che le schede impiegavano ad arrivare. Si
+  // accende quando l'ultima scheda e' al suo posto, e scivola sotto
+  // quella attiva. Non gli si mette 'pop-barra': quell'animazione
+  // scrive transform, che qui porta la posizione orizzontale.
+  const fondino = el('navTabHighlight');
+  let ultimaScheda = -1;
+  elementi.forEach((e, i) => { if (e.classList.contains('dock-item')) ultimaScheda = i; });
+  if (fondino && ultimaScheda >= 0) {
+    fondino.classList.remove('ready');
+    setTimeout(() => fondino.classList.add('ready'), ultimaScheda * BARRA_PASSO + 260);
+  }
   // il fill "both" tiene nascosto ciascun elemento fino al suo turno:
   // si può togliere subito la classe che li nascondeva tutti
   document.body.classList.remove('intro-in-corso');

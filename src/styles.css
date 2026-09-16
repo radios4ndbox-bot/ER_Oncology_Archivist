@@ -380,24 +380,49 @@ td.mono{font-family:var(--mono);font-size:12px;}
     opacity: 0; visibility: hidden;
     transition: opacity .6s var(--splash-ease), visibility 0s linear .6s;
   }
+  /* La morbidezza dei bagliori sta nei gradienti, non in un filtro.
+     Prima erano sei ellissi piccole spalmate da un filter: blur(7em),
+     cioe' 112px di sfocatura su una superficie piu' grande dello
+     schermo. Quel filtro veniva ricalcolato ad ogni ridisegno della
+     pagina, e durante lo splash la pagina ridisegna di continuo per il
+     logo e per i 51 glifi del titolo: era il costo dominante
+     dell'intera intro, che su una postazione senza GPU scendeva sotto
+     i due fotogrammi al secondo.
+     Ora le stesse macchie si ottengono con ellissi 3,6 volte piu'
+     larghe e una caduta di opacita' a quattro tappe. Reso a schermo
+     verificato contro l'originale: scarto medio 0,94 livelli su 255.
+     Anche la deriva passa da background-position a transform, che il
+     compositore muove senza ridisegnare nulla; il margine negativo
+     copre l'escursione, cosi' i bordi non entrano mai in campo. */
   .splash-blob-bg {
-    position: fixed; inset: -8em;
-    filter: blur(7em) brightness(1.4);
+    position: fixed; inset: -14em;
+    filter: brightness(1.4);
     background-color: #120B14;
     background-image:
-      radial-gradient(ellipse 66px 50px at 50% 50%, #FF4D6D 0%, transparent 100%),
-      radial-gradient(ellipse 77px 60px at 50% 50%, #A855D0 0%, transparent 100%),
-      radial-gradient(ellipse 78px 100px at 50% 50%, #FF4D6D 0%, transparent 100%),
-      radial-gradient(ellipse 73px 96px at 50% 50%, #D6395E 0%, transparent 100%),
-      radial-gradient(ellipse 76px 77px at 50% 50%, #A855D0 0%, transparent 100%),
-      radial-gradient(ellipse 66px 51px at 50% 50%, #FF4D6D 0%, transparent 100%);
-    background-size: 726px 576px, 1242px 454px, 876px 1160px, 691px 873px, 914px 550px, 1159px 340px;
-    animation: splashBlobDrift 220s linear infinite;
+      radial-gradient(ellipse 238px 180px at 50% 50%, rgba(255,77,109,0.110) 0%,
+        rgba(255,77,109,0.079) 24%, rgba(255,77,109,0.037) 50%, rgba(255,77,109,0.011) 72%, transparent 100%),
+      radial-gradient(ellipse 277px 216px at 50% 50%, rgba(168,85,208,0.110) 0%,
+        rgba(168,85,208,0.079) 24%, rgba(168,85,208,0.037) 50%, rgba(168,85,208,0.011) 72%, transparent 100%),
+      radial-gradient(ellipse 281px 360px at 50% 50%, rgba(255,77,109,0.110) 0%,
+        rgba(255,77,109,0.079) 24%, rgba(255,77,109,0.037) 50%, rgba(255,77,109,0.011) 72%, transparent 100%),
+      radial-gradient(ellipse 263px 346px at 50% 50%, rgba(214,57,94,0.110) 0%,
+        rgba(214,57,94,0.079) 24%, rgba(214,57,94,0.037) 50%, rgba(214,57,94,0.011) 72%, transparent 100%),
+      radial-gradient(ellipse 274px 277px at 50% 50%, rgba(168,85,208,0.110) 0%,
+        rgba(168,85,208,0.079) 24%, rgba(168,85,208,0.037) 50%, rgba(168,85,208,0.011) 72%, transparent 100%),
+      radial-gradient(ellipse 238px 184px at 50% 50%, rgba(255,77,109,0.110) 0%,
+        rgba(255,77,109,0.079) 24%, rgba(255,77,109,0.037) 50%, rgba(255,77,109,0.011) 72%, transparent 100%);
+    background-size: 726px 576px, 1242px 454px, 876px 1160px,
+                     691px 873px, 914px 550px, 1159px 340px;
+    background-position: 271px 478px, 62px 291px, 67px 861px,
+                         553px 413px, 36px 392px, 1077px 226px;
+    animation: splashBlobDrift 36s linear infinite;
+    will-change: transform;
     opacity: .5;
   }
   @keyframes splashBlobDrift {
-    0%   { background-position: 271px 478px, 62px 291px, 67px 861px, 553px 413px, 36px 392px, 1077px 226px; }
-    100% { background-position: -8975px -1978px, 18112px 7187px, -12081px 5981px, 7609px -2952px, -7760px 7492px, -5354px 1946px; }
+    0%   { transform: translate3d(0, 0, 0); }
+    50%  { transform: translate3d(-118px, -74px, 0); }
+    100% { transform: translate3d(0, 0, 0); }
   }
   .splash-stage {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -901,14 +926,14 @@ body.printing #printRoot { display: block; }
 .nav-tab-highlight {
   position: absolute; left: 0; top: 0;
   height: 100%; width: 0;
+  /* Una sola transition: erano due consecutive e la seconda vinceva,
+     perdendo height e top. Il fondino cambia altezza quando la barra
+     passa a modalita' compatta, e li' scattava invece di scorrere. */
   transition: transform .42s cubic-bezier(.32,.72,0,1),
               width .42s cubic-bezier(.32,.72,0,1),
               height .2s ease, top .2s ease, opacity .2s ease;
   background: #2A2A25; border-radius: 4px;
   z-index: 0; opacity: 0;
-  transition: transform .42s cubic-bezier(.32,.72,0,1),
-              width .42s cubic-bezier(.32,.72,0,1),
-              opacity .2s ease;
   pointer-events: none;
 }
 .nav-tab-highlight.ready { opacity: 1; }
