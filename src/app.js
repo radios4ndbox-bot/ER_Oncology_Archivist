@@ -3614,10 +3614,20 @@ const DOCK_SCALE_MAX = 1.09;   // 40→60px sono 1.5x: su pillole di testo è tr
 const DOCK_LIFT = 2;           // px di sollevamento a piena magnificazione
 const DOCK_SPRING = { massa: 0.1, rigidita: 150, smorzamento: 12 };
 
+// Con Eulero semi-implicito questa molla è stabile solo finché il passo
+// resta sotto 2*massa/smorzamento = 16.7 ms. Un fotogramma a 60 Hz cade
+// esattamente sul limite: la velocità cambiava segno crescendo ad ogni
+// giro, le pillole schizzavano a scale enormi (anche negative), il testo
+// usciva dalla barra e le schede non si lasciavano più cliccare. Si
+// integra a passi fissi molto più corti del limite.
+const DOCK_PASSO = 1 / 240;    // s — passo fisso d'integrazione
+const DOCK_RITARDO_MAX = 0.05; // s — ritardo massimo recuperato in un giro
+
 let dockItems = [];
 let dockMouseX = Infinity;
 let dockRaf = null;
 let dockLastTs = 0;
+let dockResiduo = 0;
 
 function setupDock() {
   const dock = el('navDock');
@@ -3626,7 +3636,7 @@ function setupDock() {
     .map((e) => ({ e: e, valore: 1, velocita: 0 }));
 
   dock.addEventListener('pointermove', (ev) => {
-    if (PREFS.reduceMotion) return;
+    if (PREFS.reduceMotion) { resetDock(); return; }
     dockMouseX = ev.clientX;
     startDockLoop();
   });
@@ -3639,26 +3649,59 @@ function setupDock() {
 function startDockLoop() {
   if (dockRaf !== null) return;
   dockLastTs = 0;
+  dockResiduo = 0;
   dockRaf = requestAnimationFrame(dockTick);
 }
 
+/** Riporta subito le pillole a riposo: serve quando si spegne il moto
+ *  ridotto a puntatore fermo sul dock, che altrimenti le lascerebbe
+ *  ingrandite per sempre. */
+function resetDock() {
+  dockMouseX = Infinity;
+  dockResiduo = 0;
+  if (dockRaf !== null) { cancelAnimationFrame(dockRaf); dockRaf = null; }
+  dockItems.forEach((it) => {
+    it.valore = 1;
+    it.velocita = 0;
+    it.e.style.transform = '';
+  });
+}
+
 function dockTick(ts) {
-  const dt = dockLastTs ? Math.min((ts - dockLastTs) / 1000, 0.032) : 0.016;
+  // Il tempo trascorso si consuma a passi fissi; il resto si riporta al
+  // giro dopo, così l'animazione non dipende dalla cadenza dello schermo.
+  const trascorso = dockLastTs ? (ts - dockLastTs) / 1000 : DOCK_PASSO;
   dockLastTs = ts;
+  dockResiduo = Math.min(dockResiduo + Math.max(trascorso, 0), DOCK_RITARDO_MAX);
+  const passi = Math.floor(dockResiduo / DOCK_PASSO);
+  dockResiduo -= passi * DOCK_PASSO;
+
+  // offsetLeft/offsetWidth ignorano le transform: i centri restano quelli
+  // a riposo e la magnificazione non si dà da mangiare da sola.
+  const dock = el('navDock');
+  const base = dock ? dock.getBoundingClientRect().left : 0;
 
   let inMovimento = false;
   dockItems.forEach((it) => {
-    const r = it.e.getBoundingClientRect();
-    const centro = r.left + r.width / 2;
+    const centro = base + it.e.offsetLeft + it.e.offsetWidth / 2;
     const d = Math.abs(dockMouseX - centro);
     // interpolazione lineare come il loro useTransform([-dist,0,dist])
     const t = d >= DOCK_DISTANCE || !isFinite(d) ? 0 : 1 - d / DOCK_DISTANCE;
     const obiettivo = 1 + (DOCK_SCALE_MAX - 1) * t;
 
-    const a = (DOCK_SPRING.rigidita * (obiettivo - it.valore)
-               - DOCK_SPRING.smorzamento * it.velocita) / DOCK_SPRING.massa;
-    it.velocita += a * dt;
-    it.valore += it.velocita * dt;
+    for (let i = 0; i < passi; i++) {
+      const a = (DOCK_SPRING.rigidita * (obiettivo - it.valore)
+                 - DOCK_SPRING.smorzamento * it.velocita) / DOCK_SPRING.massa;
+      it.velocita += a * DOCK_PASSO;
+      it.valore += it.velocita * DOCK_PASSO;
+    }
+
+    // La molla è sovrasmorzata e non supera mai gli estremi: il vincolo
+    // non si vede, ma garantisce che nessun conto storto possa più
+    // stendere una pillola sopra il resto della barra.
+    if (!isFinite(it.valore)) { it.valore = obiettivo; it.velocita = 0; }
+    if (it.valore < 1) { it.valore = 1; if (it.velocita < 0) it.velocita = 0; }
+    if (it.valore > DOCK_SCALE_MAX) { it.valore = DOCK_SCALE_MAX; if (it.velocita > 0) it.velocita = 0; }
 
     if (Math.abs(obiettivo - it.valore) > 0.0008 || Math.abs(it.velocita) > 0.0008) {
       inMovimento = true;
@@ -4943,6 +4986,9 @@ function savePrefs() {
 function applyPrefs() {
   document.body.classList.toggle('dense', PREFS.dense);
   document.body.classList.toggle('reduce-motion', PREFS.reduceMotion);
+  // a moto ridotto le pillole del dock tornano subito a riposo: senza il
+  // ciclo d'animazione nessuno le rimetterebbe a posto
+  if (PREFS.reduceMotion) resetDock();
   document.querySelectorAll('[data-act="pref"]').forEach((btn) => {
     const chiave = btn.getAttribute('data-pref');
     btn.setAttribute('aria-checked', PREFS[chiave] ? 'true' : 'false');
