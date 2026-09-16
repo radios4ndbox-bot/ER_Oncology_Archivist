@@ -123,11 +123,21 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 }
 
-function calcAge(dob) {
+/** Età alla data indicata (ISO yyyy-mm-dd); senza riferimento, a oggi.
+ *  Su una scheda d'esame l'età che conta è quella al momento dell'esame:
+ *  calcolarla sempre a oggi faceva invecchiare i record archiviati a ogni
+ *  apertura del programma, e lo stesso archivio esportato a un anno di
+ *  distanza dava numeri diversi. */
+function calcAge(dob, riferimento) {
   if (!dob) return null;
   const b = new Date(dob + 'T00:00:00');
   if (isNaN(b.getTime())) return null;
-  const n = new Date();
+  let n = null;
+  if (riferimento) {
+    const rif = new Date(riferimento + 'T00:00:00');
+    if (!isNaN(rif.getTime())) n = rif;
+  }
+  if (!n) n = new Date();
   let a = n.getFullYear() - b.getFullYear();
   if (n < new Date(n.getFullYear(), b.getMonth(), b.getDate())) a--;
   if (a < 0 || a > 130) return null;
@@ -300,7 +310,7 @@ function normalizeRecord(raw, indice) {
     createdAt: created,
     updatedAt: num(raw.updatedAt) || created
   };
-  rec.eta = calcAge(rec.dob);
+  rec.eta = calcAge(rec.dob, rec.data);
   return rec;
 }
 
@@ -1048,7 +1058,7 @@ function onNomeInput() {
 }
 
 function updateAge() {
-  const age = calcAge(val('w_dob'));
+  const age = calcAge(val('w_dob'), val('w_data'));
   const box = el('ageBox');
   if (box) {
     if (age !== null) { box.style.display = 'inline-flex'; el('ageVal').textContent = String(age); }
@@ -1203,7 +1213,7 @@ function buildReview() {
   const cognome = val('w_cognome');
   const sesso = val('w_sesso_override') || detectSesso(nome, cognome);
   const dob = val('w_dob');
-  const age = calcAge(dob);
+  const age = calcAge(dob, val('w_data'));
 
   el('rv_paz').textContent = (cognome + ' ' + nome).trim() || '—';
   el('rv_sesso').innerHTML = sesso === 'M'
@@ -2029,7 +2039,7 @@ function openDetail(id) {
     '<div class="det-section"><h4>Anagrafica</h4>' +
       detRow('Sesso', '<span class="badge badge-' + esc((r.sesso || 'u').toLowerCase()) + '">' +
         esc(r.sesso || 'N.D.') + '</span>') +
-      detRow('Data nascita / Età', esc(fmtDate(r.dob)) + (age !== null ? ' (' + age + ' anni)' : '')) +
+      detRow('Data nascita / Età all\u2019esame', esc(fmtDate(r.dob)) + (age !== null ? ' (' + age + ' anni)' : '')) +
       detRow('Prima diagnosi onco.', primaLabel(r.prima_onco)) +
     '</div>' +
     '<div class="det-section"><h4>Esame PS</h4>' +
@@ -2137,7 +2147,7 @@ function followupText(r) {
 function exportHeader(anonymous) {
   const head = anonymous ? [] : ['Cognome', 'Nome'];
   return head.concat([
-    'Sesso', 'Data nascita', 'Età', 'Data esame', 'Tipo esame', 'Richiesta PS',
+    'Sesso', 'Data nascita', 'Età all\u2019esame', 'Data esame', 'Tipo esame', 'Richiesta PS',
     'Prima diagnosi oncologica', 'Esito oncologico', 'Descrizione diagnosi',
     'Sede', 'Dimensioni', 'Classificazione tumore', 'Patologie associate',
     'Metastasi', 'Sede metastasi', 'Tumore primitivo', 'Anatomia patologica',
@@ -4539,7 +4549,7 @@ function vociGiorni(maxG) {
 }
 
 function ecoRulli() {
-  const eta = calcAge(isoRulli());
+  const eta = calcAge(isoRulli(), val('w_data'));
   return fmtDate(isoRulli()) + (eta !== null ? ' · ' + eta + ' anni' : '');
 }
 
