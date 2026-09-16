@@ -2184,7 +2184,7 @@ function statsSheet(src) {
     ['Esami esportati', tot],
     ['Diagnosi oncologiche', onco, pct(onco, tot, 1) + ' degli esami'],
     ['Sospetti', sosp, pct(sosp, tot, 1) + ' degli esami'],
-    ['Primo riscontro', primo, pct(primo, onco, 1) + ' delle diagnosi onco.'],
+    ['Primo riscontro', primo, pct(primo, onco + sosp, 1) + ' delle diagnosi onco.'],
     ['Prime diagnosi onco.', prima, pct(prima, tot, 1) + ' degli esami'],
     ['Metastasi', meta, pct(meta, onco + sosp, 1) + ' delle diagnosi onco.']
   ];
@@ -2353,6 +2353,14 @@ function kpiPeriodo(set) {
   };
 }
 
+/** Denominatore di "% delle diagnosi onco.". Primo riscontro e metastasi
+ *  si possono indicare sia su una diagnosi sia su un reperto sospetto:
+ *  il loro insieme di partenza è oncologici + sospetti. Rapportarli ai
+ *  soli oncologici gonfiava la percentuale e poteva superare il 100%. */
+function baseDiagnosi(k) {
+  return k.onco + k.sosp;
+}
+
 /** Spicchi della ciambella: si escludono a vicenda, quindi sommano al
  *  totale degli esami. Prima c'erano anche primo riscontro e metastasi,
  *  che sono sottoinsiemi delle diagnosi: il centro diceva 287 su 210. */
@@ -2423,12 +2431,12 @@ async function exportPPTX() {
         { valore: k.sosp, etichetta: 'Sospetti',
           nota: pct(k.sosp, k.tot, 1) + ' degli esami', colore: 'B86E00' },
         { valore: k.primo, etichetta: 'Primo riscontro',
-          nota: pct(k.primo, k.onco, 1) + ' delle diagnosi · unica patologia ' + k.unica +
+          nota: pct(k.primo, baseDiagnosi(k), 1) + ' delle diagnosi · unica patologia ' + k.unica +
                 ', associata ' + k.assoc, colore: 'C2185B' },
         { valore: k.prima, etichetta: 'Prime diagnosi',
           nota: pct(k.prima, k.tot, 1) + ' degli esami', colore: 'A82255' },
         { valore: k.meta, etichetta: 'Metastasi',
-          nota: pct(k.meta, k.onco, 1) + ' delle diagnosi oncologiche', colore: '8B1A1A' }
+          nota: pct(k.meta, baseDiagnosi(k), 1) + ' delle diagnosi oncologiche', colore: '8B1A1A' }
       ]
     });
 
@@ -3453,6 +3461,7 @@ function renderStats() {
   const meta = set.filter((r) => r.metastasi === 'si').length;
   const unica = set.filter((r) => r.sottocat === 'unica').length;
   const assoc = set.filter((r) => r.sottocat === 'associata').length;
+  const baseOnco = onco + sospetti;
 
   cards.innerHTML =
     '<div class="stat-big"><div class="sb-num" data-n="' + tot + '">' + tot + '</div>' +
@@ -3465,15 +3474,15 @@ function renderStats() {
       ' tot. · ' + pct(prima, onco, 1) + ' onco.)<br>Sospetti: <strong>' + sospetti +
       '</strong> (' + pct(sospetti, tot, 1) + ' degli esami)</div></div>' +
     '<div class="stat-big"><div class="sb-num sb-onco" data-n="' + primo + '">' + primo + '</div>' +
-      '<div class="sb-pct">' + pct(primo, onco, 1) + ' delle diagnosi onco.</div>' +
+      '<div class="sb-pct">' + pct(primo, baseOnco, 1) + ' delle diagnosi onco.</div>' +
       '<div class="sb-label">Primo riscontro</div>' +
       '<div class="sb-sub">Unica patologia: <strong>' + unica + '</strong> · Con comorbidità: <strong>' +
       assoc + '</strong></div></div>' +
     '<div class="stat-big"><div class="sb-num sb-red" data-n="' + meta + '">' + meta + '</div>' +
-      '<div class="sb-pct">' + pct(meta, onco, 1) + ' delle diagnosi onco.</div>' +
+      '<div class="sb-pct">' + pct(meta, baseOnco, 1) + ' delle diagnosi onco.</div>' +
       '<div class="sb-label">Metastasi</div>' +
-      '<div class="sb-sub">Primitive: <strong>' + Math.max(0, onco - meta) + '</strong> (' +
-      pct(Math.max(0, onco - meta), onco, 1) + ' delle onco.)</div></div>';
+      '<div class="sb-sub">Primitive: <strong>' + Math.max(0, baseOnco - meta) + '</strong> (' +
+      pct(Math.max(0, baseOnco - meta), baseOnco, 1) + ' delle onco.)</div></div>';
 
   const mesiTot = {}, mesiOnco = {};
   set.forEach((r) => {
