@@ -170,6 +170,22 @@ Circa 3,3 secondi in tutto. Il volo del logo usa la tecnica FLIP: si
 misura dove il logo si trova e dove deve atterrare, e si anima la sola
 differenza con una `transform` — nessun ricalcolo di layout per frame.
 
+**Quando parte.** Non al primo istante: prima il programma costruisce
+tutta l'interfaccia e legge l'archivio, a scena ferma, e solo a filo
+principale libero l'animazione comincia (al massimo si aspetta un secondo
+e mezzo). Prima quel lavoro — il primo impaginamento dell'intera pagina,
+duecento righe di tabella, i grafici — cadeva in mezzo all'atto I: su una
+postazione lenta un fotogramma solo da quasi un secondo, proprio mentre
+il logo si disegna. L'attesa a scena ferma non si vede, perché non c'è
+ancora niente da guardare.
+
+Durante tutta la sequenza si animano **solo `transform` e `opacity`**,
+le due proprietà che il compositore muove senza rifare né il layout né
+il disegno: anche la banda che risale alla fine sale spostandosi, non
+ritagliandosi. A intro conclusa la scena viene tolta dalla pagina: i 51
+tracciati del titolo non devono farsi riesaminare ad ogni ricalcolo di
+stile per tutto il resto della giornata.
+
 Le tecniche di animazione sono ispirate a
 [animate-ui](https://github.com/imskyleen/animate-ui) (Elliot Sutton,
 MIT + Commons Clause) — `components/logo.tsx`, `texts/splitting`,
@@ -185,9 +201,8 @@ sono state riscritte da zero in CSS:
 | `effects/effect` — fade + slide + zoom con molla | keyframes `splashMotionEffect`, molla approssimata con `cubic-bezier` |
 | ritardi a cascata dell'hero (0,15 s l'uno) | attributo `data-pop` + `--pop-delay`, stessa animazione sui blocchi dell'interfaccia |
 
-A intro conclusa i filtri SVG vengono spenti: 51 filtri `blur` attivi
-costerebbero frame per nulla sulle postazioni di reparto. La sequenza
-rispetta anche `prefers-reduced-motion`.
+La sequenza rispetta `prefers-reduced-motion`, e con *Salta l'intro*
+la scena non viene nemmeno animata.
 
 ## Dock delle viste
 

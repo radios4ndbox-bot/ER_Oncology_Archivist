@@ -1,7 +1,7 @@
 {
   "name": "er-oncology-archivist",
   "productName": "ER Oncology Archivist",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Raccolta dati Pronto Soccorso Oncologico — Radiologia d'Urgenza",
   "main": "main.js",
   "private": true,

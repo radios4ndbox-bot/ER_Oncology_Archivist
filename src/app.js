@@ -5304,6 +5304,7 @@ function preparaIntro() {
     stage.classList.add('settled');
     if (el('navLogo')) el('navLogo').classList.add('landed');
     introClosed = true;
+    rimuoviSplash(300);
     return false;
   }
 
@@ -5506,16 +5507,20 @@ function chiudiSplash() {
   if (logoBtn) logoBtn.classList.add('atterrato');
   if (screen) screen.classList.add('closing');
 
-  // Finita la dissolvenza la scena si toglie proprio dalla pagina.
-  // Spegnerne le animazioni con una classe costava un ricalcolo di
-  // stile su tutti e 51 i glifi del titolo nel bel mezzo della
-  // risalita (misurato: 312 ms a CPU rallentata otto volte); e i
-  // tracciati resterebbero li' per sempre, a farsi riesaminare ad ogni
-  // ricalcolo dell'applicazione. Non servono piu' a nessuno.
+  rimuoviSplash(700);
+}
+
+/** La scena dell'intro si toglie proprio dalla pagina quando ha finito.
+ *  Spegnerne le animazioni con una classe costava un ricalcolo di stile
+ *  su tutti e 51 i glifi del titolo nel bel mezzo della risalita
+ *  (misurato: 312 ms a CPU rallentata otto volte), e i tracciati
+ *  resterebbero li' per sempre, a farsi riesaminare ad ogni ricalcolo
+ *  dell'applicazione. Finita l'intro non servono piu' a nessuno. */
+function rimuoviSplash(ritardo) {
   setTimeout(() => {
     const s = el('splashScreen');
     if (s && s.parentNode) s.parentNode.removeChild(s);
-  }, 700);
+  }, ritardo);
 }
 
 /** Il contenuto della barra compare a cascata: titolo, dock, singole
