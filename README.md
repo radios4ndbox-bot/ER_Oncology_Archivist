@@ -20,6 +20,9 @@ preload.js               bridge contextIsolato → window.psApi
 src/index.html           markup (nessun gestore inline, CSP rigida)
 src/styles.css           fogli di stile
 src/app.js               logica applicativa
+src/safety.html          finestra separata della safety net (backup e chiavetta USB)
+src/safety.js            logica della safety net
+src/safety.css           stile della safety net
 src/xlsx.js              generatore .xlsx senza dipendenze (sostituisce SheetJS da CDN)
 src/names.js             database di ~50.000 nomi europei per il rilevamento del sesso
 build/                   risorse di build (icon.ico)
@@ -223,6 +226,7 @@ postazione di reparto:
 |---|---|
 | Cambia cartella dati… | rifà la scelta della condivisione |
 | Ricarica dall'archivio | rilegge il file, utile dopo modifiche dell'altra postazione |
+| Safety net | apre la finestra del backup automatico e della copia su chiavetta |
 | Tabella compatta | righe più fitte, più esami a schermo |
 | Riduci le animazioni | spegne intro, scorrimenti e filtri: utile su PC lenti |
 | Salta l'intro all'avvio | per chi apre il programma decine di volte al giorno |
@@ -230,6 +234,55 @@ postazione di reparto:
 Le preferenze stanno in `localStorage`, sotto la chiave `psonco-prefs`.
 Sono scelte della postazione — nessun dato clinico: quelli vivono solo
 nel file condiviso.
+
+## Safety net — la copia di sicurezza
+
+Si apre da *Impostazioni → Safety net* e vive in una **finestra a
+parte**: la si tiene aperta accanto al programma mentre si sceglie la
+cartella o si aspetta che Windows riconosca la chiavetta.
+
+### Backup automatico ogni 15 giorni
+
+Scelta una cartella, il programma ci salva da solo una copia integrale
+dell'archivio **ogni 15 giorni**, e lo dice con un avviso di Windows.
+Il file si chiama sempre `backup_ER_OA.json` e viene **sovrascritto**:
+una copia sola, sempre l'ultima. È una scelta, non una semplificazione
+— una cartella che accumula archivi datati, tutti con nomi e diagnosi
+in chiaro, è un problema di riservatezza che cresce da solo.
+
+| dove | cosa |
+|---|---|
+| cartella scelta | `backup_ER_OA.json`, riscritto ogni 15 giorni |
+| radice della chiavetta | `backup_ER_OA.json`, riscritto ad ogni copia |
+
+Dettagli che contano:
+
+* il controllo gira ogni ora, perché il programma può restare aperto per
+  giorni; se alla scadenza la cartella non è raggiungibile, la data non
+  avanza e il tentativo si ripete al giro dopo;
+* la cartella del backup non può essere quella dell'archivio: se la
+  share sparisce, sparirebbero insieme originale e copia;
+* quel che non è un archivio valido non diventa un backup: il contenuto
+  viene verificato prima di scriverlo;
+* la scrittura è atomica (file temporaneo + rinomina), quindi una copia
+  interrotta non distrugge quella buona di quindici giorni prima;
+* la cartella scelta e la data dell'ultimo backup stanno in `AppData`
+  (`psonco-config.json`), insieme alla cartella dati: sono impostazioni
+  della postazione.
+
+### Copia su chiavetta USB
+
+La finestra elenca da sola le unità rimovibili e si aggiorna mentre è
+aperta: una chiavetta collegata dopo compare senza dover premere niente.
+La copia chiede conferma, perché il file contiene dati sanitari in
+chiaro.
+
+Il renderer non vede mai un percorso: passa una lettera di unità, che il
+processo principale accetta solo se corrisponde a un'unità rimovibile
+rilevata in quel momento e scrivibile. La finestra della safety net, poi,
+ha accesso ai soli canali che le servono — stato, scelta della cartella,
+copia: `fs:writeText` e compagnia le sono chiusi, e un tentativo
+risponde *mittente IPC non autorizzato*.
 
 ## Primo avvio su una postazione
 
@@ -297,5 +350,8 @@ profilo Edge di un PC condiviso.
   nessuna connessione di rete possibile dalla pagina
 * nessun dato del paziente viene mai concatenato in HTML senza escaping
 * export XLSX/CSV neutralizzati contro la *formula injection*
+* la finestra della safety net è una finestra a sé con gli stessi
+  isolamenti, e ogni canale IPC dichiara da quale finestra può arrivare:
+  quella di servizio non può scrivere sull'archivio
 
 Dettaglio completo in [`AUDIT.md`](AUDIT.md).

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>Safety net — ER Oncology Archivist</title>
+<link rel="stylesheet" href="safety.css">
+</head>
+<body>
+
+<header class="testa">
+  <div class="marchio">
+    <svg class="scudo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 3l7 3v5.5c0 4.2-2.9 7.8-7 9.5-4.1-1.7-7-5.3-7-9.5V6l7-3z"/>
+      <path d="M9 12.2l2 2 4-4.2"/>
+    </svg>
+    <div>
+      <h1>Safety net</h1>
+      <p>Copia di sicurezza dell’archivio</p>
+    </div>
+  </div>
+  <button type="button" class="chiudi" data-act="chiudi" aria-label="Chiudi la finestra">✕</button>
+</header>
+
+<main>
+
+  <!-- ════════ Backup automatico ════════ -->
+  <section class="scheda" id="sezAuto">
+    <div class="scheda-testa">
+      <h2>Backup automatico ogni 15 giorni</h2>
+      <span class="pillola" id="statoAuto">non configurato</span>
+    </div>
+    <p class="spiega">
+      Il programma salva da solo una copia dell’intero archivio nella cartella scelta qui,
+      <strong>ogni 15 giorni</strong>, e avvisa con una notifica di Windows. Il file si chiama
+      <code>backup_ER_OA.json</code> e viene sovrascritto ogni volta: una copia sola, sempre
+      l’ultima, che non riempie il disco e non lascia in giro archivi dimenticati.
+    </p>
+
+    <div class="riga-cartella">
+      <div class="percorso vuoto" id="cartellaBackup">nessuna cartella scelta</div>
+      <div class="azioni">
+        <button type="button" class="btn primario" data-act="scegli">Scegli cartella…</button>
+        <button type="button" class="btn" data-act="dimentica" id="btnDimentica" disabled>Rimuovi</button>
+      </div>
+    </div>
+
+    <dl class="dati">
+      <div><dt>Ultimo backup</dt><dd id="ultimoBackup">mai eseguito</dd></div>
+      <div><dt>Prossimo previsto</dt><dd id="prossimoBackup">—</dd></div>
+      <div><dt>Archivio di partenza</dt><dd id="cartellaDati">—</dd></div>
+    </dl>
+
+    <button type="button" class="btn primario largo" data-act="adesso" id="btnAdesso" disabled>
+      Esegui la copia adesso
+    </button>
+  </section>
+
+  <!-- ════════ Chiavetta USB ════════ -->
+  <section class="scheda" id="sezUsb">
+    <div class="scheda-testa">
+      <h2>Copia su chiavetta USB</h2>
+      <span class="pillola" id="statoUsb">nessuna chiavetta</span>
+    </div>
+    <p class="spiega">
+      Collega una chiavetta: compare qui sotto appena Windows la riconosce, senza dover
+      riaprire niente. Anche qui il file si chiama <code>backup_ER_OA.json</code>, sta nella
+      radice della chiavetta e viene sovrascritto ad ogni copia.
+    </p>
+
+    <ul class="unita" id="unita"></ul>
+
+    <p class="avvertenza">
+      Il file contiene dati sanitari in chiaro: nomi, date di nascita e diagnosi.
+      Conserva la chiavetta come si conserva una cartella clinica, e cancellala quando non serve più.
+    </p>
+  </section>
+
+</main>
+
+<!-- ════════ Conferma ════════ -->
+<div class="velo" id="velo" role="dialog" aria-modal="true" aria-labelledby="confTitolo">
+  <div class="finestrella">
+    <h3 id="confTitolo">Conferma</h3>
+    <p id="confTesto"></p>
+    <p id="confDettaglio"></p>
+    <div class="bottoni">
+      <button type="button" class="btn" data-act="conferma-no">Annulla</button>
+      <button type="button" class="btn primario" data-act="conferma-si" id="confSi">Copia</button>
+    </div>
+  </div>
+</div>
+
+<div class="notifica" id="notifica" role="status" aria-live="polite"></div>
+
+<script src="safety.js"></script>
+</body>
+</html>

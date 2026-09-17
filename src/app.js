@@ -5189,62 +5189,36 @@ function refreshSettingsInfo() {
   }
 }
 
-/** Copia di sicurezza dell'archivio su chiavetta USB.
- *  La ricerca dell'unità, la conferma e la scrittura avvengono nel
- *  processo principale: il renderer non tocca mai un percorso. */
-/** Copia di sicurezza dell'archivio su chiavetta USB. Il processo
- *  principale rileva le unità e scrive; scelta e avvertenza sono finestre
- *  del tool. Il renderer passa solo una lettera di unità, che il processo
- *  principale accetta solo se è davvero rimovibile. */
+/** La safety net vive in una finestra sua: la copia automatica ogni
+ *  quindici giorni nella cartella scelta dalla postazione e la copia su
+ *  chiavetta USB. Qui resta solo la porta d'ingresso: tenere la scelta
+ *  della cartella, l'attesa della chiavetta e l'avvertenza sui dati
+ *  sanitari dentro a un pannello laterale di due centimetri voleva dire
+ *  farne una fila di finestrelle una dopo l'altra. */
 async function safetyNet() {
   if (!IS_ELECTRON) { notify('Disponibile solo nell’applicazione desktop.'); return; }
   if (!storageReady) { notify('Serve prima una cartella dati leggibile.'); return; }
-  notify('Cerco un’unità rimovibile…');
   try {
-    const unita = await API.unitaRimovibili();
-    if (!unita || !unita.length) {
-      await avviso({ tipo: 'info', titolo: 'Nessuna chiavetta USB rilevata',
-        messaggio: 'Inserisci una chiavetta e riprova.',
-        dettaglio: 'Le unità protette in scrittura non vengono proposte.' });
-      return;
-    }
-    let scelta = unita[0];
-    if (unita.length > 1) {
-      const indice = await dialogo({
-        tipo: 'info',
-        titolo: 'Su quale unità salvare la copia?',
-        messaggio: 'Sono collegate ' + unita.length + ' unità rimovibili.',
-        pulsanti: [{ testo: 'Annulla' }].concat(unita.map((u) => ({ testo: u.lettera + '  ' + u.etichetta, stile: 'primario' }))),
-        predefinito: 1,
-        annulla: 0
-      });
-      if (indice < 1) { notify('Copia annullata.'); return; }
-      scelta = unita[indice - 1];
-    }
-    // sono dati sanitari: la conferma deve essere esplicita e informata
-    const ok = await conferma({
-      tipo: 'avviso',
-      titolo: 'Copiare l’archivio su ' + scelta.lettera + ' (' + scelta.etichetta + ')?',
-      messaggio: 'Il file contiene dati sanitari in chiaro: nomi, date di nascita e diagnosi.',
-      dettaglio: 'Conserva la chiavetta come si conserva una cartella clinica, e cancellala quando non serve più.',
-      conferma: 'Copia'
-    });
-    if (!ok) { notify('Copia annullata.'); return; }
-
-    const r = await API.safetyNet(scelta.lettera);
-    if (!r || r.stato === 'nessuna-unita') {
-      notify('La chiavetta non è più disponibile: reinseriscila e riprova.');
-    } else if (r.stato === 'senza-cartella') {
-      notify('Cartella dati non configurata.');
-    } else if (r.stato === 'ok') {
-      notify('Copia salvata su ' + r.unita + ' (' + r.esami + ' esami).');
-      refreshSettingsInfo();
-    } else {
-      await avviso({ tipo: 'errore', titolo: 'Copia non riuscita', messaggio: r.messaggio || 'Errore sconosciuto.' });
-    }
+    await API.apriSafety();
   } catch (e) {
-    await avviso({ tipo: 'errore', titolo: 'Copia non riuscita', messaggio: e.message });
+    await avviso({ tipo: 'errore', titolo: 'Safety net non disponibile', messaggio: e.message });
   }
+}
+
+/** Avvisi del backup automatico, anche quando la finestra della safety
+ *  net e' chiusa: il backup lavora da solo, ma non di nascosto. */
+function ascoltaBackup() {
+  if (!IS_ELECTRON || typeof API.onBackup !== 'function') return;
+  API.onBackup((m) => {
+    if (!m) return;
+    if (m.tipo === 'fatto') notify('Backup automatico: ' + m.esami + ' esami copiati.');
+    else if (m.tipo === 'fallito') notify('Backup automatico non riuscito: apri Safety net.');
+    else if (m.tipo === 'da-configurare') {
+      notify(m.primaVolta
+        ? 'Imposta dove salvare il backup automatico: impostazioni → Safety net.'
+        : 'Sono passati 15 giorni senza backup: scegli dove salvarlo (Safety net).');
+    }
+  });
 }
 
 /** In modalità browser le voci che toccano il file non hanno senso. */
@@ -5861,6 +5835,7 @@ function wireEvents() {
   if (IS_ELECTRON && typeof API.onRichiestaChiusura === 'function') {
     API.onRichiestaChiusura(preparaChiusura);
   }
+  ascoltaBackup();
   window.addEventListener('pagehide', releaseLock);
 }
 

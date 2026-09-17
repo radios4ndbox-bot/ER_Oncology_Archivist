@@ -24,6 +24,21 @@ contextBridge.exposeInMainWorld('psApi', {
   unitaRimovibili:  ()             => ipcRenderer.invoke('app:unitaRimovibili'),
   safetyNet:        (lettera)      => ipcRenderer.invoke('app:safetyNet', str(lettera)),
   confermaChiusura: (esito)        => ipcRenderer.invoke('app:conferma-chiusura', str(esito)),
+
+  // ── Safety net ──────────────────────────────────────────────────
+  apriSafety:       ()             => ipcRenderer.invoke('app:apriSafety'),
+  safetyStato:      ()             => ipcRenderer.invoke('safety:stato'),
+  safetyCartella:   ()             => ipcRenderer.invoke('safety:scegliCartella'),
+  safetyDimentica:  ()             => ipcRenderer.invoke('safety:dimenticaCartella'),
+  safetyBackupOra:  ()             => ipcRenderer.invoke('safety:backupOra'),
+  safetyChiudi:     ()             => ipcRenderer.invoke('safety:chiudi'),
+  /** Avvisi del backup automatico. Il callback riceve solo l'oggetto
+   *  del messaggio, mai l'evento IPC. */
+  onBackup: (fn) => {
+    if (typeof fn !== 'function') return;
+    ipcRenderer.removeAllListeners('app:backup');
+    ipcRenderer.on('app:backup', (_ev, messaggio) => fn(messaggio));
+  },
   // Il callback non riceve l'evento IPC: nessun oggetto di Electron nella pagina.
   onRichiestaChiusura: (fn) => {
     if (typeof fn !== 'function') return;

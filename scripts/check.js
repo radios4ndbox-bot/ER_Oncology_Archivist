@@ -22,7 +22,8 @@ function esito(ok, titolo, dettaglio) {
 console.log('\nControlli locali\n');
 
 // 1. sintassi JavaScript
-['main.js', 'preload.js', 'src/app.js', 'src/zip.js', 'src/xlsx.js', 'src/pptx.js', 'src/names.js'].forEach((f) => {
+['main.js', 'preload.js', 'src/app.js', 'src/zip.js', 'src/xlsx.js', 'src/pptx.js', 'src/names.js',
+ 'src/safety.js'].forEach((f) => {
   try {
     execFileSync(process.execPath, ['--check', path.join(ROOT, f)], { stdio: 'pipe' });
     esito(true, 'sintassi ' + f);
@@ -35,14 +36,20 @@ const html = leggi('src/index.html');
 const app = leggi('src/app.js');
 const css = leggi('src/styles.css');
 const main = leggi('main.js');
+// finestra separata della safety net
+const shtml = leggi('src/safety.html');
+const sjs = leggi('src/safety.js');
+const scss = leggi('src/safety.css');
 
 // 2. nessun gestore di evento inline (la CSP vieta 'unsafe-inline')
-const inline = html.match(/on(click|change|input|load|error|submit|focus|blur)=/g);
-esito(!inline, 'nessun gestore inline nell\'HTML', inline ? inline.length + ' trovati' : '');
+const reInline = /on(click|change|input|load|error|submit|focus|blur)=/g;
+const inline = (html.match(reInline) || []).concat(shtml.match(reInline) || []);
+esito(inline.length === 0, 'nessun gestore inline nell\'HTML', inline.length || '');
 
 // 3. nessuna risorsa remota (l'app deve funzionare offline)
-const remote = html.match(/(src|href)="https?:\/\//g);
-esito(!remote, 'nessuna risorsa remota', remote ? remote.join(' ') : '');
+const reRemota = /(src|href)="https?:\/\//g;
+const remote = (html.match(reRemota) || []).concat(shtml.match(reRemota) || []);
+esito(remote.length === 0, 'nessuna risorsa remota', remote.join(' '));
 
 // 4. impostazioni di sicurezza di Electron
 ['contextIsolation: true', 'nodeIntegration: false', 'sandbox: true'].forEach((k) => {
@@ -110,6 +117,32 @@ try {
 } catch (err) {
   esito(false, 'archivio demo valido e solo generato', err.message);
 }
+
+// 8e. finestra separata della safety net: stesse regole della principale
+const azioniSafety = new Set([...sjs.matchAll(/^\s*'?([a-z-]+)'?:/gm)].map((m) => m[1]));
+const usateSafety = new Set([...shtml.matchAll(/data-act="([a-z-]+)"/g),
+                             ...sjs.matchAll(/data-act="([a-z-]+)"/g)].map((m) => m[1]));
+const orfaneSafety = [...usateSafety].filter((a) => !azioniSafety.has(a));
+esito(orfaneSafety.length === 0, 'ogni data-act della safety net ha un gestore', orfaneSafety.join(', '));
+
+const idsSafetyHtml = new Set([...shtml.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
+const idsSafetyJs = new Set([...sjs.matchAll(/\bel\('([A-Za-z_]\w*)'\)/g)].map((m) => m[1]));
+const mancantiSafety = [...idsSafetyJs].filter((id) => !idsSafetyHtml.has(id));
+esito(mancantiSafety.length === 0, 'ogni id usato dalla safety net esiste', mancantiSafety.join(', '));
+
+esito(!/\b(confirm|alert|prompt)\(/.test(sjs), 'nessun confirm/alert/prompt nella safety net');
+
+// La finestra di servizio non deve poter toccare l'archivio: i canali
+// che scrivono restano fuori dalla sua portata.
+const vietati = ['writeText(', 'deleteFile(', 'saveExport(', 'selectDataFolder('];
+const abusi = vietati.filter((c) => sjs.indexOf('API.' + c) !== -1);
+esito(abusi.length === 0, 'la safety net non tocca l\'archivio', abusi.join(', '));
+
+[['src/safety.js', sjs], ['src/safety.css', scss]].forEach(([nome, testo]) => {
+  const brutti = [...testo.replace(/\r\n/g, '\n')]
+    .filter((c) => c.charCodeAt(0) < 32 && c !== '\n' && c !== '\t');
+  esito(brutti.length === 0, 'nessun carattere di controllo in ' + nome, brutti.length || '');
+});
 
 // 9. versione allineata fra package.json e lockfile
 const pkg = JSON.parse(leggi('package.json'));

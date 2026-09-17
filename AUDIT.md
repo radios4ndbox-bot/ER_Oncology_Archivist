@@ -409,3 +409,62 @@ trasparente, in 9 dimensioni da 16 a 256 px. Le immagini dell'installer
 (`installerSidebar.bmp`, `installerHeader.bmp`) e `build/installer.nsh`
 riprendono i colori del tool: radiale scuro dello splash e filo
 rosso-viola.
+
+---
+
+# Revisione del 18 settembre 2026 — fluidità e safety net
+
+## Fluidità: dove finivano i fotogrammi
+
+Misurato nel renderer con gli intervalli fra fotogrammi, il profilo CPU e
+la traccia del motore, a velocità normale e con la CPU rallentata quattro
+e otto volte (la postazione del PS non è la macchina di sviluppo). Il
+tempo non era nel JavaScript dell'applicazione — poche decine di
+millisecondi in tutto — ma in stile, impaginazione e disegno.
+
+| | difetto | correzione | misura |
+|---|---|---|---|
+| F1 | l'interfaccia si costruiva mentre l'intro era già partita | l'intro parte a costruzione finita, a scena ferma | atto I: fotogramma peggiore da 931 ms a 28 ms (CPU ×8) |
+| F2 | `--salita` finiva sulla vista che contiene tutta l'applicazione, `--pop-delay` sulle sezioni: variabili ereditate, quindi ricalcolo di stile su tutto il sottoalbero | registrate con `@property … inherits: false` | ricalcolo da 242 ms sparito dal fotogramma della risalita |
+| F3 | la banda del velo saliva con `clip-path`, ridisegnando l'intera finestra ad ogni fotogramma | sale con una trasformazione | fase finale: da 7 fotogrammi oltre 25 ms a 4 |
+| F4 | le viste non attive erano sfocate con `filter: blur(4px)`, e la sfocatura era in transizione ad ogni cambio vista, su due viste insieme | trasparenza al posto della sfocatura | cambio vista: da 102 a 121 fotogrammi consegnati (CPU ×4) |
+| F5 | classi su `<body>` (`intro-in-corso`, `pagina-sale`, `rail-aperto`) con regole discendenti: il motore passava in rassegna tutti i nodi | classi sui contenitori che le usano | — |
+| F6 | cambiando vista si ridisegnavano tabella e grafici identici a prima | firma di dati, filtri e ordinamento: si ridisegna solo se è cambiato qualcosa | archivio: 271 ms → 67 ms di blocco |
+| F7 | letture e scritture del layout alternate (grafici, FLIP del pannello, sezioni) | raggruppate: prima tutte le letture, poi tutte le scritture | otto impaginazioni forzate → una |
+| F8 | i 51 tracciati del titolo restavano nel documento per sempre | la scena dell'intro si toglie dalla pagina quando ha finito | — |
+
+A velocità normale l'intro non perde più un fotogramma (703 misurati,
+media 7,2 ms) e nessuna animazione dell'interfaccia supera i 25 ms.
+
+## Safety net: backup automatico e chiavetta
+
+Funzione nuova, in una finestra separata (`src/safety.html`).
+
+* copia integrale dell'archivio ogni **15 giorni** nella cartella scelta
+  dalla postazione, più un avviso di sistema; il file è sempre
+  `backup_ER_OA.json` e viene sovrascritto;
+* copia su chiavetta USB con lo stesso nome, nella radice dell'unità;
+* l'elenco delle unità rimovibili si aggiorna da solo a finestra aperta.
+
+Scelte di sicurezza:
+
+| | scelta | perché |
+|---|---|---|
+| S1 | ogni canale IPC dichiara da quale finestra può arrivare | la finestra di servizio non deve poter scrivere sull'archivio: `fs:writeText` da lì risponde *mittente IPC non autorizzato* (verificato) |
+| S2 | il renderer passa una lettera di unità, mai un percorso | la lettera vale solo se corrisponde a un'unità rimovibile rilevata in quel momento |
+| S3 | un solo file di backup, sovrascritto | una cartella che accumula archivi datati con nomi e diagnosi in chiaro è un problema di riservatezza che cresce da solo |
+| S4 | la cartella del backup non può essere quella dell'archivio | se la share sparisce, sparirebbero insieme originale e copia |
+| S5 | il contenuto viene verificato prima di diventare backup | quel che non è un archivio non deve prendere il posto della copia buona |
+| S6 | scrittura atomica anche per il backup | una copia interrotta non distrugge quella di quindici giorni prima |
+| S7 | se la cartella non è raggiungibile la data non avanza | il tentativo si ripete al giro dopo invece di saltare quindici giorni |
+| S8 | in sviluppo su `dev-data` la configurazione vera non si tocca (`psonco-config.dev.json`) | una prova non deve riscrivere la cartella dati della postazione |
+
+Verifiche eseguite via DevTools Protocol sull'applicazione in esecuzione:
+apertura della finestra dal programma; stato mostrato (cartella, ultimo
+backup, prossimo previsto); backup su richiesta (210 esami, file scritto
+e riletto); `fs:writeText` dalla finestra di servizio respinto; copia su
+un'unità inesistente respinta; conferma sui dati sanitari prima della
+copia; scadenza dei 15 giorni simulata con una data di 16 giorni fa — al
+controllo successivo il backup è partito da solo e la data è avanzata.
+La copia su una chiavetta fisica non è stata provata: qui non ce n'è una
+collegata.

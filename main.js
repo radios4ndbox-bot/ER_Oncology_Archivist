@@ -12,7 +12,7 @@
      share di rete
    ══════════════════════════════════════════════════════════════════ */
 
-const { app, BrowserWindow, ipcMain, dialog, Menu, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, session, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
@@ -26,6 +26,18 @@ const LOCK_FILE = 'ps_onco.lock';
  *  separatore: il path traversal è strutturalmente impossibile. */
 const ALLOWED_FILES = new Set([DATA_FILE, LOCK_FILE]);
 const CONFIG_FILE = 'psonco-config.json';
+/** Il backup e' un file solo, sempre lo stesso, sovrascritto ad ogni
+ *  giro: nella cartella scelta e sulla chiavetta. Una copia sola non si
+ *  puo' sbagliare, non riempie il disco e non lascia in giro vecchi
+ *  archivi con dati sanitari di cui nessuno si ricorda piu'. */
+const BACKUP_FILE = 'backup_ER_OA.json';
+const GIORNI_BACKUP = 15;
+const INTERVALLO_BACKUP = GIORNI_BACKUP * 24 * 60 * 60 * 1000;
+/** Ogni ora si guarda se sono passati i quindici giorni: il programma
+ *  puo' restare aperto per giorni di fila. */
+const CONTROLLO_BACKUP = 60 * 60 * 1000;
+/** Il primo controllo non cade sull'avvio, che ha gia' da fare. */
+const PRIMO_CONTROLLO = 45 * 1000;
 const MAX_TEXT_BYTES = 64 * 1024 * 1024;   // 64 MB
 const MAX_EXPORT_CHARS = 96 * 1024 * 1024; // 96 MB di base64
 const IS_DEV = !app.isPackaged;
@@ -52,8 +64,16 @@ const PIEDE_PDF =
 
 // ── Stato del solo processo principale ────────────────────────────
 let mainWindow = null;
+/** @type {BrowserWindow|null} finestra separata della safety net */
+let safetyWindow = null;
 /** @type {string|null} cartella dati validata; il renderer non la sceglie */
 let dataFolder = null;
+/** @type {string|null} dove finisce la copia automatica dell'archivio */
+let backupFolder = null;
+/** quando e' riuscito l'ultimo backup, e quando si e' avvisato per
+ *  l'ultima volta che non c'e' una cartella dove farlo */
+let ultimoBackup = 0;
+let ultimoAvvisoBackup = 0;
 /** true quando il renderer ha scaricato i salvataggi (o l'utente ha
  *  scelto di chiudere comunque): da lì la finestra si chiude davvero. */
 let chiusuraConsentita = false;
@@ -64,8 +84,14 @@ let attesaUtente = false;
 // ══════════════════════════════════════════════════════════════════
 //  CONFIG (in AppData, non nella cartella dati)
 // ══════════════════════════════════════════════════════════════════
+/** In sviluppo su dev-data la configurazione vera non si tocca: un giro
+ *  di prova non deve riscrivere la cartella dati della postazione ne'
+ *  la data dell'ultimo backup. */
+let configProva = false;
+
 function configPath() {
-  return path.join(app.getPath('userData'), CONFIG_FILE);
+  const nome = configProva ? CONFIG_FILE.replace('.json', '.dev.json') : CONFIG_FILE;
+  return path.join(app.getPath('userData'), nome);
 }
 
 /** Notepad e PowerShell 5.1 scrivono UTF-8 con BOM: senza questo,
@@ -78,9 +104,25 @@ function readConfig() {
   try {
     const raw = stripBom(fs.readFileSync(configPath(), 'utf8'));
     const cfg = JSON.parse(raw);
-    if (cfg && typeof cfg === 'object' && typeof cfg.dataFolder === 'string') return cfg;
+    // Ogni campo viene validato da chi lo usa. Prima si scartava tutto
+    // il file se mancava dataFolder, e chi aveva scelto la cartella del
+    // backup prima di quella dati se la vedeva sparire.
+    if (cfg && typeof cfg === 'object' && !Array.isArray(cfg)) return cfg;
   } catch (_) { /* config assente o illeggibile: si riparte da zero */ }
   return {};
+}
+
+/** Riscrive la configurazione dallo stato corrente.
+ *  Si costruisce un oggetto nuovo invece di ritoccare quello letto dal
+ *  file: cosi' una chiave inattesa nel JSON non torna sul disco, e
+ *  nessun __proto__ arriva mai in un Object.assign. */
+function salvaConfig() {
+  writeConfig({
+    dataFolder: dataFolder || '',
+    backupFolder: backupFolder || '',
+    ultimoBackup: ultimoBackup || 0,
+    ultimoAvvisoBackup: ultimoAvvisoBackup || 0
+  });
 }
 
 function writeConfig(cfg) {
@@ -279,15 +321,22 @@ function hardenWebContents(contents) {
 // ══════════════════════════════════════════════════════════════════
 //  IPC — ogni handler verifica il mittente
 // ══════════════════════════════════════════════════════════════════
-function assertSender(event) {
-  if (!mainWindow || event.sender !== mainWindow.webContents) {
+/** Ogni canale dichiara chi lo può chiamare. La finestra della safety
+ *  net è una finestra a parte: le si aprono solo i canali che le
+ *  servono, non tutti quelli della finestra principale. */
+function assertSender(event, ancheSafety) {
+  const daPrincipale = mainWindow && !mainWindow.isDestroyed() &&
+                       event.sender === mainWindow.webContents;
+  const daSafety = ancheSafety === true && safetyWindow && !safetyWindow.isDestroyed() &&
+                   event.sender === safetyWindow.webContents;
+  if (!daPrincipale && !daSafety) {
     throw new Error('Mittente IPC non autorizzato.');
   }
 }
 
-function register(channel, handler) {
+function register(channel, handler, ancheSafety) {
   ipcMain.handle(channel, async (event, ...args) => {
-    assertSender(event);
+    assertSender(event, ancheSafety);
     return handler(...args);
   });
 }
@@ -313,9 +362,7 @@ register('fs:selectDataFolder', async () => {
   // l'avviso lo mostra il renderer, con le finestre del tool
   if (!folder) return { stato: 'non-valida' };
   dataFolder = folder;
-  const cfg = readConfig();
-  cfg.dataFolder = folder;
-  writeConfig(cfg);
+  salvaConfig();
   return folder;
 });
 
@@ -417,12 +464,18 @@ register('app:savePdf', async (defaultName) => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-//  SAFETY NET — copia di sicurezza su chiavetta USB
-//  Il comando è fisso e senza interpolazione: nessun input del renderer
-//  entra nella riga di comando. Le lettere di unità sono validate con
-//  una regex prima di essere usate come percorso.
+//  SAFETY NET — copia di sicurezza dell'archivio
+//
+//  Due strade, lo stesso file:
+//  · ogni quindici giorni una copia automatica nella cartella scelta
+//    dalla postazione, con un avviso di sistema;
+//  · su richiesta, la stessa copia su una chiavetta USB.
+//  Il nome è sempre backup_ER_OA.json e viene sempre sovrascritto.
+//
+//  Il comando che elenca le unità è fisso e senza interpolazione: nessun
+//  input del renderer entra nella riga di comando. Le lettere di unità
+//  sono validate con una regex prima di diventare un percorso.
 // ══════════════════════════════════════════════════════════════════
-const CARTELLA_BACKUP = 'PSOnco-Backup';
 
 function trovaUnitaRimovibili() {
   return new Promise((resolve) => {
@@ -452,19 +505,150 @@ function trovaUnitaRimovibili() {
   });
 }
 
-function marcaTemporale() {
-  const d = new Date();
-  const due = (n) => String(n).padStart(2, '0');
-  return d.getFullYear() + due(d.getMonth() + 1) + due(d.getDate()) +
-         '-' + due(d.getHours()) + due(d.getMinutes());
+/** Quanti esami contiene una copia dell'archivio: serve solo per dirlo
+ *  all'utente. */
+function contaEsami(contenuto) {
+  try {
+    const store = JSON.parse(stripBom(contenuto));
+    return Array.isArray(store) ? store.length
+         : (store && Array.isArray(store.records) ? store.records.length : 0);
+  } catch (_) { return 0; }
+}
+
+/** Legge l'archivio corrente e ne verifica la struttura: quel che non è
+ *  un archivio non diventa un backup. La copia di sicurezza sarebbe la
+ *  prima cosa a tradire, se contenesse spazzatura. */
+async function leggiArchivio() {
+  if (!dataFolder) return { stato: 'senza-cartella' };
+  let contenuto;
+  try {
+    contenuto = await fsp.readFile(path.join(dataFolder, DATA_FILE), 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return { stato: 'senza-archivio' };
+    return { stato: 'errore', messaggio: descrizioneErrore(err) };
+  }
+  try {
+    verificaArchivio(contenuto);
+  } catch (err) {
+    return { stato: 'errore', messaggio: err.message };
+  }
+  return { stato: 'ok', contenuto: contenuto };
+}
+
+/** Copia dell'archivio nella cartella indicata, sempre con lo stesso
+ *  nome. La scrittura è atomica: se si interrompe, la copia buona di
+ *  quindici giorni fa resta dov'è. */
+async function eseguiBackup(cartella) {
+  const destinazioneCartella = validateFolder(cartella);
+  if (!destinazioneCartella) return { stato: 'cartella-non-valida' };
+
+  const letto = await leggiArchivio();
+  if (letto.stato !== 'ok') return letto;
+
+  const destinazione = path.join(destinazioneCartella, BACKUP_FILE);
+  try {
+    await atomicWrite(destinazione, letto.contenuto);
+  } catch (err) {
+    return { stato: 'errore', messaggio: descrizioneErrore(err) };
+  }
+  return { stato: 'ok', percorso: destinazione,
+           esami: contaEsami(letto.contenuto), quando: Date.now() };
+}
+
+/** Avviso di sistema: l'utente può non avere il programma davanti.
+ *  Un clic sull'avviso apre la finestra della safety net. */
+function notificaSistema(titolo, corpo) {
+  try {
+    if (!Notification.isSupported()) return;
+    const n = new Notification({
+      title: titolo,
+      body: corpo,
+      icon: fs.existsSync(ICONA) ? ICONA : undefined
+    });
+    n.on('click', () => apriFinestraSafety());
+    n.show();
+  } catch (err) {
+    console.error('[backup] avviso non mostrato:', err.message);
+  }
+}
+
+/** Lo stesso avviso dentro al programma: le finestre aperte lo mostrano
+ *  con la grafica del tool. */
+function avvisaFinestre(messaggio) {
+  [mainWindow, safetyWindow].forEach((w) => {
+    if (w && !w.isDestroyed()) w.webContents.send('app:backup', messaggio);
+  });
+}
+
+/** Il giro dei quindici giorni. */
+async function controllaBackup() {
+  if (!dataFolder) return;
+  const adesso = Date.now();
+  if (ultimoBackup && adesso - ultimoBackup < INTERVALLO_BACKUP) return;
+
+  if (!backupFolder) {
+    // Senza una cartella non c'è backup da fare: si ricorda, ma non più
+    // di una volta ogni quindici giorni. Un avviso che torna ogni ora
+    // diventa un avviso che non si legge più.
+    if (ultimoAvvisoBackup && adesso - ultimoAvvisoBackup < INTERVALLO_BACKUP) return;
+    const primaVolta = !ultimoAvvisoBackup;
+    ultimoAvvisoBackup = adesso;
+    salvaConfig();
+    // Al primo avvio basta il messaggio dentro al programma: chi ha appena
+    // installato il tool sta configurando la cartella dati, e un avviso di
+    // Windows che gli passa davanti non aiuta. Da qui parte il conto dei
+    // quindici giorni: il richiamo successivo è quello vero.
+    if (!primaVolta) {
+      notificaSistema('Backup dell’archivio non configurato',
+        'Scegli dove salvare la copia di sicurezza: si apre da Safety net.');
+    }
+    avvisaFinestre({ tipo: 'da-configurare', primaVolta: primaVolta });
+    return;
+  }
+
+  const esito = await eseguiBackup(backupFolder);
+  if (esito.stato === 'ok') {
+    ultimoBackup = esito.quando;
+    salvaConfig();
+    notificaSistema('Copia di sicurezza eseguita',
+      esito.esami + ' esami copiati in ' + backupFolder + '.');
+    avvisaFinestre({ tipo: 'fatto', esami: esito.esami,
+                     percorso: esito.percorso, quando: esito.quando });
+  } else {
+    // La data non si aggiorna: al prossimo giro ci riprova.
+    notificaSistema('Copia di sicurezza non riuscita',
+      esito.messaggio || 'La cartella del backup non \u00e8 raggiungibile.');
+    avvisaFinestre({ tipo: 'fallito', messaggio: esito.messaggio || '' });
+  }
+}
+
+function programmaBackup() {
+  setTimeout(() => {
+    controllaBackup();
+    setInterval(controllaBackup, CONTROLLO_BACKUP);
+  }, PRIMO_CONTROLLO);
+}
+
+/** Stato completo per la finestra della safety net. */
+function statoSafety() {
+  return {
+    cartellaDati: dataFolder,
+    cartellaBackup: backupFolder,
+    ultimoBackup: ultimoBackup || 0,
+    prossimoBackup: ultimoBackup ? ultimoBackup + INTERVALLO_BACKUP : 0,
+    giorni: GIORNI_BACKUP,
+    nomeFile: BACKUP_FILE
+  };
 }
 
 /** Copia sull'unità scelta dall'utente. La lettera arriva dal renderer:
  *  vale solo se è fra le unità rimovibili rilevate adesso, quindi non si
- *  può usare per scrivere altrove. Scelta e avvertenza le mostra il
- *  renderer con le finestre del tool. */
+ *  può usare per scrivere altrove. Il file sta nella radice della
+ *  chiavetta e si chiama sempre backup_ER_OA.json: si ritrova subito, e
+ *  la copia nuova prende il posto della vecchia invece di lasciare in
+ *  giro archivi dimenticati. Scelta e avvertenza le mostra il renderer,
+ *  con le finestre del tool. */
 async function copiaSuUsb(lettera) {
-  if (!dataFolder) return { stato: 'senza-cartella' };
   if (typeof lettera !== 'string' || !/^[A-Z]:$/.test(lettera)) {
     return { stato: 'errore', messaggio: 'Unità non valida.' };
   }
@@ -472,35 +656,121 @@ async function copiaSuUsb(lettera) {
   const scelta = unita.find((u) => u.lettera === lettera);
   if (!scelta) return { stato: 'nessuna-unita' };
 
-  const sorgente = path.join(dataFolder, DATA_FILE);
-  let contenuto;
+  const letto = await leggiArchivio();
+  if (letto.stato !== 'ok') return letto;
+
+  const destinazione = path.join(scelta.lettera + path.sep, BACKUP_FILE);
   try {
-    contenuto = await fsp.readFile(sorgente, 'utf8');
+    await atomicWrite(destinazione, letto.contenuto);
   } catch (err) {
     return { stato: 'errore', messaggio: descrizioneErrore(err) };
   }
-
-  const cartella = path.join(scelta.lettera + path.sep, CARTELLA_BACKUP);
-  const destinazione = path.join(cartella, 'ps_onco_data_' + marcaTemporale() + '.json');
-  try {
-    await fsp.mkdir(cartella, { recursive: true });
-    await atomicWrite(destinazione, contenuto);
-  } catch (err) {
-    return { stato: 'errore', messaggio: descrizioneErrore(err) };
-  }
-
-  let esami = 0;
-  try {
-    const store = JSON.parse(stripBom(contenuto));
-    esami = Array.isArray(store) ? store.length
-          : (store && Array.isArray(store.records) ? store.records.length : 0);
-  } catch (_) {}
-
-  return { stato: 'ok', percorso: destinazione, unita: scelta.lettera, esami: esami };
+  return { stato: 'ok', percorso: destinazione, unita: scelta.lettera,
+           etichetta: scelta.etichetta, esami: contaEsami(letto.contenuto),
+           quando: Date.now() };
 }
 
-register('app:unitaRimovibili', async () => trovaUnitaRimovibili());
-register('app:safetyNet', async (lettera) => copiaSuUsb(lettera));
+// ── Finestra separata ───────────────────────────────────────
+
+/** La safety net vive in una finestra sua: la si tiene aperta accanto al
+ *  programma mentre si sceglie la cartella o si aspetta la chiavetta. */
+function apriFinestraSafety() {
+  if (safetyWindow && !safetyWindow.isDestroyed()) {
+    if (safetyWindow.isMinimized()) safetyWindow.restore();
+    safetyWindow.focus();
+    return true;
+  }
+  safetyWindow = new BrowserWindow({
+    width: 780,
+    height: 760,
+    minWidth: 620,
+    minHeight: 540,
+    parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+    show: false,
+    backgroundColor: COLORE_FINESTRA,
+    title: 'Safety net — ER Oncology Archivist',
+    icon: fs.existsSync(ICONA) ? ICONA : undefined,
+    autoHideMenuBar: true,
+    // Stesse difese della finestra principale: nessuna eccezione perché
+    // è una finestra di servizio.
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      nodeIntegrationInWorker: false,
+      nodeIntegrationInSubFrames: false,
+      sandbox: true,
+      webviewTag: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      navigateOnDragDrop: false,
+      spellcheck: false,
+      devTools: IS_DEV
+    }
+  });
+  safetyWindow.setMenu(null);
+  safetyWindow.once('ready-to-show', () => {
+    if (safetyWindow && !safetyWindow.isDestroyed()) safetyWindow.show();
+  });
+  safetyWindow.on('closed', () => { safetyWindow = null; });
+  safetyWindow.loadURL(url.format({
+    pathname: path.join(__dirname, 'src', 'safety.html'),
+    protocol: 'file:',
+    slashes: true
+  }));
+  return true;
+}
+
+// ── Canali ─────────────────────────────────────────────────
+// Quelli aperti anche alla safety net sono i soli che la finestra di
+// servizio può chiamare: legge lo stato, sceglie la sua cartella, copia.
+// Dell'archivio non tocca niente.
+register('app:unitaRimovibili', async () => trovaUnitaRimovibili(), true);
+register('app:safetyNet', async (lettera) => copiaSuUsb(lettera), true);
+register('app:apriSafety', async () => apriFinestraSafety());
+
+register('safety:stato', async () => statoSafety(), true);
+
+register('safety:scegliCartella', async () => {
+  const finestra = safetyWindow && !safetyWindow.isDestroyed() ? safetyWindow : mainWindow;
+  const res = await dialog.showOpenDialog(finestra, {
+    title: 'Dove salvare la copia di sicurezza',
+    properties: ['openDirectory', 'createDirectory'],
+    defaultPath: backupFolder || undefined
+  });
+  if (res.canceled || !res.filePaths.length) return { stato: 'annullato' };
+  const cartella = validateFolder(res.filePaths[0]);
+  if (!cartella) return { stato: 'non-valida' };
+  // Il backup non sta nella cartella che copia: se la share sparisce,
+  // sparirebbero insieme originale e copia.
+  if (dataFolder && path.resolve(cartella) === path.resolve(dataFolder)) {
+    return { stato: 'stessa-cartella' };
+  }
+  backupFolder = cartella;
+  salvaConfig();
+  return { stato: 'ok', safety: statoSafety() };
+}, true);
+
+register('safety:dimenticaCartella', async () => {
+  backupFolder = null;
+  salvaConfig();
+  return statoSafety();
+}, true);
+
+register('safety:backupOra', async () => {
+  if (!backupFolder) return { stato: 'senza-cartella-backup' };
+  const esito = await eseguiBackup(backupFolder);
+  if (esito.stato === 'ok') {
+    ultimoBackup = esito.quando;
+    salvaConfig();
+  }
+  return esito;
+}, true);
+
+register('safety:chiudi', async () => {
+  if (safetyWindow && !safetyWindow.isDestroyed()) safetyWindow.close();
+  return true;
+}, true);
 
 /** Risposta del renderer alla richiesta di chiusura:
  *  'chiudi'  → la finestra si chiude;
@@ -594,6 +864,12 @@ function useDevDataFolder() {
   const ok = validateFolder(dir);
   if (ok) {
     dataFolder = ok;
+    configProva = true;
+    // da qui in poi si legge e si scrive la configurazione di prova
+    const cfg = readConfig();
+    backupFolder = validateFolder(cfg.backupFolder);
+    ultimoBackup = Number(cfg.ultimoBackup) || 0;
+    ultimoAvvisoBackup = Number(cfg.ultimoAvvisoBackup) || 0;
     console.log('[dev] cartella dati:', ok);
   }
 }
@@ -631,11 +907,19 @@ if (!app.requestSingleInstanceLock()) {
       });
     });
 
-    dataFolder = validateFolder(readConfig().dataFolder);
+    const cfg = readConfig();
+    dataFolder = validateFolder(cfg.dataFolder);
+    backupFolder = validateFolder(cfg.backupFolder);
+    ultimoBackup = Number(cfg.ultimoBackup) || 0;
+    ultimoAvvisoBackup = Number(cfg.ultimoAvvisoBackup) || 0;
     // --demo (npm run demo) usa sempre dev-data, anche se una cartella è
     // già configurata: la demo non deve mai aprire l'archivio vero
     if (DEV_MODE && (!dataFolder || process.argv.indexOf('--demo') !== -1)) useDevDataFolder();
     createWindow();
+    // Senza un identificativo esplicito Windows non mostra gli avvisi di
+    // un'applicazione Electron non installata.
+    if (process.platform === 'win32') app.setAppUserModelId('it.eroncologyarchivist.app');
+    programmaBackup();
     if (DEV_MODE) watchSources();
 
     app.on('activate', () => {
