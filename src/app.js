@@ -951,10 +951,19 @@ let currentView = 'wizard';
 function showView(name) {
   if (VIEW_ORDER.indexOf(name) === -1 || name === currentView) return;
   currentView = name;
-  applyViewState();
-  window.scrollTo(0, 0);
+
+  // Il contenuto della vista si costruisce PRIMA di muovere il binario.
+  // Prima lo scorrimento partiva subito e poi la tabella dell'archivio
+  // (oltre duecento righe) o i grafici delle statistiche bloccavano il
+  // filo principale: misurato su una postazione lenta, un fotogramma da
+  // 1133 ms in mezzo alla corsa. La vista scorreva mentre la si stava
+  // ancora costruendo, e si vedeva. Facendolo prima, l'attesa e' tutta
+  // all'inizio, ferma, e lo scorrimento poi e' pulito.
   if (name === 'stats') renderStats();
   if (name === 'db') applyFilters();
+
+  applyViewState();
+  window.scrollTo(0, 0);
   popSections(name);
   if (name === 'stats') avviaAnimazioniGrafici(true);
   if (name === 'db') animaArchivio();
@@ -3420,11 +3429,13 @@ function animaArchivio() {
 
   const base = ritardoDi(vista.querySelector('.tbl-wrap')) + 220;
   const righe = Array.prototype.slice.call(body.querySelectorAll('tr'), 0, 24);
+  // come in popSections: si toglie a tutte, si rifa' il layout una volta
+  // sola, poi si riscrive a tutte
+  righe.forEach((r) => r.classList.remove('riga-entra'));
+  void body.offsetWidth;
   righe.forEach((r, i) => {
-    r.classList.remove('riga-entra');
     r.style.setProperty('--i', String(i));
     r.style.setProperty('--ritardo', base + 'ms');
-    void r.offsetWidth;
     r.classList.add('riga-entra');
   });
   setTimeout(() => righe.forEach((r) => r.classList.remove('riga-entra')), base + righe.length * 24 + 600);
@@ -5180,12 +5191,40 @@ function setupSettings() {
 // ══════════════════════════════════════════════════════════════════
 //  SPLASH E TRANSIZIONI
 // ══════════════════════════════════════════════════════════════════
-// Ritardi della sequenza. Il totale e' volutamente contenuto: e' uno
-// strumento che si apre molte volte per turno, un'intro lunga e' attrito.
-const INTRO_TITLE_DELAY = 580;    // quando parte il primo glifo
-const INTRO_GLYPH_STAGGER = 17;   // sfalsamento fra un glifo e il successivo
-const INTRO_HOLD = 2650;          // quando parte la dissolvenza di uscita
-const INTRO_FLIGHT = 800;         // volo del logo verso la nav
+// ══════════════════════════════════════════════════════════════════
+//  INTRO — la sequenza, in un posto solo
+//
+//  Ogni voce e' un millisecondo dall'inizio dell'intro, o una durata.
+//  Le durate che servono anche al CSS gli vengono passate da
+//  scriviTempiIntro() come proprieta' --t-*: prima meta' dei ritardi
+//  stava qui e meta' scritta a mano nel CSS, e cambiarne uno sfasava
+//  silenziosamente l'altro.
+//
+//  Il totale e' volutamente contenuto: e' uno strumento che si apre
+//  molte volte per turno, un'intro lunga e' attrito.
+// ══════════════════════════════════════════════════════════════════
+const INTRO = {
+  // atto I — il logo si disegna al centro
+  tracciaDur: 650,        // il tracciato si scrive
+  riempi: 250,            // quando entra il riempimento
+  riempiDur: 450,
+  posaDur: 620,           // il logo si assesta alla sua scala finale
+
+  // atto II — il logo scivola a sinistra, il titolo si compone
+  slitta: 760,            // quando il logo parte verso sinistra
+  slittaDur: 700,
+  glifo: 900,             // primo glifo
+  glifoPasso: 12,         // sfalsamento fra un glifo e il successivo
+  glifoDur: 340,
+
+  // atto III — il sottotitolo
+  sotto: 1600,
+  sottoDur: 600,
+
+  attesa: 2750,           // quando parte l'uscita
+  volo: 800               // volo del logo verso la barra
+};
+const INTRO_FLIGHT = INTRO.volo;
 const VELO_DURATA = 950;          // risalita della banda, come nel CSS
 const BARRA_PASSO = 55;           // cascata del contenuto della barra
 const POP_STEP = 90;              // cascata fra una sezione e la successiva
@@ -5211,24 +5250,9 @@ function runIntro() {
 
   document.body.classList.add('intro-in-corso');
 
-  // Logo: pathLength=1 normalizza la lunghezza del tracciato a 1, cosi'
-  // stroke-dashoffset funziona su qualunque geometria. E' anche cio' che
-  // rende superfluo getTotalLength(), che sui tracciati compositi (le
-  // lettere con i fori) restituiva valori sbagliati.
-  document.querySelectorAll('.splash-logo-svg-wrap path').forEach((path) => {
-    path.setAttribute('pathLength', '1');
-    path.classList.add('splash-logo-path');
-  });
-
-  // Titolo: i --d originali andavano da destra a sinistra. Si riordinano
-  // per far entrare le lettere nel verso di lettura.
-  const glyphs = Array.prototype.slice.call(document.querySelectorAll('.splash-glyph'));
-  glyphs
-    .map((g) => ({ g: g, d: parseFloat(g.style.getPropertyValue('--d')) || 0 }))
-    .sort((a, b) => b.d - a.d)
-    .forEach((item, i) => {
-      item.g.style.setProperty('--d', (INTRO_TITLE_DELAY + i * INTRO_GLYPH_STAGGER) + 'ms');
-    });
+  scriviTempiIntro(stage);
+  preparaLogoIntro();
+  preparaTitoloIntro();
 
   // Le animazioni CSS non avanzano finche' la finestra non viene
   // disegnata, ed Electron la crea con show:false. Partendo a orologio
@@ -5238,9 +5262,12 @@ function runIntro() {
   const avvia = () => {
     if (avviata) return;
     avviata = true;
+    // La misura va presa ora, a pagina impaginata: e' la larghezza vera
+    // del titolo che decide di quanto il logo parte spostato.
+    misuraSpostamentoLogo(stage);
     void stage.offsetWidth;
     stage.classList.add('playing');
-    introTimer = setTimeout(closeIntro, INTRO_HOLD);
+    introTimer = setTimeout(closeIntro, INTRO.attesa);
   };
   requestAnimationFrame(() => requestAnimationFrame(avvia));
   // ...ma non oltre questo limite, se la finestra restasse nascosta:
@@ -5248,6 +5275,73 @@ function runIntro() {
   setTimeout(avvia, 1200);
   screen.addEventListener('click', closeIntro);
   document.addEventListener('keydown', introKeyHandler);
+}
+
+/** I tempi della sequenza arrivano al CSS da qui: unica fonte. */
+function scriviTempiIntro(stage) {
+  const ms = (n) => n + 'ms';
+  stage.style.setProperty('--t-traccia-dur', ms(INTRO.tracciaDur));
+  stage.style.setProperty('--t-riempi', ms(INTRO.riempi));
+  stage.style.setProperty('--t-riempi-dur', ms(INTRO.riempiDur));
+  stage.style.setProperty('--t-posa-dur', ms(INTRO.posaDur));
+  stage.style.setProperty('--t-slitta', ms(INTRO.slitta));
+  stage.style.setProperty('--t-slitta-dur', ms(INTRO.slittaDur));
+  stage.style.setProperty('--t-glifo-dur', ms(INTRO.glifoDur));
+  stage.style.setProperty('--t-sotto', ms(INTRO.sotto));
+  stage.style.setProperty('--t-sotto-dur', ms(INTRO.sottoDur));
+}
+
+/** pathLength=1 normalizza la lunghezza del tracciato a 1, cosi'
+ *  stroke-dashoffset funziona su qualunque geometria. E' anche cio' che
+ *  rende superfluo getTotalLength(), che sui tracciati compositi (le
+ *  lettere con i fori) restituiva valori sbagliati. */
+function preparaLogoIntro() {
+  document.querySelectorAll('.splash-logo-svg-wrap path').forEach((path) => {
+    path.setAttribute('pathLength', '1');
+    path.classList.add('splash-logo-path');
+  });
+}
+
+/** Il titolo si compone da sinistra a destra, nel verso di lettura.
+ *  L'ordine e' quello delle ascisse vere, non quello dei nodi: le
+ *  lettere con un foro (R, o, a, d) sono tracciati compositi e nel
+ *  documento stanno in un ordine che sull'asse x torna indietro dodici
+ *  volte su cinquanta. Seguendo i nodi, il titolo si ricomponeva a
+ *  chiazze, con parole gia' piene e lettere precedenti ancora vuote.
+ *  I tracciati che condividono la stessa ascissa entrano insieme, che
+ *  e' quello che si vuole: il contorno e il suo foro sono una lettera
+ *  sola. */
+function preparaTitoloIntro() {
+  const glifi = Array.prototype.slice.call(document.querySelectorAll('.splash-glyph'));
+  const voci = glifi.map((g, i) => {
+    let x = null;
+    // getBBox non esiste sugli elementi non resi: in quel caso si ricade
+    // sull'ordine dei nodi, che e' comunque una sequenza sensata.
+    try { x = g.getBBox().x; } catch (_) { x = null; }
+    return { g: g, x: isFinite(x) ? x : i, doc: i };
+  });
+  voci.sort((a, b) => (a.x - b.x) || (a.doc - b.doc));
+
+  let passo = -1;
+  let xPrec = null;
+  voci.forEach((voce) => {
+    // stessa ascissa, stesso turno
+    if (xPrec === null || Math.abs(voce.x - xPrec) > 0.01) passo++;
+    xPrec = voce.x;
+    voce.g.style.setProperty('--d', (INTRO.glifo + passo * INTRO.glifoPasso) + 'ms');
+  });
+}
+
+/** Il logo parte al centro della finestra e scivola al suo posto.
+ *  Logo e titolo stanno gia' nelle posizioni finali: quello che si
+ *  anima e' solo lo scostamento della riga, pari a meta' dell'ingombro
+ *  del titolo. Cosi' nessuno dei due si muove per via del layout. */
+function misuraSpostamentoLogo(stage) {
+  const riga = document.querySelector('.splash-logo-row');
+  const titolo = el('splashTitleWrap');
+  if (!riga || !titolo) return;
+  const largo = titolo.getBoundingClientRect().width;
+  riga.style.setProperty('--spostamento', (largo / 2).toFixed(1) + 'px');
 }
 
 function introKeyHandler(ev) {
@@ -5345,9 +5439,9 @@ function popBarra() {
 
   if (PREFS.reduceMotion) { document.body.classList.remove('intro-in-corso'); return; }
 
+  elementi.forEach((e) => e.classList.remove('pop-barra'));
+  void document.body.offsetWidth;
   elementi.forEach((e, i) => {
-    e.classList.remove('pop-barra');
-    void e.offsetWidth;
     e.style.setProperty('--pop-delay', (i * BARRA_PASSO) + 'ms');
     e.classList.add('pop-barra');
   });
@@ -5385,16 +5479,23 @@ function popSections(view) {
   if (PREFS.reduceMotion) return;
   const root = el('view-' + view);
   if (!root) return;
-  const sezioni = root.querySelectorAll('.pop-section');
-  let i = 0;
-  sezioni.forEach((e) => {
-    // le sezioni non visibili (step del wizard nascosti) non contano
-    if (e.offsetParent === null) { e.classList.remove('popping'); return; }
-    e.classList.remove('popping');
-    void e.offsetWidth;
+  const sezioni = Array.prototype.slice.call(root.querySelectorAll('.pop-section'));
+
+  // Tre passate distinte: prima si legge, poi si toglie, poi si riscrive.
+  // Alternare letture e scritture sullo stesso elemento obbligava il
+  // motore a rifare il layout ad ogni giro del ciclo, e su una vista da
+  // cinquemila nodi erano quasi cinquecento millisecondi di blocco in
+  // mezzo al cambio di vista.
+  // Si toglie prima la classe a tutte, poi si leggono le visibilita'.
+  // Quell'unica lettura e' anche la riappacificazione che fa ripartire
+  // l'animazione: leggere prima e riappacificare dopo erano due passate
+  // di layout invece di una.
+  sezioni.forEach((e) => e.classList.remove('popping'));
+  // le sezioni non visibili (step del wizard nascosti) non contano
+  const visibili = sezioni.filter((e) => e.offsetParent !== null);
+  visibili.forEach((e, i) => {
     e.style.setProperty('--pop-delay', (i * POP_STEP) + 'ms');
     e.classList.add('popping');
-    i++;
   });
 }
 
