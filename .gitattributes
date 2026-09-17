@@ -1,0 +1,15 @@
+# I sorgenti stanno nel repository con fine riga Unix e restano tali anche
+# sui cloni Windows: cosi' un checkout non cambia ogni riga di ogni file e
+# i confronti restano leggibili.
+*.js   text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.css  text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+*.nsh  text eol=lf
+
+# Binari: mai toccati.
+*.ico  binary
+*.png  binary
+*.bmp  binary

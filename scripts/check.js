@@ -85,7 +85,12 @@ esito(mancanti.length === 0, 'ogni id usato dal JS esiste', mancanti.join(', '))
 
 // 8. nessun carattere di controllo nei sorgenti
 [['src/app.js', app], ['src/styles.css', css], ['main.js', main]].forEach(([nome, testo]) => {
-  const brutti = [...testo].filter((c) => c.charCodeAt(0) < 32 && c !== '\n' && c !== '\t');
+  // I fine riga alla Windows non sono un difetto: git li mette da solo
+  // a ogni checkout con core.autocrlf, e senza questa normalizzazione il
+  // controllo falliva su un clone appena fatto segnalando una riga storta
+  // per ogni riga del file.
+  const brutti = [...testo.replace(/\r\n/g, '\n')]
+    .filter((c) => c.charCodeAt(0) < 32 && c !== '\n' && c !== '\t');
   esito(brutti.length === 0, 'nessun carattere di controllo in ' + nome, brutti.length || '');
 });
 
