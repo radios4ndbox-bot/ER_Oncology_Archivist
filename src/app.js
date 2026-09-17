@@ -123,11 +123,21 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 }
 
-function calcAge(dob) {
+/** Età alla data indicata (ISO yyyy-mm-dd); senza riferimento, a oggi.
+ *  Su una scheda d'esame l'età che conta è quella al momento dell'esame:
+ *  calcolarla sempre a oggi faceva invecchiare i record archiviati a ogni
+ *  apertura del programma, e lo stesso archivio esportato a un anno di
+ *  distanza dava numeri diversi. */
+function calcAge(dob, riferimento) {
   if (!dob) return null;
   const b = new Date(dob + 'T00:00:00');
   if (isNaN(b.getTime())) return null;
-  const n = new Date();
+  let n = null;
+  if (riferimento) {
+    const rif = new Date(riferimento + 'T00:00:00');
+    if (!isNaN(rif.getTime())) n = rif;
+  }
+  if (!n) n = new Date();
   let a = n.getFullYear() - b.getFullYear();
   if (n < new Date(n.getFullYear(), b.getMonth(), b.getDate())) a--;
   if (a < 0 || a > 130) return null;
@@ -300,7 +310,7 @@ function normalizeRecord(raw, indice) {
     createdAt: created,
     updatedAt: num(raw.updatedAt) || created
   };
-  rec.eta = calcAge(rec.dob);
+  rec.eta = calcAge(rec.dob, rec.data);
   return rec;
 }
 
@@ -941,10 +951,19 @@ let currentView = 'wizard';
 function showView(name) {
   if (VIEW_ORDER.indexOf(name) === -1 || name === currentView) return;
   currentView = name;
-  applyViewState();
-  window.scrollTo(0, 0);
+
+  // Il contenuto della vista si costruisce PRIMA di muovere il binario.
+  // Prima lo scorrimento partiva subito e poi la tabella dell'archivio
+  // (oltre duecento righe) o i grafici delle statistiche bloccavano il
+  // filo principale: misurato su una postazione lenta, un fotogramma da
+  // 1133 ms in mezzo alla corsa. La vista scorreva mentre la si stava
+  // ancora costruendo, e si vedeva. Facendolo prima, l'attesa e' tutta
+  // all'inizio, ferma, e lo scorrimento poi e' pulito.
   if (name === 'stats') renderStats();
   if (name === 'db') applyFilters();
+
+  applyViewState();
+  window.scrollTo(0, 0);
   popSections(name);
   if (name === 'stats') avviaAnimazioniGrafici(true);
   if (name === 'db') animaArchivio();
@@ -1048,7 +1067,7 @@ function onNomeInput() {
 }
 
 function updateAge() {
-  const age = calcAge(val('w_dob'));
+  const age = calcAge(val('w_dob'), val('w_data'));
   const box = el('ageBox');
   if (box) {
     if (age !== null) { box.style.display = 'inline-flex'; el('ageVal').textContent = String(age); }
@@ -1203,7 +1222,7 @@ function buildReview() {
   const cognome = val('w_cognome');
   const sesso = val('w_sesso_override') || detectSesso(nome, cognome);
   const dob = val('w_dob');
-  const age = calcAge(dob);
+  const age = calcAge(dob, val('w_data'));
 
   el('rv_paz').textContent = (cognome + ' ' + nome).trim() || '—';
   el('rv_sesso').innerHTML = sesso === 'M'
@@ -2029,7 +2048,7 @@ function openDetail(id) {
     '<div class="det-section"><h4>Anagrafica</h4>' +
       detRow('Sesso', '<span class="badge badge-' + esc((r.sesso || 'u').toLowerCase()) + '">' +
         esc(r.sesso || 'N.D.') + '</span>') +
-      detRow('Data nascita / Età', esc(fmtDate(r.dob)) + (age !== null ? ' (' + age + ' anni)' : '')) +
+      detRow('Data nascita / Età all\u2019esame', esc(fmtDate(r.dob)) + (age !== null ? ' (' + age + ' anni)' : '')) +
       detRow('Prima diagnosi onco.', primaLabel(r.prima_onco)) +
     '</div>' +
     '<div class="det-section"><h4>Esame PS</h4>' +
@@ -2137,7 +2156,7 @@ function followupText(r) {
 function exportHeader(anonymous) {
   const head = anonymous ? [] : ['Cognome', 'Nome'];
   return head.concat([
-    'Sesso', 'Data nascita', 'Età', 'Data esame', 'Tipo esame', 'Richiesta PS',
+    'Sesso', 'Data nascita', 'Età all\u2019esame', 'Data esame', 'Tipo esame', 'Richiesta PS',
     'Prima diagnosi oncologica', 'Esito oncologico', 'Descrizione diagnosi',
     'Sede', 'Dimensioni', 'Classificazione tumore', 'Patologie associate',
     'Metastasi', 'Sede metastasi', 'Tumore primitivo', 'Anatomia patologica',
@@ -2184,7 +2203,7 @@ function statsSheet(src) {
     ['Esami esportati', tot],
     ['Diagnosi oncologiche', onco, pct(onco, tot, 1) + ' degli esami'],
     ['Sospetti', sosp, pct(sosp, tot, 1) + ' degli esami'],
-    ['Primo riscontro', primo, pct(primo, onco, 1) + ' delle diagnosi onco.'],
+    ['Primo riscontro', primo, pct(primo, onco + sosp, 1) + ' delle diagnosi onco.'],
     ['Prime diagnosi onco.', prima, pct(prima, tot, 1) + ' degli esami'],
     ['Metastasi', meta, pct(meta, onco + sosp, 1) + ' delle diagnosi onco.']
   ];
@@ -2353,6 +2372,14 @@ function kpiPeriodo(set) {
   };
 }
 
+/** Denominatore di "% delle diagnosi onco.". Primo riscontro e metastasi
+ *  si possono indicare sia su una diagnosi sia su un reperto sospetto:
+ *  il loro insieme di partenza è oncologici + sospetti. Rapportarli ai
+ *  soli oncologici gonfiava la percentuale e poteva superare il 100%. */
+function baseDiagnosi(k) {
+  return k.onco + k.sosp;
+}
+
 /** Spicchi della ciambella: si escludono a vicenda, quindi sommano al
  *  totale degli esami. Prima c'erano anche primo riscontro e metastasi,
  *  che sono sottoinsiemi delle diagnosi: il centro diceva 287 su 210. */
@@ -2423,12 +2450,12 @@ async function exportPPTX() {
         { valore: k.sosp, etichetta: 'Sospetti',
           nota: pct(k.sosp, k.tot, 1) + ' degli esami', colore: 'B86E00' },
         { valore: k.primo, etichetta: 'Primo riscontro',
-          nota: pct(k.primo, k.onco, 1) + ' delle diagnosi · unica patologia ' + k.unica +
+          nota: pct(k.primo, baseDiagnosi(k), 1) + ' delle diagnosi · unica patologia ' + k.unica +
                 ', associata ' + k.assoc, colore: 'C2185B' },
         { valore: k.prima, etichetta: 'Prime diagnosi',
           nota: pct(k.prima, k.tot, 1) + ' degli esami', colore: 'A82255' },
         { valore: k.meta, etichetta: 'Metastasi',
-          nota: pct(k.meta, k.onco, 1) + ' delle diagnosi oncologiche', colore: '8B1A1A' }
+          nota: pct(k.meta, baseDiagnosi(k), 1) + ' delle diagnosi oncologiche', colore: '8B1A1A' }
       ]
     });
 
@@ -3402,11 +3429,13 @@ function animaArchivio() {
 
   const base = ritardoDi(vista.querySelector('.tbl-wrap')) + 220;
   const righe = Array.prototype.slice.call(body.querySelectorAll('tr'), 0, 24);
+  // come in popSections: si toglie a tutte, si rifa' il layout una volta
+  // sola, poi si riscrive a tutte
+  righe.forEach((r) => r.classList.remove('riga-entra'));
+  void body.offsetWidth;
   righe.forEach((r, i) => {
-    r.classList.remove('riga-entra');
     r.style.setProperty('--i', String(i));
     r.style.setProperty('--ritardo', base + 'ms');
-    void r.offsetWidth;
     r.classList.add('riga-entra');
   });
   setTimeout(() => righe.forEach((r) => r.classList.remove('riga-entra')), base + righe.length * 24 + 600);
@@ -3453,6 +3482,7 @@ function renderStats() {
   const meta = set.filter((r) => r.metastasi === 'si').length;
   const unica = set.filter((r) => r.sottocat === 'unica').length;
   const assoc = set.filter((r) => r.sottocat === 'associata').length;
+  const baseOnco = onco + sospetti;
 
   cards.innerHTML =
     '<div class="stat-big"><div class="sb-num" data-n="' + tot + '">' + tot + '</div>' +
@@ -3465,15 +3495,15 @@ function renderStats() {
       ' tot. · ' + pct(prima, onco, 1) + ' onco.)<br>Sospetti: <strong>' + sospetti +
       '</strong> (' + pct(sospetti, tot, 1) + ' degli esami)</div></div>' +
     '<div class="stat-big"><div class="sb-num sb-onco" data-n="' + primo + '">' + primo + '</div>' +
-      '<div class="sb-pct">' + pct(primo, onco, 1) + ' delle diagnosi onco.</div>' +
+      '<div class="sb-pct">' + pct(primo, baseOnco, 1) + ' delle diagnosi onco.</div>' +
       '<div class="sb-label">Primo riscontro</div>' +
       '<div class="sb-sub">Unica patologia: <strong>' + unica + '</strong> · Con comorbidità: <strong>' +
       assoc + '</strong></div></div>' +
     '<div class="stat-big"><div class="sb-num sb-red" data-n="' + meta + '">' + meta + '</div>' +
-      '<div class="sb-pct">' + pct(meta, onco, 1) + ' delle diagnosi onco.</div>' +
+      '<div class="sb-pct">' + pct(meta, baseOnco, 1) + ' delle diagnosi onco.</div>' +
       '<div class="sb-label">Metastasi</div>' +
-      '<div class="sb-sub">Primitive: <strong>' + Math.max(0, onco - meta) + '</strong> (' +
-      pct(Math.max(0, onco - meta), onco, 1) + ' delle onco.)</div></div>';
+      '<div class="sb-sub">Primitive: <strong>' + Math.max(0, baseOnco - meta) + '</strong> (' +
+      pct(Math.max(0, baseOnco - meta), baseOnco, 1) + ' delle onco.)</div></div>';
 
   const mesiTot = {}, mesiOnco = {};
   set.forEach((r) => {
@@ -3614,10 +3644,20 @@ const DOCK_SCALE_MAX = 1.09;   // 40→60px sono 1.5x: su pillole di testo è tr
 const DOCK_LIFT = 2;           // px di sollevamento a piena magnificazione
 const DOCK_SPRING = { massa: 0.1, rigidita: 150, smorzamento: 12 };
 
+// Con Eulero semi-implicito questa molla è stabile solo finché il passo
+// resta sotto 2*massa/smorzamento = 16.7 ms. Un fotogramma a 60 Hz cade
+// esattamente sul limite: la velocità cambiava segno crescendo ad ogni
+// giro, le pillole schizzavano a scale enormi (anche negative), il testo
+// usciva dalla barra e le schede non si lasciavano più cliccare. Si
+// integra a passi fissi molto più corti del limite.
+const DOCK_PASSO = 1 / 240;    // s — passo fisso d'integrazione
+const DOCK_RITARDO_MAX = 0.05; // s — ritardo massimo recuperato in un giro
+
 let dockItems = [];
 let dockMouseX = Infinity;
 let dockRaf = null;
 let dockLastTs = 0;
+let dockResiduo = 0;
 
 function setupDock() {
   const dock = el('navDock');
@@ -3626,7 +3666,7 @@ function setupDock() {
     .map((e) => ({ e: e, valore: 1, velocita: 0 }));
 
   dock.addEventListener('pointermove', (ev) => {
-    if (PREFS.reduceMotion) return;
+    if (PREFS.reduceMotion) { resetDock(); return; }
     dockMouseX = ev.clientX;
     startDockLoop();
   });
@@ -3639,26 +3679,59 @@ function setupDock() {
 function startDockLoop() {
   if (dockRaf !== null) return;
   dockLastTs = 0;
+  dockResiduo = 0;
   dockRaf = requestAnimationFrame(dockTick);
 }
 
+/** Riporta subito le pillole a riposo: serve quando si spegne il moto
+ *  ridotto a puntatore fermo sul dock, che altrimenti le lascerebbe
+ *  ingrandite per sempre. */
+function resetDock() {
+  dockMouseX = Infinity;
+  dockResiduo = 0;
+  if (dockRaf !== null) { cancelAnimationFrame(dockRaf); dockRaf = null; }
+  dockItems.forEach((it) => {
+    it.valore = 1;
+    it.velocita = 0;
+    it.e.style.transform = '';
+  });
+}
+
 function dockTick(ts) {
-  const dt = dockLastTs ? Math.min((ts - dockLastTs) / 1000, 0.032) : 0.016;
+  // Il tempo trascorso si consuma a passi fissi; il resto si riporta al
+  // giro dopo, così l'animazione non dipende dalla cadenza dello schermo.
+  const trascorso = dockLastTs ? (ts - dockLastTs) / 1000 : DOCK_PASSO;
   dockLastTs = ts;
+  dockResiduo = Math.min(dockResiduo + Math.max(trascorso, 0), DOCK_RITARDO_MAX);
+  const passi = Math.floor(dockResiduo / DOCK_PASSO);
+  dockResiduo -= passi * DOCK_PASSO;
+
+  // offsetLeft/offsetWidth ignorano le transform: i centri restano quelli
+  // a riposo e la magnificazione non si dà da mangiare da sola.
+  const dock = el('navDock');
+  const base = dock ? dock.getBoundingClientRect().left : 0;
 
   let inMovimento = false;
   dockItems.forEach((it) => {
-    const r = it.e.getBoundingClientRect();
-    const centro = r.left + r.width / 2;
+    const centro = base + it.e.offsetLeft + it.e.offsetWidth / 2;
     const d = Math.abs(dockMouseX - centro);
     // interpolazione lineare come il loro useTransform([-dist,0,dist])
     const t = d >= DOCK_DISTANCE || !isFinite(d) ? 0 : 1 - d / DOCK_DISTANCE;
     const obiettivo = 1 + (DOCK_SCALE_MAX - 1) * t;
 
-    const a = (DOCK_SPRING.rigidita * (obiettivo - it.valore)
-               - DOCK_SPRING.smorzamento * it.velocita) / DOCK_SPRING.massa;
-    it.velocita += a * dt;
-    it.valore += it.velocita * dt;
+    for (let i = 0; i < passi; i++) {
+      const a = (DOCK_SPRING.rigidita * (obiettivo - it.valore)
+                 - DOCK_SPRING.smorzamento * it.velocita) / DOCK_SPRING.massa;
+      it.velocita += a * DOCK_PASSO;
+      it.valore += it.velocita * DOCK_PASSO;
+    }
+
+    // La molla è sovrasmorzata e non supera mai gli estremi: il vincolo
+    // non si vede, ma garantisce che nessun conto storto possa più
+    // stendere una pillola sopra il resto della barra.
+    if (!isFinite(it.valore)) { it.valore = obiettivo; it.velocita = 0; }
+    if (it.valore < 1) { it.valore = 1; if (it.velocita < 0) it.velocita = 0; }
+    if (it.valore > DOCK_SCALE_MAX) { it.valore = DOCK_SCALE_MAX; if (it.velocita > 0) it.velocita = 0; }
 
     if (Math.abs(obiettivo - it.valore) > 0.0008 || Math.abs(it.velocita) > 0.0008) {
       inMovimento = true;
@@ -4487,7 +4560,7 @@ function vociGiorni(maxG) {
 }
 
 function ecoRulli() {
-  const eta = calcAge(isoRulli());
+  const eta = calcAge(isoRulli(), val('w_data'));
   return fmtDate(isoRulli()) + (eta !== null ? ' · ' + eta + ' anni' : '');
 }
 
@@ -4943,6 +5016,9 @@ function savePrefs() {
 function applyPrefs() {
   document.body.classList.toggle('dense', PREFS.dense);
   document.body.classList.toggle('reduce-motion', PREFS.reduceMotion);
+  // a moto ridotto le pillole del dock tornano subito a riposo: senza il
+  // ciclo d'animazione nessuno le rimetterebbe a posto
+  if (PREFS.reduceMotion) resetDock();
   document.querySelectorAll('[data-act="pref"]').forEach((btn) => {
     const chiave = btn.getAttribute('data-pref');
     btn.setAttribute('aria-checked', PREFS[chiave] ? 'true' : 'false');
@@ -5115,18 +5191,43 @@ function setupSettings() {
 // ══════════════════════════════════════════════════════════════════
 //  SPLASH E TRANSIZIONI
 // ══════════════════════════════════════════════════════════════════
-// Ritardi della sequenza. Il totale e' volutamente contenuto: e' uno
-// strumento che si apre molte volte per turno, un'intro lunga e' attrito.
-const INTRO_TITLE_DELAY = 580;    // quando parte il primo glifo
-const INTRO_GLYPH_STAGGER = 17;   // sfalsamento fra un glifo e il successivo
-const INTRO_HOLD = 2650;          // quando parte la dissolvenza di uscita
-const INTRO_FLIGHT = 800;         // volo del logo verso la nav
+// ══════════════════════════════════════════════════════════════════
+//  INTRO — la sequenza, in un posto solo
+//
+//  Ogni voce e' un millisecondo dall'inizio dell'intro, o una durata.
+//  Le durate che servono anche al CSS gli vengono passate da
+//  scriviTempiIntro() come proprieta' --t-*: prima meta' dei ritardi
+//  stava qui e meta' scritta a mano nel CSS, e cambiarne uno sfasava
+//  silenziosamente l'altro.
+//
+//  Il totale e' volutamente contenuto: e' uno strumento che si apre
+//  molte volte per turno, un'intro lunga e' attrito.
+// ══════════════════════════════════════════════════════════════════
+const INTRO = {
+  // atto I — il logo si disegna al centro
+  tracciaDur: 650,        // il tracciato si scrive
+  riempi: 250,            // quando entra il riempimento
+  riempiDur: 450,
+  posaDur: 620,           // il logo si assesta alla sua scala finale
+
+  // atto II — il logo scivola a sinistra, il titolo si compone
+  slitta: 760,            // quando il logo parte verso sinistra
+  slittaDur: 700,
+  glifo: 900,             // primo glifo
+  glifoPasso: 12,         // sfalsamento fra un glifo e il successivo
+  glifoDur: 340,
+
+  // atto III — il sottotitolo
+  sotto: 1600,
+  sottoDur: 600,
+
+  attesa: 2750,           // quando parte l'uscita
+  volo: 800               // volo del logo verso la barra
+};
+const INTRO_FLIGHT = INTRO.volo;
 const VELO_DURATA = 950;          // risalita della banda, come nel CSS
 const BARRA_PASSO = 55;           // cascata del contenuto della barra
 const POP_STEP = 90;              // cascata fra una sezione e la successiva
-const HEX_SIZE = 76;              // larghezza di un esagono, px
-const HEX_SPEED = 2.1;            // px al millisecondo del fronte d'onda
-const HEX_CELL_MS = 420;          // durata della sparizione di una cella
 
 let introTimer = null;
 let introClosed = false;
@@ -5149,24 +5250,9 @@ function runIntro() {
 
   document.body.classList.add('intro-in-corso');
 
-  // Logo: pathLength=1 normalizza la lunghezza del tracciato a 1, cosi'
-  // stroke-dashoffset funziona su qualunque geometria. E' anche cio' che
-  // rende superfluo getTotalLength(), che sui tracciati compositi (le
-  // lettere con i fori) restituiva valori sbagliati.
-  document.querySelectorAll('.splash-logo-svg-wrap path').forEach((path) => {
-    path.setAttribute('pathLength', '1');
-    path.classList.add('splash-logo-path');
-  });
-
-  // Titolo: i --d originali andavano da destra a sinistra. Si riordinano
-  // per far entrare le lettere nel verso di lettura.
-  const glyphs = Array.prototype.slice.call(document.querySelectorAll('.splash-glyph'));
-  glyphs
-    .map((g) => ({ g: g, d: parseFloat(g.style.getPropertyValue('--d')) || 0 }))
-    .sort((a, b) => b.d - a.d)
-    .forEach((item, i) => {
-      item.g.style.setProperty('--d', (INTRO_TITLE_DELAY + i * INTRO_GLYPH_STAGGER) + 'ms');
-    });
+  scriviTempiIntro(stage);
+  preparaLogoIntro();
+  preparaTitoloIntro();
 
   // Le animazioni CSS non avanzano finche' la finestra non viene
   // disegnata, ed Electron la crea con show:false. Partendo a orologio
@@ -5176,9 +5262,12 @@ function runIntro() {
   const avvia = () => {
     if (avviata) return;
     avviata = true;
+    // La misura va presa ora, a pagina impaginata: e' la larghezza vera
+    // del titolo che decide di quanto il logo parte spostato.
+    misuraSpostamentoLogo(stage);
     void stage.offsetWidth;
     stage.classList.add('playing');
-    introTimer = setTimeout(closeIntro, INTRO_HOLD);
+    introTimer = setTimeout(closeIntro, INTRO.attesa);
   };
   requestAnimationFrame(() => requestAnimationFrame(avvia));
   // ...ma non oltre questo limite, se la finestra restasse nascosta:
@@ -5186,6 +5275,73 @@ function runIntro() {
   setTimeout(avvia, 1200);
   screen.addEventListener('click', closeIntro);
   document.addEventListener('keydown', introKeyHandler);
+}
+
+/** I tempi della sequenza arrivano al CSS da qui: unica fonte. */
+function scriviTempiIntro(stage) {
+  const ms = (n) => n + 'ms';
+  stage.style.setProperty('--t-traccia-dur', ms(INTRO.tracciaDur));
+  stage.style.setProperty('--t-riempi', ms(INTRO.riempi));
+  stage.style.setProperty('--t-riempi-dur', ms(INTRO.riempiDur));
+  stage.style.setProperty('--t-posa-dur', ms(INTRO.posaDur));
+  stage.style.setProperty('--t-slitta', ms(INTRO.slitta));
+  stage.style.setProperty('--t-slitta-dur', ms(INTRO.slittaDur));
+  stage.style.setProperty('--t-glifo-dur', ms(INTRO.glifoDur));
+  stage.style.setProperty('--t-sotto', ms(INTRO.sotto));
+  stage.style.setProperty('--t-sotto-dur', ms(INTRO.sottoDur));
+}
+
+/** pathLength=1 normalizza la lunghezza del tracciato a 1, cosi'
+ *  stroke-dashoffset funziona su qualunque geometria. E' anche cio' che
+ *  rende superfluo getTotalLength(), che sui tracciati compositi (le
+ *  lettere con i fori) restituiva valori sbagliati. */
+function preparaLogoIntro() {
+  document.querySelectorAll('.splash-logo-svg-wrap path').forEach((path) => {
+    path.setAttribute('pathLength', '1');
+    path.classList.add('splash-logo-path');
+  });
+}
+
+/** Il titolo si compone da sinistra a destra, nel verso di lettura.
+ *  L'ordine e' quello delle ascisse vere, non quello dei nodi: le
+ *  lettere con un foro (R, o, a, d) sono tracciati compositi e nel
+ *  documento stanno in un ordine che sull'asse x torna indietro dodici
+ *  volte su cinquanta. Seguendo i nodi, il titolo si ricomponeva a
+ *  chiazze, con parole gia' piene e lettere precedenti ancora vuote.
+ *  I tracciati che condividono la stessa ascissa entrano insieme, che
+ *  e' quello che si vuole: il contorno e il suo foro sono una lettera
+ *  sola. */
+function preparaTitoloIntro() {
+  const glifi = Array.prototype.slice.call(document.querySelectorAll('.splash-glyph'));
+  const voci = glifi.map((g, i) => {
+    let x = null;
+    // getBBox non esiste sugli elementi non resi: in quel caso si ricade
+    // sull'ordine dei nodi, che e' comunque una sequenza sensata.
+    try { x = g.getBBox().x; } catch (_) { x = null; }
+    return { g: g, x: isFinite(x) ? x : i, doc: i };
+  });
+  voci.sort((a, b) => (a.x - b.x) || (a.doc - b.doc));
+
+  let passo = -1;
+  let xPrec = null;
+  voci.forEach((voce) => {
+    // stessa ascissa, stesso turno
+    if (xPrec === null || Math.abs(voce.x - xPrec) > 0.01) passo++;
+    xPrec = voce.x;
+    voce.g.style.setProperty('--d', (INTRO.glifo + passo * INTRO.glifoPasso) + 'ms');
+  });
+}
+
+/** Il logo parte al centro della finestra e scivola al suo posto.
+ *  Logo e titolo stanno gia' nelle posizioni finali: quello che si
+ *  anima e' solo lo scostamento della riga, pari a meta' dell'ingombro
+ *  del titolo. Cosi' nessuno dei due si muove per via del layout. */
+function misuraSpostamentoLogo(stage) {
+  const riga = document.querySelector('.splash-logo-row');
+  const titolo = el('splashTitleWrap');
+  if (!riga || !titolo) return;
+  const largo = titolo.getBoundingClientRect().width;
+  riga.style.setProperty('--spostamento', (largo / 2).toFixed(1) + 'px');
 }
 
 function introKeyHandler(ev) {
@@ -5283,12 +5439,26 @@ function popBarra() {
 
   if (PREFS.reduceMotion) { document.body.classList.remove('intro-in-corso'); return; }
 
+  elementi.forEach((e) => e.classList.remove('pop-barra'));
+  void document.body.offsetWidth;
   elementi.forEach((e, i) => {
-    e.classList.remove('pop-barra');
-    void e.offsetWidth;
     e.style.setProperty('--pop-delay', (i * BARRA_PASSO) + 'ms');
     e.classList.add('pop-barra');
   });
+
+  // Il fondino vive dentro il dock, quindi compariva insieme al
+  // contenitore: una pillola scura su una barra ancora vuota, per i
+  // tre quarti di secondo che le schede impiegavano ad arrivare. Si
+  // accende quando l'ultima scheda e' al suo posto, e scivola sotto
+  // quella attiva. Non gli si mette 'pop-barra': quell'animazione
+  // scrive transform, che qui porta la posizione orizzontale.
+  const fondino = el('navTabHighlight');
+  let ultimaScheda = -1;
+  elementi.forEach((e, i) => { if (e.classList.contains('dock-item')) ultimaScheda = i; });
+  if (fondino && ultimaScheda >= 0) {
+    fondino.classList.remove('ready');
+    setTimeout(() => fondino.classList.add('ready'), ultimaScheda * BARRA_PASSO + 260);
+  }
   // il fill "both" tiene nascosto ciascun elemento fino al suo turno:
   // si può togliere subito la classe che li nascondeva tutti
   document.body.classList.remove('intro-in-corso');
@@ -5309,16 +5479,23 @@ function popSections(view) {
   if (PREFS.reduceMotion) return;
   const root = el('view-' + view);
   if (!root) return;
-  const sezioni = root.querySelectorAll('.pop-section');
-  let i = 0;
-  sezioni.forEach((e) => {
-    // le sezioni non visibili (step del wizard nascosti) non contano
-    if (e.offsetParent === null) { e.classList.remove('popping'); return; }
-    e.classList.remove('popping');
-    void e.offsetWidth;
+  const sezioni = Array.prototype.slice.call(root.querySelectorAll('.pop-section'));
+
+  // Tre passate distinte: prima si legge, poi si toglie, poi si riscrive.
+  // Alternare letture e scritture sullo stesso elemento obbligava il
+  // motore a rifare il layout ad ogni giro del ciclo, e su una vista da
+  // cinquemila nodi erano quasi cinquecento millisecondi di blocco in
+  // mezzo al cambio di vista.
+  // Si toglie prima la classe a tutte, poi si leggono le visibilita'.
+  // Quell'unica lettura e' anche la riappacificazione che fa ripartire
+  // l'animazione: leggere prima e riappacificare dopo erano due passate
+  // di layout invece di una.
+  sezioni.forEach((e) => e.classList.remove('popping'));
+  // le sezioni non visibili (step del wizard nascosti) non contano
+  const visibili = sezioni.filter((e) => e.offsetParent !== null);
+  visibili.forEach((e, i) => {
     e.style.setProperty('--pop-delay', (i * POP_STEP) + 'ms');
     e.classList.add('popping');
-    i++;
   });
 }
 

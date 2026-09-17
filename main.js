@@ -520,7 +520,10 @@ function sanitizeFileName(name, forcedExt) {
   let base = typeof name === 'string' ? name : 'export';
   base = path.basename(base)
     .split('').filter(function (ch) { var c = ch.charCodeAt(0); return c >= 32 && c !== 127; }).join('')
-    .replace(/[<>:"/\|?*]/g, '_')
+    // La classe deve contenere anche la barra rovesciata: scritta \| il
+    // backslash sfuggiva la barra verticale invece di entrare nell'insieme,
+    // e su una piattaforma non Windows path.basename non la toglie.
+    .replace(/[<>:"/\\|?*]/g, '_')
     .slice(0, 120)
     .trim();
   if (!base || base === '.' || base === '..') base = 'export';

@@ -14,6 +14,8 @@ psonco-config.json
 # varie
 *.log
 *.tmp
+# schermate di prova: le immagini del progetto stanno in build/
+/*.png
 .DS_Store
 Thumbs.db
 
