@@ -159,12 +159,17 @@ premere**. Un click o un tasto qualsiasi la salta subito.
 1. Il logo SD si disegna e si riempie
 2. Il titolo entra a fuoco lettera per lettera, da sinistra
 3. Compare il sottotitolo
-4. Il logo **vola in alto a sinistra** e diventa il marchio della barra di
-   navigazione, mentre lo sfondo si dissolve
-5. **Solo a volo concluso** le sezioni compaiono una dopo l'altra, a 90 ms
-   di distanza — è l'`AnimatedList` di Magic UI: scala con origine in
-   alto e molla. La stessa comparsa si ripete ad ogni cambio vista, ad
-   ogni passo del wizard e all'apertura delle finestre modali.
+4. Il logo **vola in alto a sinistra e si porta su la pagina**: banda e
+   vista partono nello stesso istante, con la stessa durata e la stessa
+   curva del volo, e arrivano quando arriva lui. È un movimento solo —
+   il logo che trascina l'applicazione al suo posto
+5. All'atterraggio la banda si dissolve sulla barra (sotto c'è già la
+   barra vera, quindi il passaggio non si vede) e il contenuto della
+   barra compare a cascata. Le sezioni della pagina salgono insieme alla
+   banda, a 90 ms l'una dall'altra — è l'`AnimatedList` di Magic UI:
+   scala con origine in alto e molla. La stessa comparsa si ripete ad
+   ogni cambio vista, ad ogni passo del wizard e all'apertura delle
+   finestre modali.
 
 Circa 3,3 secondi in tutto. Il volo del logo usa la tecnica FLIP: si
 misura dove il logo si trova e dove deve atterrare, e si anima la sola

@@ -432,9 +432,13 @@ millisecondi in tutto — ma in stile, impaginazione e disegno.
 | F6 | cambiando vista si ridisegnavano tabella e grafici identici a prima | firma di dati, filtri e ordinamento: si ridisegna solo se è cambiato qualcosa | archivio: 271 ms → 67 ms di blocco |
 | F7 | letture e scritture del layout alternate (grafici, FLIP del pannello, sezioni) | raggruppate: prima tutte le letture, poi tutte le scritture | otto impaginazioni forzate → una |
 | F8 | i 51 tracciati del titolo restavano nel documento per sempre | la scena dell'intro si toglie dalla pagina quando ha finito | — |
+| F9 | il volo del logo e la risalita della pagina erano in fila: prima il logo atterrava, poi la pagina saliva — due movimenti staccati | partono insieme, stessa durata e stessa curva: il logo si porta su la pagina | scarto fra gli arrivi misurato in 22 ms, progresso identico al decimo di punto percentuale ad ogni campione |
+| F10 | `--t-salita`, la durata della risalita, finiva ereditata sulla vista che contiene tutta l'applicazione | registrata come non ereditata, come le altre | ricalcolo da 130 ms sparito dal fotogramma della partenza (CPU ×4) |
 
-A velocità normale l'intro non perde più un fotogramma (703 misurati,
-media 7,2 ms) e nessuna animazione dell'interfaccia supera i 25 ms.
+A velocità normale l'intro non perde più un fotogramma in nessuna delle
+quattro fasi (media 7,1 ms, nessun compito lungo del filo principale) e
+nessuna animazione dell'interfaccia supera i 25 ms. A CPU rallentata
+quattro volte resta un solo fotogramma da 28 ms in tutta la sequenza.
 
 ## Safety net: backup automatico e chiavetta
 

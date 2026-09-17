@@ -9,10 +9,14 @@
    conto era un ricalcolo da 242 ms (CPU rallentata otto volte) nel
    fotogramma in cui parte la risalita, e uno ad ogni cambio di vista.
    Nessuna di queste serve ai figli: chi la usa e' l'elemento stesso.
-   Restano ereditate, di proposito, --t-* (i tempi dell'intro, letti
-   dalle regole dei discendenti), --velo-corsa, --ritardo e --i, che i
-   grafici leggono dalle schede che li contengono. */
+   Restano ereditate, di proposito, --t-* dell'intro (letti dalle regole
+   dei discendenti: il volo del logo, il fondo e il fronte del velo),
+   --velo-corsa, --ritardo e --i, che i grafici leggono dalle schede che
+   li contengono. Fa eccezione --t-salita, che finisce sulla vista e la
+   usa solo lei: ereditata, costava un ricalcolo da 130 ms proprio nel
+   fotogramma in cui il logo parte e si porta su la pagina. */
 @property --salita      { syntax: '<length>'; inherits: false; initial-value: 0px; }
+@property --t-salita    { syntax: '<time>';   inherits: false; initial-value: 800ms; }
 @property --pop-delay   { syntax: '<time>';   inherits: false; initial-value: 0ms; }
 @property --d           { syntax: '<time>';   inherits: false; initial-value: 0ms; }
 @property --spostamento { syntax: '<length>'; inherits: false; initial-value: 0px; }
@@ -21,6 +25,11 @@
 
 :root {
   --splash-ease: cubic-bezier(.785,.135,.15,.86);
+  /* Curva del finale dell'intro. La usano insieme il logo che vola verso
+     la barra, la banda che sale e la pagina che sale con lei: stessa
+     curva e stessa durata sono cio' che fa leggere i tre movimenti come
+     uno solo, il logo che si porta su la pagina. */
+  --curva-traino: cubic-bezier(.65,0,.2,1);
   --bg:#F4F3EF; --surface:#FFFFFF; --surface2:#F9F8F5;
   --border:#E0DED7; --border2:#C8C6BE;
   --text:#18170F; --muted:#6B6A62; --faint:#A09E97;
@@ -944,7 +953,9 @@ body.printing #printRoot { display: block; }
 
 .splash-logo-btn.flying {
   transform-origin: top left;
-  transition: transform .8s cubic-bezier(.2,.8,.24,1);
+  /* La durata la scrive runIntro() in --t-volo: e' la stessa della
+     risalita della pagina, e i due partono nello stesso istante. */
+  transition: transform var(--t-volo, 800ms) var(--curva-traino);
   will-change: transform;
 }
 
@@ -1230,9 +1241,18 @@ body.reduce-motion .cal-panel.open { animation: none; opacity: 1; transform: non
   opacity: 0;
 }
 
-#hexReveal.revealing { animation: veloSale .95s cubic-bezier(.65,0,.2,1) forwards; will-change: transform, opacity; }
-#hexReveal.revealing .velo-sfondo { animation: veloSfondoVia .95s cubic-bezier(.65,0,.2,1) forwards; }
-#hexReveal.revealing .velo-fronte { animation: veloFronte .95s cubic-bezier(.65,0,.2,1) forwards; }
+/* Due animazioni invece di una con i fotogrammi chiave a percentuale:
+   la banda sale per --t-velo (esattamente quanto dura il volo del logo)
+   e solo dopo, arrivata sulla barra, si dissolve per --t-velo-via.
+   Con le percentuali i due tempi erano legati fra loro, e cambiare la
+   durata del volo spostava anche la dissolvenza. */
+#hexReveal.revealing {
+  animation: veloSale var(--t-velo, 800ms) var(--curva-traino) forwards,
+             veloSvanisce var(--t-velo-via, 340ms) ease-out var(--t-velo, 800ms) forwards;
+  will-change: transform, opacity;
+}
+#hexReveal.revealing .velo-sfondo { animation: veloSfondoVia var(--t-velo, 800ms) var(--curva-traino) forwards; }
+#hexReveal.revealing .velo-fronte { animation: veloFronte var(--t-velo, 800ms) ease forwards; }
 
 /* La banda sale spostandosi, non tagliandosi.
    Prima il bordo inferiore si alzava con clip-path: un ritaglio che
@@ -1244,21 +1264,22 @@ body.reduce-motion .cal-panel.open { animation: none; opacity: 1; transform: non
    --velo-corsa e' la distanza fra il fondo della finestra e la barra,
    la stessa che percorre la pagina. */
 @keyframes veloSale {
-  0%   { transform: translate3d(0, 0, 0); opacity: 1; }
-  62%  { transform: translate3d(0, calc(-1 * var(--velo-corsa, 94vh)), 0); opacity: 1; }
-  100% { transform: translate3d(0, calc(-1 * var(--velo-corsa, 94vh)), 0); opacity: 0; }
+  to { transform: translate3d(0, calc(-1 * var(--velo-corsa, 94vh)), 0); }
 }
+/* arrivata sulla barra, la banda si dissolve: sotto c'e' gia' la barra
+   vera, quindi il passaggio non si vede */
+@keyframes veloSvanisce { to { opacity: 0; } }
 /* Il fondo scorre al contrario, cosi' la sfumatura resta ferma nella
-   finestra mentre la banda sale, come quando era un ritaglio. */
+   finestra mentre la banda sale, come quando era un ritaglio; e si
+   spegne durante la salita, per arrivare sulla barra gia' del colore
+   della barra. */
 @keyframes veloSfondoVia {
-  0%   { opacity: 1; transform: translate3d(0, 0, 0); }
-  62%  { opacity: 0; transform: translate3d(0, var(--velo-corsa, 94vh), 0); }
-  100% { opacity: 0; transform: translate3d(0, var(--velo-corsa, 94vh), 0); }
+  to { opacity: 0; transform: translate3d(0, var(--velo-corsa, 94vh), 0); }
 }
 @keyframes veloFronte {
   0%   { opacity: 0; }
-  8%   { opacity: 1; }
-  58%  { opacity: 1; }
+  10%  { opacity: 1; }
+  82%  { opacity: 1; }
   100% { opacity: 0; }
 }
 
@@ -1725,9 +1746,7 @@ body.reduce-motion .pan.attivo { transition: none; animation: none; }
    --salita e' la distanza fra il fondo della finestra e la barra.
    ══════════════════════════════════════════════════════════════════ */
 @keyframes paginaSale {
-  0%   { transform: translateY(var(--salita, 100vh)); }
-  62%  { transform: translateY(0); }
-  100% { transform: translateY(0); }
+  from { transform: translateY(var(--salita, 100vh)); }
 }
 /* La classe sta sulla vista, non sul body. Una classe che cambia sul
    body obbliga il motore a passare in rassegna tutti i nodi della
@@ -1735,7 +1754,7 @@ body.reduce-motion .pan.attivo { transition: none; animation: none; }
    volte, 224 ms di ricalcolo proprio nel fotogramma in cui parte la
    risalita. Sull'elemento giusto il ricalcolo e' immediato. */
 .views-port.sale {
-  animation: paginaSale .95s cubic-bezier(.65,0,.2,1) both;
+  animation: paginaSale var(--t-salita, 800ms) var(--curva-traino) both;
   will-change: transform;
 }
 

@@ -5268,17 +5268,22 @@ const INTRO = {
   sottoDur: 600,
 
   attesa: 2750,           // quando parte l'uscita
-  volo: 800               // volo del logo verso la barra
+
+  // atto IV — il logo se ne va in alto a sinistra e si porta su la
+  // pagina. Volo, banda e pagina partono insieme, durano lo stesso e
+  // seguono la stessa curva: sono un movimento solo.
+  volo: 800,
+  dissolvenzaVelo: 340    // arrivata sulla barra, la banda si dissolve
 };
-const INTRO_FLIGHT = INTRO.volo;
-const VELO_DURATA = 950;          // risalita della banda, come nel CSS
 const BARRA_PASSO = 55;           // cascata del contenuto della barra
 const POP_STEP = 90;              // cascata fra una sezione e la successiva
 const ATTESA_AVVIO = 1500;        // quanto si aspetta l'archivio prima di partire
 
 let introTimer = null;
 let introClosed = false;
-let hexCells = null;
+/** true mentre la banda sta salendo: da li' dipende cosa fare
+ *  all'atterraggio del logo. */
+let veloInCorso = false;
 
 /** Segna l'intro in corso sui soli contenitori interessati: barra,
  *  colonna delle icone, pie' di pagina. Sul body costerebbe un
@@ -5376,6 +5381,7 @@ function scriviTempiIntro(stage) {
   stage.style.setProperty('--t-glifo-dur', ms(INTRO.glifoDur));
   stage.style.setProperty('--t-sotto', ms(INTRO.sotto));
   stage.style.setProperty('--t-sotto-dur', ms(INTRO.sottoDur));
+  stage.style.setProperty('--t-volo', ms(INTRO.volo));
 }
 
 /** pathLength=1 normalizza la lunghezza del tracciato a 1, cosi'
@@ -5470,28 +5476,40 @@ function closeIntro() {
 
   if (!screen || !volo) { finishIntro(); return; }
 
-  hexCells = buildHexVeil();
+  // Le misure della risalita si prendono qui, insieme a quelle del volo,
+  // prima di toccare qualunque classe: lette dopo, ogni lettura
+  // costringerebbe il motore a rifare subito l'impaginazione dell'intera
+  // pagina, e cadrebbe nel fotogramma in cui parte tutto.
+  const misure = misuraVelo();
+
   screen.classList.add('exiting');
   logoBtn.classList.add('flying');
   logoBtn.style.transform =
     'translate(' + volo.dx.toFixed(2) + 'px, ' + volo.dy.toFixed(2) + 'px)' +
     ' scale(' + volo.scala.toFixed(4) + ')';
 
-  setTimeout(finishIntro, INTRO_FLIGHT);
+  // Il logo non aspetta di essere atterrato per far salire la pagina: la
+  // tira su con se'. Banda e pagina partono in questo stesso fotogramma,
+  // con la durata e la curva del volo, e arrivano quando arriva lui.
+  veloInCorso = armaVelo() && avviaVelo(misure);
+
+  setTimeout(finishIntro, INTRO.volo);
 }
 
-/** Atterraggio. Il logo volante resta fermo al suo posto, sopra il
- *  velo, finché la banda non si è dissolta sulla barra: il logo della
- *  barra, sotto, sarebbe ancora coperto. Solo allora i due si scambiano
- *  in un fotogramma: coincidono al pixel, quindi non si vede nulla. */
+/** Atterraggio: il logo e' arrivato sulla barra, e con lui la pagina.
+ *  Il logo volante resta pero' fermo al suo posto, sopra il velo, finche'
+ *  la banda non si è dissolta sulla barra: il logo della barra, sotto,
+ *  sarebbe ancora coperto. Solo allora i due si scambiano in un
+ *  fotogramma: coincidono al pixel, quindi non si vede nulla. */
 function finishIntro() {
   const navLogo = el('navLogo');
   if (navLogo) navLogo.classList.add('landed');
 
-  if (hexCells) {
-    const durata = revealFromHex();
-    hexCells = null;
-    setTimeout(chiudiSplash, durata);
+  if (veloInCorso) {
+    veloInCorso = false;
+    // la banda diventa barra mentre si dissolve: da qui la barra si popola
+    setTimeout(popBarra, 30);
+    setTimeout(chiudiSplash, INTRO.dissolvenzaVelo);
   } else {
     chiudiSplash();
     popBarra();
@@ -5611,11 +5629,11 @@ function applicaPop(visibili) {
 }
 
 
-/** Arma il velo che copre l'applicazione. Si prepara mentre il logo
- *  vola, così a fine volo la risalita parte senza scatti. */
-function buildHexVeil() {
+/** Arma il velo che copre l'applicazione: lo accende fermo, un
+ *  fotogramma prima di farlo salire. */
+function armaVelo() {
   const veil = el('hexReveal');
-  if (!veil || PREFS.reduceMotion) return null;
+  if (!veil || PREFS.reduceMotion) return false;
   veil.classList.remove('revealing');
   veil.classList.add('armed');
   return true;
@@ -5623,43 +5641,60 @@ function buildHexVeil() {
 
 /** La banda risale dal bordo inferiore trascinando la pagina, vira al
  *  nero salendo e si ferma sull'altezza della barra, dove si dissolve
- *  sulla barra vera. Consolidata la barra, il suo contenuto compare a
- *  cascata. */
-function revealFromHex() {
-  const veil = el('hexReveal');
-  if (!veil) { popBarra(); popSections(currentView); return 0; }
-
-  // ── prima tutte le letture ──
-  // Le classi qui sotto cambiano mezza pagina: leggere dopo averle
-  // messe costringerebbe il motore a rifare subito l'impaginazione, in
-  // mezzo al fotogramma in cui parte la risalita.
+ *  sulla barra vera.
+ *
+ *  Parte nello stesso fotogramma in cui parte il volo del logo e dura
+ *  quanto lui: e' il logo che se la porta su. Prima la pagina cominciava
+ *  a salire solo a logo atterrato, e si vedevano due movimenti staccati
+ *  invece di uno. */
+/** Sola lettura: quanto deve salire la pagina e quali sezioni animare. */
+function misuraVelo() {
   const nav = document.querySelector('nav');
   const altezzaNav = nav ? nav.getBoundingClientRect().height : 52;
-  const H = window.innerHeight;
-  const sezioni = sezioniVisibili(currentView);
+  return {
+    corsa: Math.round(window.innerHeight - altezzaNav),
+    sezioni: sezioniVisibili(currentView)
+  };
+}
 
-  // ── poi tutte le scritture ──
-  veil.style.setProperty('--velo-corsa', Math.round(H - altezzaNav) + 'px');
+/** Sola scrittura: fa partire banda, pagina e sezioni. */
+function avviaVelo(misure) {
+  const veil = el('hexReveal');
+  if (!veil) return false;
+  const corsa = misure.corsa + 'px';
+
+  veil.style.setProperty('--velo-corsa', corsa);
+  veil.style.setProperty('--t-velo', INTRO.volo + 'ms');
+  veil.style.setProperty('--t-velo-via', INTRO.dissolvenzaVelo + 'ms');
   // la pagina parte dal fondo della finestra e arriva sotto la barra.
   // La proprieta' sta sulla vista e non sul body: una variabile che
   // cambia sul body si eredita ovunque, e ovunque va ricalcolata.
   const porta = el('viewsPort');
-  if (porta) porta.style.setProperty('--salita', Math.round(H - altezzaNav) + 'px');
+  if (porta) {
+    porta.style.setProperty('--salita', corsa);
+    porta.style.setProperty('--t-salita', INTRO.volo + 'ms');
+  }
 
-  void veil.offsetWidth;
   veil.classList.add('revealing');
   if (porta) porta.classList.add('sale');
 
   // le schede arrivano trascinate dalla banda, con la loro molla
-  applicaPop(sezioni);
-  // la banda diventa barra al 62% della corsa: da lì la barra si popola
-  setTimeout(popBarra, Math.round(VELO_DURATA * 0.62) + 30);
+  applicaPop(misure.sezioni);
 
+  // A banda dissolta non resta niente acceso: il velo copre tutta la
+  // finestra, e lasciarlo promosso a livello proprio costerebbe memoria
+  // video per sempre.
   setTimeout(() => {
     veil.classList.remove('armed', 'revealing');
-    if (porta) { porta.classList.remove('sale'); porta.style.removeProperty('--salita'); }
-  }, VELO_DURATA + 60);
-  return VELO_DURATA;
+    veil.style.removeProperty('--t-velo');
+    veil.style.removeProperty('--t-velo-via');
+    if (porta) {
+      porta.classList.remove('sale');
+      porta.style.removeProperty('--salita');
+      porta.style.removeProperty('--t-salita');
+    }
+  }, INTRO.volo + INTRO.dissolvenzaVelo + 60);
+  return true;
 }
 
 /** Copia del logo SD nella barra di navigazione. */
