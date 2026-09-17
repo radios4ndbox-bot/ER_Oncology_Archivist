@@ -35,9 +35,15 @@ delle impostazioni di sicurezza in `main.js`. Se uno fallisce non si compila.
 
 ### Build di prova
 
-Push su `main` (o *Actions → Build Windows → Run workflow*). Al termine si
-scarica l'artifact **`ER-Oncology-Archivist-Windows`**, che resta
-disponibile 30 giorni e richiede di essere loggati su GitHub.
+*Actions → Build Windows → Run workflow*. Al termine si scarica l'artifact
+**`ER-Oncology-Archivist-Windows`** (serve essere loggati su GitHub).
+
+Gli eseguibili pesano ~100 MB l'uno e lo spazio artifact incluso nel piano
+è 500 MB, quindi l'artifact resta disponibile **un giorno**: scaricalo
+subito o rilancia il workflow. I push ordinari su `main` compilano lo
+stesso — così un errore si vede — ma conservano solo `SHA256SUMS.txt`.
+Gli eseguibili di una release restano invece allegati alla release, senza
+scadenza.
 
 ### Release scaricabile
 
