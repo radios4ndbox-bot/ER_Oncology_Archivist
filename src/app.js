@@ -945,6 +945,52 @@ function refreshViews() {
   renderStats();
 }
 
+// ══ Ridisegnare solo quando serve ══════════════════════════════════
+// Cambiare vista non deve ricostruire duecento righe di tabella o dieci
+// grafici identici a quelli di un attimo prima. Misurato a CPU
+// rallentata quattro volte: 271 ms di blocco per l'archivio e 306 per le
+// statistiche, cioe' il ritardo fra il clic sulla scheda e la partenza
+// dello scorrimento. Ora si ridisegna solo se dati, filtri o ordinamento
+// sono cambiati davvero.
+let firmaArchivio = null;
+let firmaStatistiche = null;
+
+/** Firma leggera dei dati: quanti esami, quanto recenti, piu' le
+ *  impostazioni condivise che cambiano quel che si vede. */
+function firmaDati() {
+  let ultimo = 0, somma = 0;
+  DB.forEach((r) => {
+    if (r.updatedAt > ultimo) ultimo = r.updatedAt;
+    somma = (somma + (r.updatedAt % 1000000007)) % 9007199254740;
+  });
+  return DB.length + ':' + ultimo + ':' + somma +
+         ':' + (tipiEsame.updatedAt || 0) +
+         ':' + (personalizzazione.updatedAt || 0);
+}
+
+function firmaArchivioOra() {
+  return [firmaDati(), val('fOnco'), val('fPrima'), val('fTipo'), val('fClassTumore'),
+          val('fMeta'), val('fSesso'), rawVal('fSearch').trim().toLowerCase(),
+          sortKey, sortDir].join('¦');
+}
+
+function firmaStatisticheOra() {
+  return [firmaDati(), val('sfDal'), val('sfAl'), val('sfTipo'), val('sfFocus'),
+          (noteGrafici.updatedAt || 0)].join('¦');
+}
+
+/** Ridisegna l'archivio solo se e' cambiato qualcosa. */
+function archivioSeServe() {
+  if (firmaArchivioOra() === firmaArchivio) return;
+  applyFilters();
+}
+
+/** Ridisegna le statistiche solo se e' cambiato qualcosa. */
+function statisticheSeServe() {
+  if (firmaStatisticheOra() === firmaStatistiche) return;
+  renderStats();
+}
+
 const VIEW_ORDER = ['wizard', 'db', 'stats'];
 let currentView = 'wizard';
 
@@ -959,12 +1005,17 @@ function showView(name) {
   // 1133 ms in mezzo alla corsa. La vista scorreva mentre la si stava
   // ancora costruendo, e si vedeva. Facendolo prima, l'attesa e' tutta
   // all'inizio, ferma, e lo scorrimento poi e' pulito.
-  if (name === 'stats') renderStats();
-  if (name === 'db') applyFilters();
+  if (name === 'stats') statisticheSeServe();
+  if (name === 'db') archivioSeServe();
+
+  // Quali sezioni animare si legge adesso, prima di toccare le classi
+  // delle viste: dopo, ogni lettura costringerebbe il motore a rifare
+  // subito l'impaginazione dell'intera pagina.
+  const sezioni = sezioniVisibili(name);
 
   applyViewState();
   window.scrollTo(0, 0);
-  popSections(name);
+  applicaPop(sezioni);
   if (name === 'stats') avviaAnimazioniGrafici(true);
   if (name === 'db') animaArchivio();
 }
@@ -1913,6 +1964,7 @@ function applyFilters() {
 
   renderTable();
   updateStatsBar();
+  firmaArchivio = firmaArchivioOra();
 }
 
 function resetFilters() {
@@ -3362,10 +3414,17 @@ let timerAnima = null;
 function avviaAnimazioniGrafici(dopoPop) {
   if (PREFS.reduceMotion) return;
   clearTimeout(timerAnima);
+  const grafici = GRAF_ANIMATI.map((id) => el(id)).filter(Boolean);
+
+  // Spegnere e riaccendere la classe grafico per grafico, leggendo ogni
+  // volta offsetWidth per far ripartire l'animazione, costava otto
+  // impaginazioni di fila nel fotogramma del cambio vista. Si spengono
+  // tutte, si rifà il layout una volta sola, si riaccendono tutte.
+  grafici.forEach((box) => box.classList.remove('anima'));
+  void document.body.offsetWidth;
+
   let ultimo = 0;
-  GRAF_ANIMATI.forEach((id) => {
-    const box = el(id);
-    if (!box) return;
+  grafici.forEach((box) => {
     let ritardo = 0;
     if (dopoPop) {
       const sez = box.classList.contains('pop-section') ? box : box.closest('.pop-section');
@@ -3373,8 +3432,6 @@ function avviaAnimazioniGrafici(dopoPop) {
     }
     ultimo = Math.max(ultimo, ritardo);
     box.style.setProperty('--ritardo', ritardo + 'ms');
-    box.classList.remove('anima');
-    void box.offsetWidth;
     box.classList.add('anima');
   });
   contaNumeri(dopoPop);
@@ -3542,6 +3599,7 @@ function renderStats() {
   renderTableSede(sediSorted, sediPrima, sediMeta, onco, sospetti, prima, meta);
   renderNote(set);
   azzeraSceltaGrafici();
+  firmaStatistiche = firmaStatisticheOra();
 }
 
 /** Attributi che rendono una riga di tabella un segno cliccabile, come
@@ -5051,19 +5109,33 @@ function toggleRail(pan) {
   const mobili = [el('navDock'), document.querySelector('.nav-right')].filter(Boolean);
   const prima = mobili.map((e) => e.getBoundingClientRect().left);
   document.body.classList.toggle('rail-aperto', !chiudi);
+  const pannello = el('railPannello');
+  if (pannello) pannello.classList.toggle('aperto', !chiudi);
+  const piede = document.querySelector('.app-footer');
+  if (piede) piede.classList.toggle('rail-aperto', !chiudi);
   if (!PREFS.reduceMotion) {
+    // Una lettura per tutti, poi le scritture, poi una sola
+    // riappacificazione: letture e scritture alternate obbligavano il
+    // motore a rifare l'impaginazione due volte per ogni elemento, e
+    // qui la pagina ha appena cambiato larghezza.
+    const dopo = mobili.map((e) => e.getBoundingClientRect().left);
+    const vp = el('viewsPort');
+    if (vp) vp.classList.remove('rientra');
+    const scostati = [];
     mobili.forEach((e, i) => {
-      const dx = prima[i] - e.getBoundingClientRect().left;
+      const dx = prima[i] - dopo[i];
       if (!dx) return;
       e.style.transition = 'none';
       e.style.transform = 'translateX(' + dx + 'px)';
-      void e.offsetWidth;
+      scostati.push(e);
+    });
+    void document.body.offsetWidth;
+    scostati.forEach((e) => {
       e.style.transition = 'transform .5s cubic-bezier(.22,1,.36,1)';
       e.style.transform = '';
       setTimeout(() => { e.style.transition = ''; }, 540);
     });
-    const vp = el('viewsPort');
-    if (vp) { vp.classList.remove('rientra'); void vp.offsetWidth; vp.classList.add('rientra'); }
+    if (vp) vp.classList.add('rientra');
   }
   // Solo i pulsanti con un pannello: Reparto apre una pagina e non ha
   // data-pan, e a pannelli chiusi "null === null" lo segnava selezionato.
@@ -5228,16 +5300,29 @@ const INTRO_FLIGHT = INTRO.volo;
 const VELO_DURATA = 950;          // risalita della banda, come nel CSS
 const BARRA_PASSO = 55;           // cascata del contenuto della barra
 const POP_STEP = 90;              // cascata fra una sezione e la successiva
+const ATTESA_AVVIO = 1500;        // quanto si aspetta l'archivio prima di partire
 
 let introTimer = null;
 let introClosed = false;
 let hexCells = null;
 
-/** Intro automatica: nessun click richiesto, ma interrompibile. */
-function runIntro() {
+/** Segna l'intro in corso sui soli contenitori interessati: barra,
+ *  colonna delle icone, pie' di pagina. Sul body costerebbe un
+ *  ricalcolo di stile dell'intera pagina, due volte per ogni avvio. */
+function segnaIntro(attiva) {
+  ['nav', '#sideRail', '.app-footer'].forEach((sel) => {
+    const e = document.querySelector(sel);
+    if (e) e.classList.toggle('intro-in-corso', attiva);
+  });
+}
+
+/** Prepara la scena, ferma. L'animazione non parte da qui: parte da
+ *  avviaQuandoPronto(), a costruzione dell'interfaccia finita.
+ *  Ritorna false se l'intro e' disattivata. */
+function preparaIntro() {
   const stage = el('splashStage');
   const screen = el('splashScreen');
-  if (!stage || !screen) return;
+  if (!stage || !screen) return false;
 
   // Chi apre il programma venti volte al giorno l'intro non la vuole.
   if (PREFS.skipIntro || PREFS.reduceMotion) {
@@ -5245,23 +5330,39 @@ function runIntro() {
     stage.classList.add('settled');
     if (el('navLogo')) el('navLogo').classList.add('landed');
     introClosed = true;
-    return;
+    return false;
   }
 
-  document.body.classList.add('intro-in-corso');
+  segnaIntro(true);
 
   scriviTempiIntro(stage);
   preparaLogoIntro();
   preparaTitoloIntro();
 
-  // Le animazioni CSS non avanzano finche' la finestra non viene
-  // disegnata, ed Electron la crea con show:false. Partendo a orologio
-  // l'intro verrebbe tagliata dei millisecondi passati da nascosta.
-  // Quindi: si parte al primo fotogramma davvero dipinto...
-  let avviata = false;
-  const avvia = () => {
-    if (avviata) return;
-    avviata = true;
+  screen.addEventListener('click', closeIntro);
+  document.addEventListener('keydown', introKeyHandler);
+  return true;
+}
+
+/** Il via all'animazione.
+ *
+ *  Sta qui la differenza fra un'intro fluida e una a scatti: quando
+ *  parte, il filo principale dev'essere libero. Costruire l'interfaccia
+ *  (il primo impaginamento di tutta la pagina, l'archivio, i grafici)
+ *  costa qualche decimo di secondo pieno, e prima quel lavoro cadeva in
+ *  mezzo all'atto I: misurato a CPU rallentata quattro volte, un
+ *  fotogramma da 306 ms proprio mentre il logo si disegna.
+ *  Ora si aspetta: la scena resta ferma sul fondo scuro mentre tutto si
+ *  costruisce, e l'animazione comincia dopo. L'attesa non si vede,
+ *  perche' non c'e' ancora niente da guardare. */
+function avviaQuandoPronto(dati) {
+  const stage = el('splashStage');
+  if (!stage || introClosed) return;
+
+  let partito = false;
+  const via = () => {
+    if (partito || introClosed) return;
+    partito = true;
     // La misura va presa ora, a pagina impaginata: e' la larghezza vera
     // del titolo che decide di quanto il logo parte spostato.
     misuraSpostamentoLogo(stage);
@@ -5269,12 +5370,23 @@ function runIntro() {
     stage.classList.add('playing');
     introTimer = setTimeout(closeIntro, INTRO.attesa);
   };
-  requestAnimationFrame(() => requestAnimationFrame(avvia));
-  // ...ma non oltre questo limite, se la finestra restasse nascosta:
-  // meglio un'intro non vista che restare bloccati sullo splash.
-  setTimeout(avvia, 1200);
-  screen.addEventListener('click', closeIntro);
-  document.addEventListener('keydown', introKeyHandler);
+
+  // L'impaginazione si forza qui, a scena ferma: cosi' il primo
+  // fotogramma dell'intro non se la trova davanti. Poi due giri di
+  // fotogramma, perche' le animazioni CSS non avanzano finche' la
+  // finestra non viene davvero dipinta (Electron la crea con show:false).
+  const pronto = () => {
+    if (partito || introClosed) return;
+    void document.body.offsetHeight;
+    requestAnimationFrame(() => requestAnimationFrame(via));
+  };
+
+  Promise.resolve(dati).catch(() => {}).then(pronto);
+  // Se la cartella e' su una share lenta, non si aspetta all'infinito.
+  setTimeout(pronto, ATTESA_AVVIO);
+  // Rete di sicurezza: se la finestra restasse nascosta i fotogrammi non
+  // arriverebbero mai. Meglio un'intro non vista che restare fermi qui.
+  setTimeout(via, ATTESA_AVVIO + 900);
 }
 
 /** I tempi della sequenza arrivano al CSS da qui: unica fonte. */
@@ -5398,11 +5510,8 @@ function closeIntro() {
  *  barra, sotto, sarebbe ancora coperto. Solo allora i due si scambiano
  *  in un fotogramma: coincidono al pixel, quindi non si vede nulla. */
 function finishIntro() {
-  const stage = el('splashStage');
   const navLogo = el('navLogo');
   if (navLogo) navLogo.classList.add('landed');
-  // Spenti i filtri: 51 blur SVG vivi costano frame per nulla.
-  if (stage) stage.classList.add('settled');
 
   if (hexCells) {
     const durata = revealFromHex();
@@ -5422,6 +5531,17 @@ function chiudiSplash() {
   const logoBtn = el('splashLogo');
   if (logoBtn) logoBtn.classList.add('atterrato');
   if (screen) screen.classList.add('closing');
+
+  // Finita la dissolvenza la scena si toglie proprio dalla pagina.
+  // Spegnerne le animazioni con una classe costava un ricalcolo di
+  // stile su tutti e 51 i glifi del titolo nel bel mezzo della
+  // risalita (misurato: 312 ms a CPU rallentata otto volte); e i
+  // tracciati resterebbero li' per sempre, a farsi riesaminare ad ogni
+  // ricalcolo dell'applicazione. Non servono piu' a nessuno.
+  setTimeout(() => {
+    const s = el('splashScreen');
+    if (s && s.parentNode) s.parentNode.removeChild(s);
+  }, 700);
 }
 
 /** Il contenuto della barra compare a cascata: titolo, dock, singole
@@ -5437,7 +5557,7 @@ function popBarra() {
     [document.querySelector('.app-footer')]
   ).filter(Boolean);
 
-  if (PREFS.reduceMotion) { document.body.classList.remove('intro-in-corso'); return; }
+  if (PREFS.reduceMotion) { segnaIntro(false); return; }
 
   elementi.forEach((e) => e.classList.remove('pop-barra'));
   void document.body.offsetWidth;
@@ -5461,7 +5581,7 @@ function popBarra() {
   }
   // il fill "both" tiene nascosto ciascun elemento fino al suo turno:
   // si può togliere subito la classe che li nascondeva tutti
-  document.body.classList.remove('intro-in-corso');
+  segnaIntro(false);
 
   // A fine animazione la classe va via: il fill terrebbe transform:none
   // per sempre, e le icone del pannello perderebbero l'ingrandimento al
@@ -5476,9 +5596,17 @@ function popBarra() {
  *  Riavvia sempre da zero: senza togliere la classe, riattivarla non
  *  fa ripartire l'animazione. */
 function popSections(view) {
-  if (PREFS.reduceMotion) return;
+  applicaPop(sezioniVisibili(view));
+}
+
+/** Sola lettura: quali sezioni della vista sono davvero a schermo.
+ *  Separata da applicaPop() perche' chi sta per cambiare mezza pagina
+ *  (la risalita del velo) possa leggere prima e scrivere dopo, in una
+ *  sola impaginazione invece di due. */
+function sezioniVisibili(view) {
+  if (PREFS.reduceMotion) return [];
   const root = el('view-' + view);
-  if (!root) return;
+  if (!root) return [];
   const sezioni = Array.prototype.slice.call(root.querySelectorAll('.pop-section'));
 
   // Tre passate distinte: prima si legge, poi si toglie, poi si riscrive.
@@ -5492,7 +5620,11 @@ function popSections(view) {
   // di layout invece di una.
   sezioni.forEach((e) => e.classList.remove('popping'));
   // le sezioni non visibili (step del wizard nascosti) non contano
-  const visibili = sezioni.filter((e) => e.offsetParent !== null);
+  return sezioni.filter((e) => e.offsetParent !== null);
+}
+
+/** Sola scrittura: fa entrare a cascata le sezioni gia' scelte. */
+function applicaPop(visibili) {
   visibili.forEach((e, i) => {
     e.style.setProperty('--pop-delay', (i * POP_STEP) + 'ms');
     e.classList.add('popping');
@@ -5518,26 +5650,35 @@ function revealFromHex() {
   const veil = el('hexReveal');
   if (!veil) { popBarra(); popSections(currentView); return 0; }
 
+  // ── prima tutte le letture ──
+  // Le classi qui sotto cambiano mezza pagina: leggere dopo averle
+  // messe costringerebbe il motore a rifare subito l'impaginazione, in
+  // mezzo al fotogramma in cui parte la risalita.
   const nav = document.querySelector('nav');
   const altezzaNav = nav ? nav.getBoundingClientRect().height : 52;
   const H = window.innerHeight;
-  veil.style.setProperty('--velo-barra', (100 - altezzaNav / H * 100).toFixed(2) + '%');
-  // la pagina parte dal fondo della finestra e arriva sotto la barra
-  document.body.style.setProperty('--salita', Math.round(H - altezzaNav) + 'px');
+  const sezioni = sezioniVisibili(currentView);
+
+  // ── poi tutte le scritture ──
+  veil.style.setProperty('--velo-corsa', Math.round(H - altezzaNav) + 'px');
+  // la pagina parte dal fondo della finestra e arriva sotto la barra.
+  // La proprieta' sta sulla vista e non sul body: una variabile che
+  // cambia sul body si eredita ovunque, e ovunque va ricalcolata.
+  const porta = el('viewsPort');
+  if (porta) porta.style.setProperty('--salita', Math.round(H - altezzaNav) + 'px');
 
   void veil.offsetWidth;
   veil.classList.add('revealing');
-  document.body.classList.add('pagina-sale');
+  if (porta) porta.classList.add('sale');
 
   // le schede arrivano trascinate dalla banda, con la loro molla
-  popSections(currentView);
+  applicaPop(sezioni);
   // la banda diventa barra al 62% della corsa: da lì la barra si popola
   setTimeout(popBarra, Math.round(VELO_DURATA * 0.62) + 30);
 
   setTimeout(() => {
     veil.classList.remove('armed', 'revealing');
-    document.body.classList.remove('pagina-sale');
-    document.body.style.removeProperty('--salita');
+    if (porta) { porta.classList.remove('sale'); porta.style.removeProperty('--salita'); }
   }, VELO_DURATA + 60);
   return VELO_DURATA;
 }
@@ -5732,15 +5873,23 @@ function boot() {
   setupCalendari();
   setupNavLogo();
   setupSettings();
-  setupDock();              // prima di runIntro: i cloni devono essere "puliti"
-  runIntro();
+  setupDock();              // prima dell'intro: i cloni devono essere "puliti"
+
+  // La scena iniziale esiste subito e copre lo schermo, ma resta ferma.
+  preparaIntro();
+
+  // Tutto il resto dell'avvio avviene qui, dietro allo splash fermo:
+  // nessuna animazione in corso, nessun fotogramma da perdere.
   wireEvents();
   applyViewState();
   buildProgress();
   renderFUList();
   liveValidate1();
   liveValidate2();
-  checkServer();
+
+  // checkServer legge l'archivio e ridisegna tabella e grafici: e' il
+  // pezzo piu' pesante dell'avvio, e l'intro lo aspetta.
+  avviaQuandoPronto(checkServer());
 }
 
 if (document.readyState === 'loading') {

@@ -1,4 +1,24 @@
 /* ══════════════ VARIABILI ══════════════ */
+
+/* Le variabili che il JavaScript scrive sui singoli elementi sono
+   registrate qui come NON ereditate.
+   Una variabile ereditata che cambia su un contenitore obbliga il
+   motore a ricalcolare lo stile di ogni suo discendente: --salita
+   finiva sulla vista, che contiene l'intera applicazione, e
+   --pop-delay sulle sezioni, tabella da duecento righe compresa. Il
+   conto era un ricalcolo da 242 ms (CPU rallentata otto volte) nel
+   fotogramma in cui parte la risalita, e uno ad ogni cambio di vista.
+   Nessuna di queste serve ai figli: chi la usa e' l'elemento stesso.
+   Restano ereditate, di proposito, --t-* (i tempi dell'intro, letti
+   dalle regole dei discendenti), --velo-corsa, --ritardo e --i, che i
+   grafici leggono dalle schede che li contengono. */
+@property --salita      { syntax: '<length>'; inherits: false; initial-value: 0px; }
+@property --pop-delay   { syntax: '<time>';   inherits: false; initial-value: 0ms; }
+@property --d           { syntax: '<time>';   inherits: false; initial-value: 0ms; }
+@property --spostamento { syntax: '<length>'; inherits: false; initial-value: 0px; }
+@property --dx          { syntax: '<length>'; inherits: false; initial-value: 0px; }
+@property --dy          { syntax: '<length>'; inherits: false; initial-value: 0px; }
+
 :root {
   --splash-ease: cubic-bezier(.785,.135,.15,.86);
   --bg:#F4F3EF; --surface:#FFFFFF; --surface2:#F9F8F5;
@@ -957,15 +977,22 @@ body.printing #printRoot { display: block; }
 .views-track > .view {
   flex: 0 0 100%; width: 100%; min-width: 0;
 }
-/* le viste non attive restano sfocate e non raggiungibili da tastiera */
+/* Le viste non attive restano in secondo piano e fuori dalla tastiera.
+   Il secondo piano e' un'opacita', non piu' una sfocatura: un
+   filter: blur() su una vista grande quanto la finestra — duecento
+   righe di tabella, i grafici — obbliga il motore a disegnarla in una
+   texture a parte e a sfocarla ad ogni ridisegno, e quella sfocatura
+   era pure in transizione, cioe' rifatta sessanta volte al secondo per
+   tutta la durata dello scorrimento, su due viste insieme.
+   L'opacita' la applica il compositore da sola, a costo nullo. */
 .views-track > .view[aria-hidden="true"] {
-  filter: blur(4px);
+  opacity: .38;
   pointer-events: none;
-  transition: filter .4s ease;
+  transition: opacity .4s ease;
 }
 .views-track > .view:not([aria-hidden="true"]) {
-  filter: none;
-  transition: filter .4s ease;
+  opacity: 1;
+  transition: opacity .4s ease;
 }
 
 .nav-tab-highlight {
@@ -1203,21 +1230,30 @@ body.reduce-motion .cal-panel.open { animation: none; opacity: 1; transform: non
   opacity: 0;
 }
 
-#hexReveal.revealing { animation: veloSale .95s cubic-bezier(.65,0,.2,1) forwards; }
+#hexReveal.revealing { animation: veloSale .95s cubic-bezier(.65,0,.2,1) forwards; will-change: transform, opacity; }
 #hexReveal.revealing .velo-sfondo { animation: veloSfondoVia .95s cubic-bezier(.65,0,.2,1) forwards; }
 #hexReveal.revealing .velo-fronte { animation: veloFronte .95s cubic-bezier(.65,0,.2,1) forwards; }
 
-/* --velo-barra e' la quota della barra in percentuale dell'altezza
-   della finestra: la banda si ferma li' invece di sparire del tutto */
+/* La banda sale spostandosi, non tagliandosi.
+   Prima il bordo inferiore si alzava con clip-path: un ritaglio che
+   cambia ad ogni fotogramma obbliga il motore a ridisegnare tutta la
+   superficie della finestra, sessanta volte al secondo, proprio mentre
+   sale anche la pagina. Spostare la banda verso l'alto della stessa
+   quantita' da esattamente lo stesso bordo in movimento, ma e' una
+   trasformazione: la sposta il compositore, senza ridisegnare niente.
+   --velo-corsa e' la distanza fra il fondo della finestra e la barra,
+   la stessa che percorre la pagina. */
 @keyframes veloSale {
-  0%   { clip-path: inset(0 0 0 0); opacity: 1; }
-  62%  { clip-path: inset(0 0 var(--velo-barra, 94%) 0); opacity: 1; }
-  100% { clip-path: inset(0 0 var(--velo-barra, 94%) 0); opacity: 0; }
+  0%   { transform: translate3d(0, 0, 0); opacity: 1; }
+  62%  { transform: translate3d(0, calc(-1 * var(--velo-corsa, 94vh)), 0); opacity: 1; }
+  100% { transform: translate3d(0, calc(-1 * var(--velo-corsa, 94vh)), 0); opacity: 0; }
 }
+/* Il fondo scorre al contrario, cosi' la sfumatura resta ferma nella
+   finestra mentre la banda sale, come quando era un ritaglio. */
 @keyframes veloSfondoVia {
-  0%   { opacity: 1; }
-  62%  { opacity: 0; }       /* nero pieno nell'istante in cui diventa barra */
-  100% { opacity: 0; }
+  0%   { opacity: 1; transform: translate3d(0, 0, 0); }
+  62%  { opacity: 0; transform: translate3d(0, var(--velo-corsa, 94vh), 0); }
+  100% { opacity: 0; transform: translate3d(0, var(--velo-corsa, 94vh), 0); }
 }
 @keyframes veloFronte {
   0%   { opacity: 0; }
@@ -1607,7 +1643,12 @@ nav { padding-right: calc(2rem + 8px); }
   pointer-events: none;
   transition: transform .45s cubic-bezier(.32,.72,0,1);
 }
-body.rail-aperto .rail-pannello { transform: translateX(0); pointer-events: auto; }
+/* La classe sta sul pannello e sul pie' di pagina, non sul body: se una
+   regola discendente dipende da una classe del body, il motore deve
+   passare in rassegna tutta la pagina ad ogni apertura del pannello.
+   Sul body resta solo cio' che riguarda il body stesso (il margine
+   destro che fa spazio al pannello), che non costa niente. */
+.rail-pannello.aperto { transform: translateX(0); pointer-events: auto; }
 
 .pan { display: none; }
 .pan.attivo {
@@ -1688,19 +1729,26 @@ body.reduce-motion .pan.attivo { transition: none; animation: none; }
   62%  { transform: translateY(0); }
   100% { transform: translateY(0); }
 }
-body.pagina-sale .views-port {
+/* La classe sta sulla vista, non sul body. Una classe che cambia sul
+   body obbliga il motore a passare in rassegna tutti i nodi della
+   pagina per vedere chi e' toccato: misurato a CPU rallentata otto
+   volte, 224 ms di ricalcolo proprio nel fotogramma in cui parte la
+   risalita. Sull'elemento giusto il ricalcolo e' immediato. */
+.views-port.sale {
   animation: paginaSale .95s cubic-bezier(.65,0,.2,1) both;
   will-change: transform;
 }
 
 /* Durante l'intro il contenuto della barra resta nascosto: compare a
-   cascata solo quando la banda si è consolidata in barra. */
-body.intro-in-corso .nav-title > span:not(.nav-logo),
-body.intro-in-corso .nav-sub,
-body.intro-in-corso .nav-dock,
-body.intro-in-corso .nav-right,
-body.intro-in-corso .rail-btn,
-body.intro-in-corso .app-footer { opacity: 0; }
+   cascata solo quando la banda si è consolidata in barra.
+   Stesso motivo di sopra: la classe sta sui tre contenitori che la
+   usano — barra, colonna delle icone, piè di pagina — non sul body. */
+nav.intro-in-corso .nav-title > span:not(.nav-logo),
+nav.intro-in-corso .nav-sub,
+nav.intro-in-corso .nav-dock,
+nav.intro-in-corso .nav-right,
+.side-rail.intro-in-corso .rail-btn,
+.app-footer.intro-in-corso { opacity: 0; }
 
 @keyframes popBarra {
   from { opacity: 0; transform: scale(.8) translateY(-3px); }
@@ -1713,7 +1761,7 @@ body.intro-in-corso .app-footer { opacity: 0; }
 }
 
 body.reduce-motion .pop-barra,
-body.reduce-motion.pagina-sale .views-port { animation: none; }
+body.reduce-motion .views-port.sale { animation: none; }
 
 /* ══════════════════════════════════════════════════════════════════
    Grafici animati e interattivi
@@ -1892,7 +1940,7 @@ body { transition: none; }
   box-shadow: none;
   will-change: transform;
 }
-body.rail-aperto .rail-pannello { box-shadow: -18px 0 40px -24px rgba(0,0,0,.5); }
+.rail-pannello.aperto { box-shadow: -18px 0 40px -24px rgba(0,0,0,.5); }
 .pan.attivo { animation: none; }
 .pan.attivo > * {
   animation: panVoce .5s cubic-bezier(.22,1,.36,1) calc(90ms + var(--i, 0) * 45ms) both;
@@ -1936,7 +1984,7 @@ body { padding-bottom: 2.8rem; }
   color: #A8A69F; pointer-events: none;
   transition: right .5s cubic-bezier(.22,1,.36,1);
 }
-body.rail-aperto .app-footer { right: calc(var(--rail-w) + var(--pan-w) + 1rem); }
+.app-footer.rail-aperto { right: calc(var(--rail-w) + var(--pan-w) + 1rem); }
 @media (max-width: 700px) { .app-footer { font-size: 9px; bottom: .4rem; } }
 
 /* ══════════════════════════════════════════════════════════════════

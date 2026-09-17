@@ -33,6 +33,9 @@ const IS_DEV = !app.isPackaged;
  *  impacchettata. Nel .exe distribuito app.isPackaged è true, quindi
  *  niente di quanto segue può attivarsi. */
 const DEV_MODE = IS_DEV && process.argv.indexOf('--dev') !== -1;
+// Gli strumenti di sviluppo falsano le misure di fluidita': con --senza-devtools
+// si avvia in modalita' sviluppo senza aprirli.
+const DEV_TOOLS = DEV_MODE && process.argv.indexOf('--senza-devtools') === -1;
 const ICONA = path.join(__dirname, 'build', 'icon.ico');
 const LOCK_MAX_BYTES = 4096;
 const ATTESA_CHIUSURA = 20000;   // tempo concesso al renderer per salvare
@@ -203,7 +206,7 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
-    if (DEV_MODE) mainWindow.webContents.openDevTools({ mode: 'detach' });
+    if (DEV_TOOLS) mainWindow.webContents.openDevTools({ mode: 'detach' });
   });
   mainWindow.on('closed', () => { mainWindow = null; });
 
