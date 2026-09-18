@@ -23,7 +23,7 @@ console.log('\nControlli locali\n');
 
 // 1. sintassi JavaScript
 ['main.js', 'preload.js', 'src/app.js', 'src/zip.js', 'src/xlsx.js', 'src/pptx.js', 'src/names.js',
- 'src/safety.js'].forEach((f) => {
+ 'src/safety.js', 'src/interpreta.js', 'scripts/test-interpreta.js'].forEach((f) => {
   try {
     execFileSync(process.execPath, ['--check', path.join(ROOT, f)], { stdio: 'pipe' });
     esito(true, 'sintassi ' + f);
@@ -86,7 +86,7 @@ const idsJs = new Set([
   ...[...app.matchAll(/\b(?:val|rawVal|setHtml)\('([A-Za-z_]\w*)'/g)].map((m) => m[1])
 ]);
 // id creati dal JavaScript stesso, non presenti nel markup statico
-const idsDinamici = new Set(['notaEdit', 'cronoCorpo']);
+const idsDinamici = new Set(['notaEdit', 'cronoCorpo', 'smartApprendi', 'smartSignificato', 'smartEspressione']);
 const mancanti = [...idsJs].filter((id) => !idsHtml.has(id) && !idsDinamici.has(id));
 esito(mancanti.length === 0, 'ogni id usato dal JS esiste', mancanti.join(', '));
 
@@ -143,6 +143,15 @@ esito(abusi.length === 0, 'la safety net non tocca l\'archivio', abusi.join(', '
     .filter((c) => c.charCodeAt(0) < 32 && c !== '\n' && c !== '\t');
   esito(brutti.length === 0, 'nessun carattere di controllo in ' + nome, brutti.length || '');
 });
+
+// 8f. Interpreta legge i referti come ci si aspetta
+try {
+  const e = require('./test-interpreta.js')(true);
+  esito(e.falliti === 0 && e.demoOk === e.demoTot, 'interpretazione dei referti',
+    (e.casi - e.falliti) + '/' + e.casi + ' casi, archivio demo ' + e.demoOk + '/' + e.demoTot);
+} catch (err) {
+  esito(false, 'interpretazione dei referti', err.message);
+}
 
 // 9. versione allineata fra package.json e lockfile
 const pkg = JSON.parse(leggi('package.json'));

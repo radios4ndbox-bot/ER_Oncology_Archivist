@@ -423,8 +423,25 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
 
             <div class="field">
               <label for="w_diagnosi">Descrizione diagnosi</label>
-              <textarea id="w_diagnosi" class="ta-md" placeholder="Descrivi la diagnosi oncologica rilevata…"></textarea>
+              <textarea id="w_diagnosi" class="ta-md" placeholder="Descrivi la diagnosi oncologica rilevata, o incolla il referto dal PACS…"></textarea>
+              <div class="interpreta-riga">
+                <button type="button" class="btn btn-outline btn-sm btn-interpreta" id="btnInterpreta"
+                        data-act="interpreta" aria-controls="smartPannello" aria-expanded="false">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6z"/>
+                    <path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8z"/>
+                  </svg>
+                  Interpreta
+                </button>
+                <span class="interpreta-nota">Incolla il referto dal PACS: propongo sede, dimensioni e metastasi,
+                  e compilo solo dopo la tua conferma. Altrimenti procedi a mano.</span>
+              </div>
+              <div id="smartPannello" class="reveal-block">
+                <div class="smart" id="smartCorpo" aria-live="polite"></div>
+              </div>
             </div>
+            <datalist id="smartSediList"></datalist>
             <div class="field-row">
               <div class="field">
                 <label for="w_sede">Sede / organo</label>
@@ -919,7 +936,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
       </div>
       <div>
         <div class="pg-titolo" id="persTitolo">Personalizzazione del reparto</div>
-        <div class="pg-sub">Tipi di esame e categorie delle richieste del PS &middot; valgono per entrambe le postazioni</div>
+        <div class="pg-sub">Tipi di esame, categorie delle richieste e smart guess &middot; valgono per entrambe le postazioni</div>
       </div>
       <button type="button" class="xbtn" data-act="close" data-target="modPersonalizza" aria-label="Chiudi">&times;</button>
     </div>
@@ -932,6 +949,10 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
         <button type="button" class="pg-tab" role="tab" data-act="pers-tab" data-tab="categorie" aria-selected="false">
           <span class="pg-tab-nome">Categorie delle richieste</span><span class="pg-conta" id="persContaCat">0</span>
           <span class="pg-tab-desc">Esame proposto e parole chiave della cronologia</span>
+        </button>
+        <button type="button" class="pg-tab" role="tab" data-act="pers-tab" data-tab="smart" aria-selected="false">
+          <span class="pg-tab-nome">Smart guess</span><span class="pg-conta" id="persContaSmart">0</span>
+          <span class="pg-tab-desc">Parole chiave per leggere i referti del PACS</span>
         </button>
         <div class="pg-nav-nota">Le modifiche si salvano da sole nel file condiviso. Si chiude con <kbd>Esc</kbd>.</div>
       </nav>
@@ -968,6 +989,43 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
           <div class="pg-cat-dettaglio" id="categoriaDettaglio"></div>
         </div>
         <button type="button" class="pg-link" data-act="pers-ripristina">&#8634; Ripristina categorie predefinite</button>
+      </section>
+
+      <section class="pg-sezione" data-tab="smart" hidden>
+        <div class="pg-sez-testa">
+          <h3>Smart guess</h3>
+          <p><strong>Interpreta</strong>, sotto la descrizione della diagnosi, legge il referto incollato dal PACS
+          e propone sede, dimensioni e metastasi. Qui si vede cosa conosce e gli si insegnano parole nuove:
+          una sede che non riconosce, o un modo del reparto di scrivere che una lesione è secondaria.</p>
+        </div>
+        <div class="pg-prova">
+          <label for="smartProva">Prova un referto</label>
+          <textarea id="smartProva" class="ta-sm" maxlength="4000"
+                    placeholder="es. Nel lobo superiore del polmone destro formazione solida di 32 x 28 mm. Lesioni epatiche secondarie."></textarea>
+          <div class="pg-prova-esito" id="smartProvaEsito" aria-live="polite"></div>
+        </div>
+        <div class="pg-campo">
+          <div class="pers-etichetta">Parole insegnate dal reparto</div>
+          <div class="smart-apprese" id="smartApprese"></div>
+          <div class="smart-aggiungi">
+            <input type="text" id="smartNuovaParola" maxlength="60" autocomplete="off"
+                   placeholder="Parola o espressione, es. ipofisaria">
+            <div class="smart-scelta" role="radiogroup" aria-label="Cosa indica">
+              <button type="button" class="smart-opz scelta" data-act="smart-tipo" data-tipo="sede" role="radio" aria-checked="true">una sede</button>
+              <button type="button" class="smart-opz" data-act="smart-tipo" data-tipo="metastasi" role="radio" aria-checked="false">una metastasi</button>
+            </div>
+            <input type="text" id="smartNuovaSede" list="smartSediList" maxlength="60" autocomplete="off"
+                   placeholder="Sede, es. Ipofisi">
+            <button type="button" class="btn btn-primary btn-sm" data-act="smart-aggiungi">Aggiungi</button>
+          </div>
+          <div class="pg-nota">Maiuscole, accenti e plurali non contano: <em>ipofisaria</em> vale anche per
+          <em>ipofisarie</em>. A parità di lunghezza, una parola insegnata vince su quelle predefinite.</div>
+        </div>
+        <div class="pg-campo">
+          <div class="pers-etichetta">Sedi che conosce già</div>
+          <div class="smart-dizionario" id="smartDizionario"></div>
+        </div>
+        <button type="button" class="pg-link" data-act="smart-ripristina">&#8634; Dimentica le parole insegnate</button>
       </section>
     </div>
   </div>
@@ -1014,6 +1072,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
 <script src="zip.js"></script>
 <script src="xlsx.js"></script>
 <script src="pptx.js"></script>
+<script src="interpreta.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

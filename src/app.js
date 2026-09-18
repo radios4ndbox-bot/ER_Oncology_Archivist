@@ -1365,6 +1365,7 @@ function resetWizard() {
   });
   ['oncoSection', 'sottoCategSection', 'patAssocField', 'metaSection']
     .forEach((id) => mostraSezione(id, false));
+  chiudiSmart();
   editingId = null;
   aggiornaSelettoreTipo();
   modalitaTipoLibera(false);
@@ -1389,6 +1390,7 @@ function loadIntoWizard(id) {
     w_pat_assoc: r.pat_assoc, w_meta_sede: r.meta_sede, w_meta_primitivo: r.meta_primitivo
   };
   Object.keys(map).forEach((k) => setFieldValue(el(k), map[k] || ''));
+  chiudiSmart();
 
   aggiornaSelettoreTipo();
   modalitaTipoLibera(false);
@@ -1433,17 +1435,28 @@ const PAROLE_VUOTE = new Set((
 const CONCETTI_RICHIESTA = [
   ['dolore addominale', 'addominalgia', 'dolore addome', 'algia addominale', 'dolenzia addominale', 'addome acuto'],
   ['dolore toracico', 'toracoalgia', 'dolore torace', 'dolore retrosternale'],
+  ['sospetta embolia polmonare', 'embolia polmonare', 'tromboembolia polmonare', 'sospetta ep', 'tep', 'sospetta tep'],
+  ['sospetta dissezione aortica', 'dissezione aortica', 'sospetta dissezione', 'sindrome aortica acuta'],
   ['dispnea', 'affanno', 'difficolta respiratoria', 'insufficienza respiratoria', 'desaturazione'],
   ['calo ponderale', 'dimagrimento', 'perdita di peso', 'calo di peso', 'perdita peso'],
   ['febbre', 'iperpiressia', 'piressia', 'febbricola', 'rialzo termico', 'febbre persistente'],
   ['cefalea', 'mal di testa', 'emicrania'],
-  ['trauma', 'caduta', 'politrauma', 'incidente stradale', 'contusione'],
+  ['politrauma', 'incidente stradale', 'trauma maggiore', 'precipitazione', 'investimento'],
+  ['trauma cranico', 'trauma cranio', 'tcnc', 'trauma cranico non commotivo', 'caduta con trauma cranico'],
+  ['trauma', 'caduta', 'contusione', 'trauma minore'],
   ['ittero', 'subittero', 'iperbilirubinemia'],
   ['emottisi', 'sangue nell espettorato'],
-  ['ematuria', 'sangue nelle urine'],
-  ['colica renale', 'colica', 'idronefrosi', 'dolore lombare colico'],
+  ['ematuria', 'sangue nelle urine', 'macroematuria'],
+  ['colica renale', 'colica', 'idronefrosi', 'dolore lombare colico', 'calcolosi renale', 'nefrolitiasi',
+    'urolitiasi', 'colica reno ureterale'],
+  ['colica biliare', 'colecistite', 'calcolosi biliare', 'colelitiasi'],
+  ['sospetta appendicite', 'appendicite', 'dolore in fossa iliaca destra', 'dolore fid'],
+  ['diverticolite', 'dolore in fossa iliaca sinistra', 'dolore fis'],
+  ['pancreatite', 'lipasi elevate', 'amilasi elevate'],
   ['sanguinamento digestivo', 'melena', 'ematochezia', 'rettorragia', 'ematemesi'],
+  ['ischemia mesenterica', 'ischemia intestinale', 'sospetta ischemia intestinale'],
   ['tosse', 'tosse persistente', 'tosse secca'],
+  ['polmonite', 'broncopolmonite', 'addensamento polmonare', 'focolaio polmonare'],
   ['massa palpabile', 'tumefazione', 'nodulo palpabile', 'neoformazione', 'massa'],
   ['anemia', 'anemizzazione', 'calo emoglobina', 'hb bassa'],
   ['deficit neurologico', 'deficit focale', 'ictus', 'stroke', 'afasia', 'emiparesi', 'stato confusionale'],
@@ -1454,9 +1467,53 @@ const CONCETTI_RICHIESTA = [
   ['versamento pleurico', 'versamento'],
   ['ascite', 'distensione addominale'],
   ['dolore osseo', 'lombalgia', 'rachialgia', 'dorsalgia'],
+  ['sospetta compressione midollare', 'compressione midollare', 'paraparesi', 'deficit agli arti inferiori'],
   ['crisi convulsiva', 'convulsioni', 'crisi epilettica'],
   ['sospetta neoplasia', 'sospetto tumore', 'sospetta lesione', 'lesione sospetta']
 ];
+
+/** Esame tipico per singolo quesito, come si fa di solito in un PS.
+ *  Vale piu' della categoria: dentro "Urologico" una colica renale si
+ *  studia con una TC senza mezzo di contrasto (a basso dosaggio), una
+ *  ematuria con l'Uro-TC. Ogni voce e' una lista: si propone la prima
+ *  presente nell'elenco dei tipi di esame del reparto. Indicazione
+ *  orientativa: la scelta resta del radiologo, e dopo cinque casi
+ *  conta quello che il reparto fa davvero (archivio). */
+const ESAMI_CONCETTO = {
+  'colica renale': ['TC addome senza mdc'],
+  'ematuria': ['Uro-TC', 'TC addome con mdc'],
+  'colica biliare': ['Ecografia addome'],
+  'ittero': ['Ecografia addome', 'TC addome con mdc'],
+  'ascite': ['Ecografia addome'],
+  'sospetta appendicite': ['TC addome con mdc', 'Ecografia addome'],
+  'diverticolite': ['TC addome con mdc'],
+  'pancreatite': ['TC addome con mdc'],
+  'occlusione intestinale': ['TC addome con mdc'],
+  'dolore addominale': ['TC addome con mdc'],
+  'sanguinamento digestivo': ['Angio-TC addome', 'TC addome con mdc'],
+  'ischemia mesenterica': ['Angio-TC addome', 'TC addome con mdc'],
+  'dolore toracico': ['Angio-TC torace', 'TC torace con mdc'],
+  'sospetta embolia polmonare': ['Angio-TC torace'],
+  'sospetta dissezione aortica': ['Angio-TC torace'],
+  'dispnea': ['Angio-TC torace', 'TC torace con mdc'],
+  'emottisi': ['TC torace con mdc'],
+  'versamento pleurico': ['TC torace con mdc'],
+  'tosse': ['RX torace', 'TC torace'],
+  'polmonite': ['RX torace', 'TC torace'],
+  'febbre': ['RX torace', 'TC torace'],
+  'cefalea': ['TC encefalo senza mdc'],
+  'deficit neurologico': ['TC encefalo senza mdc'],
+  'crisi convulsiva': ['TC encefalo senza mdc'],
+  'trauma cranico': ['TC encefalo senza mdc'],
+  'politrauma': ['TC total body'],
+  'trauma': ['TC distrettuale', 'RX distrettuale'],
+  'dolore osseo': ['TC rachide senza mdc'],
+  'sospetta compressione midollare': ['TC rachide senza mdc'],
+  'calo ponderale': ['TC total body'],
+  'sospetta neoplasia': ['TC total body'],
+  'linfoadenopatia': ['TC total body'],
+  'massa palpabile': ['TC total body']
+};
 
 /** Categorie cliniche con l'esame TC generalmente richiesto. L'ordine
  *  conta: quando una richiesta tocca più categorie vince quella con più
@@ -1465,17 +1522,19 @@ const CONCETTI_RICHIESTA = [
  *  scelta dell'esame resta del radiologo. */
 const CATEGORIE_RICHIESTA = [
   { id: 'trauma', nome: 'Trauma', colore: '#8B1A1A', esami: ['TC total body'],
-    concetti: ['trauma'] },
-  { id: 'neuro', nome: 'Neurologico', colore: '#1A3F7A', esami: ['TC encefalo', 'TC encefalo senza mdc'],
+    concetti: ['politrauma', 'trauma cranico', 'trauma'] },
+  { id: 'neuro', nome: 'Neurologico', colore: '#1A3F7A', esami: ['TC encefalo senza mdc', 'TC encefalo'],
     concetti: ['cefalea', 'deficit neurologico', 'crisi convulsiva'] },
-  { id: 'torace', nome: 'Torace', colore: '#1A6040', esami: ['TC torace', 'TC torace con mdc'],
-    concetti: ['dispnea', 'dolore toracico', 'emottisi', 'tosse', 'versamento pleurico'] },
-  { id: 'addome', nome: 'Addome', colore: '#B86E00', esami: ['TC addome con mdc', 'TC addome'],
-    concetti: ['dolore addominale', 'ittero', 'occlusione intestinale', 'ascite', 'sanguinamento digestivo', 'vomito'] },
-  { id: 'uro', nome: 'Urologico', colore: '#6B1A7A', esami: ['Uro-TC', 'TC addome con mdc'],
-    concetti: ['ematuria', 'colica renale'] },
-  { id: 'osseo', nome: 'Muscoloscheletrico', colore: '#5A5850', esami: ['TC rachide', 'TC distrettuale'],
-    concetti: ['dolore osseo'] },
+  { id: 'torace', nome: 'Torace', colore: '#1A6040', esami: ['TC torace con mdc', 'TC torace'],
+    concetti: ['dispnea', 'dolore toracico', 'sospetta embolia polmonare', 'sospetta dissezione aortica',
+      'emottisi', 'tosse', 'polmonite', 'versamento pleurico'] },
+  { id: 'addome', nome: 'Addome', colore: '#B86E00', esami: ['TC addome con mdc'],
+    concetti: ['dolore addominale', 'sospetta appendicite', 'diverticolite', 'pancreatite', 'colica biliare',
+      'ittero', 'occlusione intestinale', 'ischemia mesenterica', 'ascite', 'sanguinamento digestivo', 'vomito'] },
+  { id: 'uro', nome: 'Urologico', colore: '#6B1A7A', esami: ['TC addome senza mdc', 'Uro-TC'],
+    concetti: ['colica renale', 'ematuria'] },
+  { id: 'osseo', nome: 'Muscoloscheletrico', colore: '#5A5850', esami: ['TC rachide senza mdc', 'TC distrettuale'],
+    concetti: ['dolore osseo', 'sospetta compressione midollare'] },
   { id: 'sistemico', nome: 'Stadiazione / sistemico', colore: '#A82255', esami: ['TC total body'],
     concetti: ['calo ponderale', 'febbre', 'astenia', 'anemia', 'linfoadenopatia', 'sospetta neoplasia', 'massa palpabile'] }
 ];
@@ -1615,9 +1674,13 @@ function indiceCronologia() {
 
     // gli esami RMN già registrati non devono diventare l'esame proposto
     if (r.tipo_esame && !esameEscluso(r.tipo_esame)) {
-      const s = stat[g.categoria.id] || (stat[g.categoria.id] = { tot: 0, tipi: new Map() });
-      s.tot++;
-      s.tipi.set(r.tipo_esame, (s.tipi.get(r.tipo_esame) || 0) + 1);
+      // per categoria e per singolo quesito: "colica renale" ha il suo
+      // esame, diverso da quello della categoria urologica
+      [g.categoria.id].concat(an.concetti.map((c) => 'q:' + c)).forEach((chiave) => {
+        const s = stat[chiave] || (stat[chiave] = { tot: 0, tipi: new Map() });
+        s.tot++;
+        s.tipi.set(r.tipo_esame, (s.tipi.get(r.tipo_esame) || 0) + 1);
+      });
     }
   });
 
@@ -1690,14 +1753,25 @@ function suggerimentiRichiesta(testo) {
  *  nell'elenco del reparto se c'è, e quello davvero più usato in
  *  archivio. Con almeno 5 casi e oltre metà delle richieste, vince
  *  l'archivio: riflette le abitudini reali del reparto. */
-function esameConsigliato(categoria) {
+function esameConsigliato(categoria, concetti) {
   if (!categoria || !categoria.esami.length) return null;
   const tipi = tipiEsameCorrenti();
   const inElenco = (nome) => tipi.find((t) => normalizzaTesto(t) === normalizzaTesto(nome));
-  const tipico = categoria.esami.map(inElenco).find(Boolean) || categoria.esami[0];
+
+  // Il quesito piu' specifico fra quelli riconosciuti che appartengono
+  // alla categoria: l'ordine e' quello di CONCETTI_RICHIESTA, dove i
+  // quesiti precisi stanno prima di quelli generici.
+  const quesito = (concetti || [])
+    .filter((c) => ESAMI_CONCETTO[c] && categoria.concetti.indexOf(c) !== -1)
+    .sort((a, b) => indiceConcetto(a) - indiceConcetto(b))[0] || null;
+  const candidati = quesito ? ESAMI_CONCETTO[quesito] : categoria.esami;
+  const tipico = candidati.map(inElenco).find(Boolean) || candidati[0];
 
   let archivio = null;
-  const s = indiceCronologia().stat[categoria.id];
+  const ind = indiceCronologia();
+  // l'archivio del quesito, se ha abbastanza casi; se no, quello della categoria
+  const perQuesito = quesito && ind.stat['q:' + quesito];
+  const s = perQuesito && perQuesito.tot >= 5 ? perQuesito : ind.stat[categoria.id];
   if (s && s.tot >= 5) {
     s.tipi.forEach((n, tipo) => { if (!archivio || n > archivio.n) archivio = { tipo: tipo, n: n }; });
     archivio.quota = archivio.n / s.tot;
@@ -1710,7 +1784,20 @@ function esameConsigliato(categoria) {
   const scelto = categoria.esameFisso
     ? categoria.esameFisso
     : (archivio && archivio.quota >= 0.5 ? archivio.tipo : tipico);
-  return { tipico: tipico, archivio: archivio, scelto: scelto, fisso: !!categoria.esameFisso };
+  return { tipico: tipico, archivio: archivio, scelto: scelto, fisso: !!categoria.esameFisso, quesito: quesito };
+}
+
+function indiceConcetto(nome) {
+  const i = CONCETTI_RICHIESTA.findIndex((voci) => voci[0] === nome);
+  return i === -1 ? 999 : i;
+}
+
+/** Esame tipico di un solo quesito, per mostrarlo accanto alla voce. */
+function esameDelQuesito(nome) {
+  const lista = ESAMI_CONCETTO[nome];
+  if (!lista) return '';
+  const tipi = tipiEsameCorrenti();
+  return lista.map((e) => tipi.find((t) => normalizzaTesto(t) === normalizzaTesto(e))).find(Boolean) || lista[0];
 }
 
 function cronoAperta() {
@@ -1734,8 +1821,10 @@ function etichettaCategoria(c) {
 }
 
 function chipRichiesta(v, classe) {
+  const e = esameConsigliato(v.g.categoria, v.g.concetti);
   return '<button type="button" class="crono-voce' + (classe ? ' ' + classe : '') +
-    '" data-act="richiesta-usa" data-testo="' + esc(v.g.testo) + '" title="Usa questa richiesta">' +
+    '" data-act="richiesta-usa" data-testo="' + esc(v.g.testo) + '" title="Usa questa richiesta' +
+    (e ? ' · esame tipico: ' + esc(e.scelto) : '') + '">' +
     '<span class="crono-testo">' + esc(v.g.testo) + '</span>' +
     (v.g.conteggio > 1 ? '<span class="crono-n">×' + v.g.conteggio + '</span>' : '') +
     '</button>';
@@ -1757,7 +1846,7 @@ function renderCronologia() {
 
   // esame suggerito per quanto è scritto nel campo
   const categoria = s.analisi.concetti.length ? categoriaDi(s.analisi.concetti) : null;
-  const esame = esameConsigliato(categoria);
+  const esame = esameConsigliato(categoria, s.analisi.concetti);
   const tipoAttuale = val('w_tipo_esame');
   let rigaEsame = '';
   if (esame) {
@@ -1786,10 +1875,17 @@ function renderCronologia() {
     perCat.get(c).push(v);
   });
   const gruppi = ordine.map((c) => {
-    const e = esameConsigliato(c);
+    // gli esami delle richieste del gruppo, non uno solo per categoria:
+    // nell'urologico convivono colica renale (TC senza mdc) ed ematuria
+    const esami = [];
+    perCat.get(c).forEach((v) => {
+      const e = esameConsigliato(c, v.g.concetti);
+      if (e && esami.indexOf(e.scelto) === -1) esami.push(e.scelto);
+    });
     return '<div class="crono-gruppo" style="--c:' + c.colore + '">' +
       '<div class="crono-gruppo-testa">' + etichettaCategoria(c) +
-        (e ? '<span class="crono-gruppo-esame">' + esc(e.scelto) + '</span>' : '') + '</div>' +
+        (esami.length ? '<span class="crono-gruppo-esame">' + esc(esami.slice(0, 2).join(' · ')) +
+          (esami.length > 2 ? ' …' : '') + '</span>' : '') + '</div>' +
       '<div class="crono-lista">' + perCat.get(c).map((v) => chipRichiesta(v)).join('') + '</div>' +
     '</div>';
   }).join('');
@@ -1877,6 +1973,7 @@ function updateSuggests() {
   setHtml('sedeList', sedi.map((s) => '<option value="' + esc(s) + '"></option>').join(''));
   setHtml('metaSedeList', metaSedi.map((s) => '<option value="' + esc(s) + '"></option>').join(''));
 
+  aggiornaSediSmart(sedi, metaSedi);
   setHtml('sediRapide', sedi.map((s) =>
     '<button type="button" class="sede-btn" data-act="pick" data-target="w_sede" data-value="' +
     esc(s) + '">' + esc(s) + '</button>').join(''));
@@ -3827,8 +3924,10 @@ function esameEscluso(tipo) {
 }
 
 const TIPI_PREDEFINITI = [
-  'TC torace', 'TC addome con mdc', 'TC addome senza mdc',
-  'TC total body', 'TC encefalo', 'Ecografia addome', 'RX torace'
+  'TC encefalo senza mdc', 'TC torace', 'TC torace con mdc', 'Angio-TC torace',
+  'TC addome con mdc', 'TC addome senza mdc', 'Angio-TC addome', 'Uro-TC',
+  'TC total body', 'TC rachide senza mdc', 'TC distrettuale',
+  'Ecografia addome', 'RX torace'
 ];
 
 /** Elenco effettivo: quello configurato, o i predefiniti se mai toccato,
@@ -3992,9 +4091,10 @@ async function ripristinaTipiEsame() {
 //  condiviso con la stessa unione last-write-wins dei tipi di esame.
 // ══════════════════════════════════════════════════════════════════
 const PAROLE_UTENTE_MAX = 200;
+const SMART_MAX = 300;
 
 function personalizzazioneVuota() {
-  return { updatedAt: 0, esamiCategoria: {}, parole: [] };
+  return { updatedAt: 0, esamiCategoria: {}, parole: [], smart: [] };
 }
 
 /** Il file è condiviso e non fidato: solo categorie esistenti, testi brevi. */
@@ -4015,6 +4115,17 @@ function normalizzaPersonalizzazione(raw) {
       }
     });
   }
+  // parole di Interpreta: una sede (con il suo nome) o un segno di metastasi
+  if (Array.isArray(raw.smart)) {
+    raw.smart.slice(0, SMART_MAX).forEach((w) => {
+      if (!w || typeof w.testo !== 'string' || !w.testo.trim()) return;
+      if (w.tipo === 'sede' && typeof w.valore === 'string' && w.valore.trim()) {
+        p.smart.push({ testo: str(w.testo.trim(), 60), tipo: 'sede', valore: str(w.valore.trim(), 60) });
+      } else if (w.tipo === 'metastasi') {
+        p.smart.push({ testo: str(w.testo.trim(), 60), tipo: 'metastasi' });
+      }
+    });
+  }
   return p;
 }
 
@@ -4027,13 +4138,15 @@ function salvaPersonalizzazione(modifica) {
   const p = {
     updatedAt: Date.now(),
     esamiCategoria: Object.assign({}, personalizzazione.esamiCategoria),
-    parole: personalizzazione.parole.slice()
+    parole: personalizzazione.parole.slice(),
+    smart: (personalizzazione.smart || []).slice()
   };
   modifica(p);
   personalizzazione = p;
   scheduleSave();
   renderCategorieRichieste();
   renderCronologia();
+  renderSmartGuess();
 }
 
 let persTab = 'tipi';
@@ -4054,6 +4167,7 @@ function apriPersonalizzazione(tab) {
   if (tab) persTab = tab;
   renderTipiEsame();
   renderCategorieRichieste(false);
+  renderSmartGuess();
   mostraTabPersonalizzazione(persTab, true);
   apriOverlay(o);
   const b = el('railPersonalizza');
@@ -4063,7 +4177,7 @@ function apriPersonalizzazione(tab) {
 }
 
 function mostraTabPersonalizzazione(tab, senzaAnimazione) {
-  if (tab !== 'tipi' && tab !== 'categorie') return;
+  if (tab !== 'tipi' && tab !== 'categorie' && tab !== 'smart') return;
   const cambia = tab !== persTab;
   persTab = tab;
   const o = el('modPersonalizza');
@@ -4095,6 +4209,8 @@ function aggiornaContatoriPersonalizzazione() {
   const cat = el('persContaCat');
   if (tipi) tipi.textContent = String((tipiEsame.lista && tipiEsame.lista.length ? tipiEsame.lista : TIPI_PREDEFINITI).length);
   if (cat) cat.textContent = String(CATEGORIE_RICHIESTA.length);
+  const sm = el('persContaSmart');
+  if (sm) sm.textContent = String((personalizzazione.smart || []).length);
 }
 
 /** Elenco delle categorie a sinistra, dettaglio di quella scelta a destra. */
@@ -4155,8 +4271,12 @@ function renderCategorieRichieste(animaDettaglio) {
       '<div class="pg-nota">' + notaAuto + ' Un esame scelto qui vale sempre, anche sull’archivio.</div>' +
     '</div>' +
     '<div class="pg-campo">' +
-      '<div class="pers-etichetta">Parole chiave predefinite</div>' +
-      '<div class="pers-parole">' + base.concetti.map((w) => '<span class="pers-parola">' + esc(w) + '</span>').join('') + '</div>' +
+      '<div class="pers-etichetta">Quesiti predefiniti e il loro esame tipico</div>' +
+      '<div class="pers-parole">' + base.concetti.map((w) => {
+        const e = fisso || esameDelQuesito(w);
+        return '<span class="pers-parola">' + esc(w) +
+          (e ? '<small class="pers-parola-esame">' + esc(e) + '</small>' : '') + '</span>';
+      }).join('') + '</div>' +
       '<div class="pg-nota">Riconosciute anche nei loro sinonimi (per esempio affanno per dispnea).</div>' +
     '</div>' +
     '<div class="pg-campo">' +
@@ -4198,7 +4318,7 @@ function renderProva() {
   }
   const an = analizzaRichiesta(testo);
   const cat = an.concetti.length ? categoriaDi(an.concetti) : CATEGORIA_ALTRO;
-  const esame = esameConsigliato(cat);
+  const esame = esameConsigliato(cat, an.concetti);
   const nomeScelta = (categoriaPredefinita(persCategoria) || {}).nome || '';
 
   esito.innerHTML =
@@ -4296,6 +4416,426 @@ async function ripristinaCategorie() {
   if (!ok) return;
   salvaPersonalizzazione((p) => { p.esamiCategoria = {}; p.parole = []; });
   notify('Categorie ripristinate.');
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  INTERPRETA — il referto del PACS compila il passo 3
+//
+//  Il motore sta in interpreta.js. Qui c'e' la finestrella di conferma
+//  e l'apprendimento. Niente si scrive nel modulo senza un clic su
+//  «Applica»: la proposta si corregge prima, o si ignora e si procede a
+//  mano. Con «Apprendi» il reparto insegna le parole che il motore non
+//  conosce; vivono nella personalizzazione, quindi nel file condiviso,
+//  e le imparano entrambe le postazioni.
+// ══════════════════════════════════════════════════════════════════
+let smart = null;               // proposta in corso, modificabile
+let smartApprendi = false;      // parte "Apprendi" aperta
+let smartScelte = [];           // parole del referto scelte da insegnare
+let smartTipoApprendi = 'sede'; // cosa indicano, nel pannello del passo 3
+let smartTipoNuovo = 'sede';    // cosa indicano, nella personalizzazione
+
+const ICONA_SMART = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6z"/>' +
+  '<path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8z"/></svg>';
+
+function paroleApprese() {
+  return personalizzazione.smart || [];
+}
+
+/** Maiuscola iniziale: le sedi nel modulo si scrivono come le altre. */
+function nomeSede(testo) {
+  const t = String(testo || '').trim().replace(/\s+/g, ' ');
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+}
+
+function interpretaDiagnosi() {
+  const testo = rawVal('w_diagnosi').trim();
+  if (testo.length < 8) {
+    notify('Incolla prima il referto dal PACS, o scrivi la diagnosi.');
+    const c = el('w_diagnosi');
+    if (c) c.focus();
+    return;
+  }
+  smart = Interpreta.interpreta(testo, paroleApprese());
+  smartApprendi = false;
+  smartScelte = [];
+  smartTipoApprendi = 'sede';
+  renderSmart();
+  mostraSezione('smartPannello', true);
+  const b = el('btnInterpreta');
+  if (b) b.setAttribute('aria-expanded', 'true');
+}
+
+function chiudiSmart() {
+  mostraSezione('smartPannello', false);
+  const b = el('btnInterpreta');
+  if (b) b.setAttribute('aria-expanded', 'false');
+  smartApprendi = false;
+}
+
+function campoSmart(chiave, etichetta, valore, lista, evidenza) {
+  // div e non label: dentro .field le label hanno lo stile delle etichette
+  return '<div class="smart-campo">' +
+    '<span class="smart-lab">' + esc(etichetta) + '</span>' +
+    '<input type="text" data-smart="' + chiave + '" value="' + esc(valore || '') + '" maxlength="120" autocomplete="off"' +
+      (lista ? ' list="' + lista + '"' : '') + ' placeholder="non trovato" aria-label="' + esc(etichetta) + '">' +
+    (evidenza ? '<span class="smart-evidenza" title="' + esc(evidenza) + '">«' + esc(evidenza) + '»</span>' : '') +
+  '</div>';
+}
+
+function renderSmart() {
+  const box = el('smartCorpo');
+  if (!box || !smart) return;
+  const niente = !smart.sede && !smart.dimensioni && !smart.metastasi;
+  const lettura = { alta: 'lettura sicura', media: 'lettura probabile', bassa: 'lettura incerta' }[smart.affidabilita];
+  const metaSi = smart.metastasi === 'si';
+
+  const segmento = (v, testo) => '<button type="button" class="smart-opz' + (smart.metastasi === v ? ' scelta' : '') +
+    '" data-act="smart-meta" data-val="' + v + '" role="radio" aria-checked="' + (smart.metastasi === v) + '">' +
+    testo + '</button>';
+
+  const riconosciute = [];
+  smart.riconosciute.forEach((r) => {
+    const k = r.parola + '|' + r.sede;
+    if (riconosciute.some((x) => x.k === k)) return;
+    riconosciute.push({ k: k, r: r });
+  });
+
+  const scelteVisibili = smart.candidate.map((p) =>
+    '<button type="button" class="smart-parola' + (smartScelte.indexOf(p) !== -1 ? ' scelta' : '') +
+    '" data-act="smart-parola" data-parola="' + esc(p) + '" aria-pressed="' + (smartScelte.indexOf(p) !== -1) + '">' +
+    esc(p) + '</button>').join('');
+
+  box.innerHTML =
+    '<div class="smart-testa">' +
+      '<span class="smart-tit">' + ICONA_SMART + 'Smart guess</span>' +
+      '<span class="smart-aff smart-aff-' + (niente ? 'bassa' : smart.affidabilita) + '">' +
+        (niente ? 'nessuna proposta' : lettura) + '</span>' +
+      '<button type="button" class="smart-x" data-act="smart-chiudi" aria-label="Chiudi">&times;</button>' +
+    '</div>' +
+    '<p class="smart-sub">' + (niente
+      ? 'Non ho trovato una lesione con una sede nel testo. Completa a mano, oppure insegnami con <b>Apprendi</b> la parola che indica la sede.'
+      : 'Ecco come completerei la scheda. Correggi pure i campi prima di applicarli.') + '</p>' +
+    '<div class="smart-campi">' +
+      campoSmart('sede', 'Sede / organo', smart.sede, 'smartSediList', smart.evidenze.sede) +
+      campoSmart('dimensioni', 'Dimensioni', smart.dimensioni) +
+      '<div class="smart-campo"><span class="smart-lab">Metastasi</span>' +
+        '<div class="smart-scelta" role="radiogroup" aria-label="Metastasi">' +
+          segmento('si', 'Sì') + segmento('no', 'No') + segmento('', 'Non so') +
+        '</div>' +
+        (smart.evidenze.metastasi ? '<span class="smart-evidenza" title="' + esc(smart.evidenze.metastasi) + '">«' +
+          esc(smart.evidenze.metastasi) + '»</span>' : '') +
+      '</div>' +
+      (metaSi
+        ? campoSmart('metaSede', 'Sede della metastasi', smart.metaSede, 'smartSediList') +
+          campoSmart('primitivo', 'Tumore primitivo', smart.primitivo)
+        : '') +
+    '</div>' +
+    (riconosciute.length
+      ? '<div class="smart-riconosciute"><span class="smart-lab">Ho riconosciuto</span>' +
+          riconosciute.slice(0, 10).map((x) => '<span class="smart-chip' + (x.r.appreso ? ' appreso' : '') + '">' +
+            esc(x.r.parola) + ' <b>→ ' + esc(x.r.sede) + '</b></span>').join('') +
+        '</div>'
+      : '') +
+    '<div class="smart-apprendi' + (smartApprendi ? ' aperto' : '') + '" id="smartApprendi">' +
+      '<div class="smart-app-tit">Insegna una parola del referto</div>' +
+      '<p class="smart-sub">Scegli le parole che indicano la sede (o che la lesione è secondaria) e dimmi cosa ' +
+        'significano: la prossima volta le riconosco da solo, su entrambe le postazioni.</p>' +
+      (scelteVisibili
+        ? '<div class="smart-parole">' + scelteVisibili + '</div>'
+        : '<p class="smart-sub">Nel testo non restano parole che non conosco: scrivi l\u2019espressione qui sotto.</p>') +
+      '<div class="smart-app-riga">' +
+        '<input type="text" id="smartEspressione" maxlength="60" autocomplete="off" ' +
+          'placeholder="oppure scrivi l\u2019espressione, es. loggia ipofisaria">' +
+      '</div>' +
+      '<div class="smart-app-riga">' +
+        '<span class="smart-lab">significa</span>' +
+        '<div class="smart-scelta" role="radiogroup" aria-label="Cosa indica">' +
+          '<button type="button" class="smart-opz' + (smartTipoApprendi === 'sede' ? ' scelta' : '') +
+            '" data-act="smart-app-tipo" data-tipo="sede" role="radio" aria-checked="' + (smartTipoApprendi === 'sede') +
+            '">una sede</button>' +
+          '<button type="button" class="smart-opz' + (smartTipoApprendi === 'metastasi' ? ' scelta' : '') +
+            '" data-act="smart-app-tipo" data-tipo="metastasi" role="radio" aria-checked="' +
+            (smartTipoApprendi === 'metastasi') + '">una metastasi</button>' +
+        '</div>' +
+        '<input type="text" id="smartSignificato" list="smartSediList" maxlength="60" autocomplete="off" ' +
+          'placeholder="Sede, es. Ipofisi" value="' + esc(smart.sede || '') + '"' +
+          (smartTipoApprendi === 'metastasi' ? ' disabled' : '') + '>' +
+        '<button type="button" class="btn btn-primary btn-sm" data-act="smart-impara">Salva e rileggi</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="smart-azioni">' +
+      '<button type="button" class="btn btn-primary btn-sm" data-act="smart-applica"' + (niente ? ' disabled' : '') +
+        '>Applica al modulo</button>' +
+      '<button type="button" class="btn btn-outline btn-sm" data-act="smart-apprendi" aria-expanded="' + smartApprendi +
+        '" aria-controls="smartApprendi">Apprendi</button>' +
+      '<button type="button" class="smart-link" data-act="smart-chiudi">Procedi a mano</button>' +
+    '</div>';
+}
+
+/** I campi della proposta si possono correggere prima di applicarli. */
+function aggiornaCampoSmart(ev) {
+  const campo = ev.target;
+  const chiave = campo && campo.getAttribute('data-smart');
+  if (!smart || !chiave) return;
+  smart[chiave] = campo.value;
+}
+
+function scegliMetastasiSmart(v) {
+  if (!smart) return;
+  smart.metastasi = v || null;
+  renderSmart();
+}
+
+function apriApprendi() {
+  if (!smart) return;
+  smartApprendi = !smartApprendi;
+  const blocco = el('smartApprendi');
+  const b = document.querySelector('[data-act="smart-apprendi"]');
+  if (blocco) blocco.classList.toggle('aperto', smartApprendi);
+  if (b) b.setAttribute('aria-expanded', smartApprendi ? 'true' : 'false');
+  if (smartApprendi) {
+    const campo = smartScelte.length ? el('smartSignificato') : el('smartEspressione');
+    if (campo && !smart.candidate.length) campo.focus({ preventScroll: true });
+  }
+}
+
+function scegliParolaSmart(parola) {
+  const i = smartScelte.indexOf(parola);
+  if (i === -1) smartScelte.push(parola); else smartScelte.splice(i, 1);
+  document.querySelectorAll('.smart-parola').forEach((b) => {
+    const su = smartScelte.indexOf(b.getAttribute('data-parola')) !== -1;
+    b.classList.toggle('scelta', su);
+    b.setAttribute('aria-pressed', su ? 'true' : 'false');
+  });
+}
+
+function tipoApprendiSmart(tipo) {
+  smartTipoApprendi = tipo === 'metastasi' ? 'metastasi' : 'sede';
+  document.querySelectorAll('[data-act="smart-app-tipo"]').forEach((b) => {
+    const su = b.getAttribute('data-tipo') === smartTipoApprendi;
+    b.classList.toggle('scelta', su);
+    b.setAttribute('aria-checked', su ? 'true' : 'false');
+  });
+  const s = el('smartSignificato');
+  if (s) s.disabled = smartTipoApprendi === 'metastasi';
+}
+
+/** Aggiunge (o corregge) una parola insegnata. Ritorna false se non valida. */
+function insegnaParola(testo, tipo, valore) {
+  const pulito = String(testo || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+  if (Interpreta.normalizza(pulito).length < 3) return false;
+  const sede = tipo === 'sede' ? nomeSede(valore).slice(0, 60) : '';
+  if (tipo === 'sede' && !sede) return false;
+  const firma = Interpreta.modelloAppreso(pulito);
+  salvaPersonalizzazione((p) => {
+    const voce = tipo === 'sede' ? { testo: pulito, tipo: 'sede', valore: sede } : { testo: pulito, tipo: 'metastasi' };
+    const i = p.smart.findIndex((w) => Interpreta.modelloAppreso(w.testo) === firma);
+    if (i !== -1) p.smart[i] = voce;
+    else if (p.smart.length < SMART_MAX) p.smart.push(voce);
+  });
+  return true;
+}
+
+function imparaDaReferto() {
+  if (!smart) return;
+  const espressione = rawVal('smartEspressione').trim();
+  const parole = smartScelte.slice();
+  if (espressione) parole.push(espressione);
+  if (!parole.length) { notify('Scegli una parola del referto, o scrivi l\u2019espressione.'); return; }
+  const valore = rawVal('smartSignificato');
+  if (smartTipoApprendi === 'sede' && !valore.trim()) {
+    notify('Scrivi quale sede indica, es. Ipofisi.');
+    const c = el('smartSignificato');
+    if (c) c.focus();
+    return;
+  }
+  if ((personalizzazione.smart || []).length + parole.length > SMART_MAX) {
+    notify('Raggiunto il limite di ' + SMART_MAX + ' parole insegnate.');
+    return;
+  }
+  const imparate = parole.filter((w) => insegnaParola(w, smartTipoApprendi, valore));
+  if (!imparate.length) { notify('Parola troppo corta: servono almeno 3 lettere.'); return; }
+
+  // rilettura con le parole nuove: si vede subito cosa e' cambiato
+  smart = Interpreta.interpreta(rawVal('w_diagnosi').trim(), paroleApprese());
+  smartApprendi = false;
+  smartScelte = [];
+  renderSmart();
+  notify('Imparato: ' + imparate.map((w) => '«' + w + '»').join(', ') +
+    (smartTipoApprendi === 'sede' ? ' → ' + nomeSede(valore) : ' indica una metastasi') + '.');
+}
+
+/** Scrive la proposta nel modulo: solo i campi che hanno un valore,
+ *  per non cancellare quanto era gia' stato scritto a mano. */
+function applicaSmart() {
+  if (!smart) return;
+  const compilati = [];
+  const scrivi = (id, v) => {
+    const t = String(v || '').trim();
+    if (!t) return;
+    setFieldValue(el(id), t);
+    compilati.push(id);
+  };
+  scrivi('w_sede', nomeSede(smart.sede));
+  scrivi('w_dim', smart.dimensioni);
+  if (smart.metastasi === 'si' || smart.metastasi === 'no') {
+    setMetastasi(smart.metastasi);
+    compilati.push(smart.metastasi === 'si' ? 'tog_meta_si' : 'tog_meta_no');
+  }
+  if (smart.metastasi === 'si') {
+    scrivi('w_meta_sede', smart.metaSede);
+    scrivi('w_meta_primitivo', smart.primitivo);
+  }
+  chiudiSmart();
+  if (!compilati.length) { notify('Niente da compilare: completa i campi a mano.'); return; }
+  // un bagliore breve sui campi compilati, per ricontrollarli a colpo d'occhio
+  compilati.forEach((id) => {
+    const e = el(id);
+    if (!e) return;
+    e.classList.remove('smart-compilato');
+    void e.offsetWidth;
+    e.classList.add('smart-compilato');
+    setTimeout(() => e.classList.remove('smart-compilato'), 2600);
+  });
+  notify('Scheda compilata dal referto: controlla i campi evidenziati.');
+}
+
+// ── Personalizzazione → Smart guess ─────────────────────────────
+
+/** Le sedi proposte nei campi: quelle che il motore conosce, quelle
+ *  insegnate e quelle gia' in archivio. */
+function aggiornaSediSmart(sedi, metaSedi) {
+  const tutte = new Map();
+  const aggiungi = (n) => { const t = nomeSede(n); if (t && !tutte.has(t.toLowerCase())) tutte.set(t.toLowerCase(), t); };
+  Interpreta.nomiSedi().forEach(aggiungi);
+  paroleApprese().forEach((w) => { if (w.tipo === 'sede') aggiungi(w.valore); });
+  (sedi || uniqueValues('sede')).forEach(aggiungi);
+  (metaSedi || uniqueValues('meta_sede')).forEach(aggiungi);
+  setHtml('smartSediList', Array.from(tutte.values()).sort()
+    .map((t) => '<option value="' + esc(t) + '"></option>').join(''));
+}
+
+function renderSmartGuess() {
+  aggiornaContatoriPersonalizzazione();
+  aggiornaSediSmart();
+  const lista = el('smartApprese');
+  if (lista) {
+    const apprese = paroleApprese();
+    lista.innerHTML = apprese.length
+      ? apprese.map((w, i) => '<div class="smart-riga">' +
+          '<span class="smart-riga-parola">' + esc(w.testo) + '</span>' +
+          '<span class="smart-riga-freccia" aria-hidden="true">→</span>' +
+          (w.tipo === 'sede'
+            ? '<input type="text" class="smart-riga-valore" data-idx="' + i + '" list="smartSediList" maxlength="60" ' +
+              'value="' + esc(w.valore) + '" aria-label="Sede indicata da ' + esc(w.testo) + '">'
+            : '<span class="smart-riga-meta">indica una metastasi</span>') +
+          '<button type="button" class="smart-riga-x" data-act="smart-elimina" data-idx="' + i +
+            '" aria-label="Dimentica ' + esc(w.testo) + '">&times;</button>' +
+        '</div>').join('')
+      : '<div class="pg-vuoto">Nessuna per ora. Si aggiungono qui sotto, o con <b>Apprendi</b> dal passo 3.</div>';
+  }
+  const diz = el('smartDizionario');
+  if (diz && !diz.childNodes.length) {
+    diz.innerHTML = Interpreta.nomiSedi().map((n) => '<div class="smart-diz-voce"><b>' + esc(n) + '</b><span>' +
+      Interpreta.modelliDi(n).map((m) => esc(m.replace(/\*/g, '…'))).join(', ') + '</span></div>').join('');
+  }
+  renderProvaSmart();
+}
+
+function renderProvaSmart() {
+  const campo = el('smartProva');
+  const esito = el('smartProvaEsito');
+  if (!campo || !esito) return;
+  const testo = campo.value.trim();
+  if (!testo) {
+    esito.innerHTML = '<span class="pg-nota">Incolla un referto: vedi cosa riconosce, dove mette la sede e ' +
+      'quale misura prende, prima di usarlo su un paziente.</span>';
+    return;
+  }
+  const r = Interpreta.interpreta(testo, paroleApprese());
+  const riga = (etichetta, valore) => '<div class="pg-prova-riga"><span class="pers-etichetta">' + etichetta + '</span>' +
+    (valore ? '<b class="pg-chip-ok">' + esc(valore) + '</b>' : '<span class="pg-nota">non trovato</span>') + '</div>';
+  esito.innerHTML =
+    riga('Sede', r.sede) +
+    riga('Dimensioni', r.dimensioni) +
+    riga('Metastasi', r.metastasi === 'si' ? 'sì' + (r.metaSede ? ' — ' + r.metaSede : '') : r.metastasi === 'no' ? 'no' : '') +
+    (r.primitivo ? riga('Primitivo', r.primitivo) : '') +
+    (r.candidate.length
+      ? '<div class="pg-prova-riga"><span class="pers-etichetta">Non conosce</span>' +
+          r.candidate.slice(0, 14).map((p) => '<button type="button" class="pg-termine" data-act="smart-termine" ' +
+            'data-testo="' + esc(p) + '" title="Prepara come parola da insegnare">' + esc(p) + ' +</button>').join('') +
+        '</div>'
+      : '');
+}
+
+function tipoNuovaSmart(tipo) {
+  smartTipoNuovo = tipo === 'metastasi' ? 'metastasi' : 'sede';
+  document.querySelectorAll('[data-act="smart-tipo"]').forEach((b) => {
+    const su = b.getAttribute('data-tipo') === smartTipoNuovo;
+    b.classList.toggle('scelta', su);
+    b.setAttribute('aria-checked', su ? 'true' : 'false');
+  });
+  const s = el('smartNuovaSede');
+  if (s) s.disabled = smartTipoNuovo === 'metastasi';
+}
+
+function aggiungiParolaSmart() {
+  const testo = rawVal('smartNuovaParola');
+  const sede = rawVal('smartNuovaSede');
+  if (Interpreta.normalizza(testo).length < 3) { notify('Scrivi una parola di almeno 3 lettere.'); return; }
+  if (smartTipoNuovo === 'sede' && !sede.trim()) {
+    notify('Scrivi quale sede indica, es. Ipofisi.');
+    const c = el('smartNuovaSede');
+    if (c) c.focus();
+    return;
+  }
+  if (paroleApprese().length >= SMART_MAX) { notify('Raggiunto il limite di ' + SMART_MAX + ' parole insegnate.'); return; }
+  if (!insegnaParola(testo, smartTipoNuovo, sede)) return;
+  setFieldValue(el('smartNuovaParola'), '');
+  setFieldValue(el('smartNuovaSede'), '');
+  notify('Insegnata: «' + testo.trim() + '»' + (smartTipoNuovo === 'sede' ? ' → ' + nomeSede(sede) : ' indica una metastasi'));
+  const c = el('smartNuovaParola');
+  if (c) c.focus();
+}
+
+function correggiParolaSmart(i, valore) {
+  const w = paroleApprese()[i];
+  if (!w || w.tipo !== 'sede') return;
+  const sede = nomeSede(valore);
+  if (!sede) { renderSmartGuess(); return; }
+  if (sede === w.valore) return;
+  salvaPersonalizzazione((p) => { p.smart[i] = { testo: w.testo, tipo: 'sede', valore: sede }; });
+  notify('«' + w.testo + '» ora indica ' + sede + '.');
+}
+
+function eliminaParolaSmart(i) {
+  const w = paroleApprese()[i];
+  if (!w) return;
+  salvaPersonalizzazione((p) => p.smart.splice(i, 1));
+  notify('Dimenticata: «' + w.testo + '»');
+}
+
+function usaTermineSmart(testo) {
+  setFieldValue(el('smartNuovaParola'), testo);
+  const c = el(smartTipoNuovo === 'sede' ? 'smartNuovaSede' : 'smartNuovaParola');
+  if (c) c.focus();
+}
+
+async function ripristinaSmart() {
+  const n = paroleApprese().length;
+  if (!n) { notify('Non ci sono parole insegnate.'); return; }
+  const ok = await conferma({
+    tipo: 'avviso',
+    titolo: 'Dimenticare le parole insegnate?',
+    messaggio: 'Interpreta tornera\u0300 a conoscere solo le parole predefinite.',
+    dettaglio: 'Si perdono ' + n + (n === 1 ? ' parola insegnata' : ' parole insegnate') + ' dal reparto, su entrambe le postazioni.',
+    conferma: 'Dimentica'
+  });
+  if (!ok) return;
+  salvaPersonalizzazione((p) => { p.smart = []; });
+  notify('Parole insegnate dimenticate.');
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -4828,10 +5368,28 @@ function toggleSelect(wrap, apri) {
     selAperto = null;
   }
   if (!wrap) return;
+  if (apri) orientaSelect(wrap);
   wrap.classList.toggle('aperto', !!apri);
   const t = wrap.querySelector('.sel-trigger');
   if (t) t.setAttribute('aria-expanded', apri ? 'true' : 'false');
   selAperto = apri ? wrap : null;
+}
+
+/** Verso dove aprire il menu: sotto se c'e' spazio nella finestra,
+ *  altrimenti sopra; e mai piu' alto dello spazio che c'e' davvero, cosi'
+ *  l'ultima voce non finisce oltre il bordo. */
+function orientaSelect(wrap) {
+  const lista = wrap.querySelector('.sel-opzioni');
+  const trigger = wrap.querySelector('.sel-trigger');
+  if (!lista || !trigger) return;
+  const r = trigger.getBoundingClientRect();
+  const margine = 16;
+  const sotto = window.innerHeight - r.bottom - margine;
+  const sopra = r.top - margine - 60;          // la barra in alto non conta
+  const voluto = Math.min(280, lista.scrollHeight || 280);
+  const inAlto = sotto < voluto && sopra > sotto;
+  wrap.classList.toggle('verso-alto', inAlto);
+  lista.style.maxHeight = Math.max(120, Math.min(280, inAlto ? sopra : sotto)) + 'px';
 }
 
 /** Da chiamare quando le opzioni di un select vengono ricostruite. */
@@ -5796,6 +6354,19 @@ const CLICK_ACTIONS = {
   'pers-parola-elimina': (t) => eliminaParolaChiave(parseInt(t.getAttribute('data-idx'), 10)),
   'pers-ripristina': () => ripristinaCategorie(),
   'crono-esame': (t) => impostaTipoEsame(t.getAttribute('data-tipo')),
+  'interpreta': () => interpretaDiagnosi(),
+  'smart-chiudi': () => chiudiSmart(),
+  'smart-applica': () => applicaSmart(),
+  'smart-apprendi': () => apriApprendi(),
+  'smart-meta': (t) => scegliMetastasiSmart(t.getAttribute('data-val')),
+  'smart-parola': (t) => scegliParolaSmart(t.getAttribute('data-parola')),
+  'smart-app-tipo': (t) => tipoApprendiSmart(t.getAttribute('data-tipo')),
+  'smart-impara': () => imparaDaReferto(),
+  'smart-tipo': (t) => tipoNuovaSmart(t.getAttribute('data-tipo')),
+  'smart-aggiungi': () => aggiungiParolaSmart(),
+  'smart-elimina': (t) => eliminaParolaSmart(parseInt(t.getAttribute('data-idx'), 10)),
+  'smart-termine': (t) => usaTermineSmart(t.getAttribute('data-testo')),
+  'smart-ripristina': () => ripristinaSmart(),
   'pick': (t) => {
     const target = el(t.getAttribute('data-target'));
     if (target) { target.value = t.getAttribute('data-value') || ''; }
@@ -5828,6 +6399,25 @@ function wireEvents() {
   });
   on('tipiNuovo', 'keydown', (ev) => { if (ev.key === 'Enter') aggiungiTipoEsame(); });
   on('persProva', 'input', renderProva);
+  on('smartProva', 'input', renderProvaSmart);
+  on('smartCorpo', 'input', aggiornaCampoSmart);
+  const apprese = el('smartApprese');
+  if (apprese) {
+    apprese.addEventListener('change', (ev) => {
+      if (ev.target.classList.contains('smart-riga-valore')) {
+        correggiParolaSmart(parseInt(ev.target.getAttribute('data-idx'), 10), ev.target.value);
+      }
+    });
+  }
+  ['smartNuovaParola', 'smartNuovaSede'].forEach((id) => on(id, 'keydown', (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); aggiungiParolaSmart(); }
+  }));
+  on('smartCorpo', 'keydown', (ev) => {
+    if (ev.key === 'Enter' && (ev.target.id === 'smartEspressione' || ev.target.id === 'smartSignificato')) {
+      ev.preventDefault();
+      imparaDaReferto();
+    }
+  });
   on('modPersonalizza', 'change', (ev) => {
     if (ev.target.classList.contains('pers-esame')) {
       impostaEsameCategoria(ev.target.getAttribute('data-cat'), ev.target.value);

@@ -472,3 +472,20 @@ copia; scadenza dei 15 giorni simulata con una data di 16 giorni fa — al
 controllo successivo il backup è partito da solo e la data è avanzata.
 La copia su una chiavetta fisica non è stata provata: qui non ce n'è una
 collegata.
+
+---
+
+# Revisione del 18 settembre 2026 — Interpreta e cronologia verosimile
+
+| | modifica | dettaglio |
+|---|---|---|
+| G1 | il menu *Tipo di esame* (passo 2) veniva tagliato | la scheda del passo aveva `overflow: hidden` e il binario delle viste lo aveva su entrambi gli assi: ora il binario taglia solo in orizzontale (`overflow-x: clip`) e il menu si apre verso l'alto quando sotto non c'è spazio nella finestra |
+| G2 | la cronologia proponeva un esame per categoria (una colica renale finiva a Uro-TC) | esame tipico per singolo quesito, con statistiche d'archivio anche per quesito; 11 quesiti nuovi (embolia, dissezione, appendicite, diverticolite, pancreatite, colica biliare, ischemia mesenterica, politrauma, trauma cranico, polmonite, compressione midollare) |
+| G3 | archivio demo con coppie richiesta/esame casuali ("dispnea → Ecografia collo") | rigenerato con scenari del PS verosimili e diagnosi scritte come referti |
+| G4 | *Interpreta* (nuovo) | `src/interpreta.js`, senza DOM; nessuna scrittura nel modulo senza conferma; le parole insegnate passano dalla stessa normalizzazione del file condiviso (solo `sede`/`metastasi`, testi brevi, al massimo 300) |
+
+Sicurezza: tutto ciò che Interpreta mostra — frasi del referto, parole
+non riconosciute, parole insegnate — passa da `esc()` prima di diventare
+HTML; le parole insegnate lette dal file condiviso sono validate come il
+resto della personalizzazione.
+

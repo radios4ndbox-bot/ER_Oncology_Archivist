@@ -198,13 +198,17 @@ nav{background:var(--text);height:52px;display:flex;align-items:center;justify-c
 .wp-line.done{background:var(--green);}
 .wstep{display:none;}
 .wstep.active{display:block;}
-.step-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+/* Niente overflow:hidden sulla scheda: tagliava i menu a tendina che
+   scendono oltre il suo bordo (il tipo di esame, al passo 2, finiva
+   sotto il fondo della scheda). Gli angoli arrotondati li tengono la
+   testa e il piede da soli. */
+.step-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;}
 .step-head{padding:1.2rem 1.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;}
 .step-num{width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:13px;font-weight:500;flex-shrink:0;}
 .step-title{font-size:16px;font-weight:500;}
 .step-desc{font-size:12px;color:var(--muted);margin-top:2px;}
 .step-body{padding:1.5rem;}
-.step-footer{padding:1rem 1.5rem;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--surface2);}
+.step-footer{padding:1rem 1.5rem;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--surface2);border-radius:0 0 9px 9px;}
 
 /* ══════════════ FIELDS ══════════════ */
 .field{display:flex;flex-direction:column;gap:6px;margin-bottom:1.2rem;}
@@ -978,7 +982,11 @@ body.printing #printRoot { display: block; }
    e visivamente e' uno stiramento sgradevole. L'altezza si assesta
    subito, scorre solo il binario.
    ══════════════════════════════════════════════════════════════════ */
-.views-port { overflow: hidden; }
+/* Il binario delle viste va tagliato solo in orizzontale: con hidden su
+   entrambi gli assi anche un menu a tendina aperto in fondo alla pagina
+   veniva tagliato dal bordo inferiore. clip, a differenza di hidden, non
+   trasforma l'altro asse in una zona di scorrimento. */
+.views-port { overflow-x: clip; overflow-y: visible; }
 .views-track {
   display: flex; align-items: flex-start;
   /* molla animate-ui: stiffness 300, damping 30, senza rimbalzo */
@@ -1439,6 +1447,13 @@ body.reduce-motion .toggle-item[data-apre]::after { transition: none; }
 .sel-wrap.aperto .sel-opzioni {
   opacity: 1; transform: translateY(0) scale(1); pointer-events: auto;
 }
+/* Quando sotto non c'e' spazio nella finestra, il menu si apre verso
+   l'alto: stessa comparsa, specchiata. */
+.sel-wrap.verso-alto .sel-opzioni {
+  top: auto; bottom: calc(100% + 5px);
+  transform: translateY(10px) scale(.97); transform-origin: bottom center;
+}
+.sel-wrap.verso-alto.aperto .sel-opzioni { transform: translateY(0) scale(1); }
 
 .sel-opzione {
   padding: 7px 10px; border: none; border-radius: 5px; cursor: pointer;
@@ -2621,3 +2636,180 @@ body.reduce-motion .pg-entra { animation: none; }
 .dlg-scelte .btn { border-radius: 999px; }
 .dlg-scelte .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 body.reduce-motion .overlay-dialogo .dlg-icona { animation: none; }
+
+/* ══════════════════════════════════════════════════════════════════
+   Interpreta — il referto del PACS compila il passo 3
+
+   Il pulsante sta sotto la descrizione; la proposta si apre sotto con
+   lo stesso reveal a griglia delle altre sezioni del wizard. I campi
+   si correggono sul posto, e niente arriva nel modulo senza "Applica".
+   ══════════════════════════════════════════════════════════════════ */
+.interpreta-riga { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 2px; }
+.btn-interpreta {
+  display: inline-flex; align-items: center; gap: 6px;
+  border-color: var(--accent); color: var(--accent); background: var(--accent-bg);
+}
+.btn-interpreta svg { width: 14px; height: 14px; transition: transform .45s cubic-bezier(.34,1.56,.64,1); }
+.btn-interpreta:hover { background: var(--accent); color: #fff; }
+.btn-interpreta:hover svg { transform: rotate(72deg) scale(1.12); }
+.btn-interpreta[aria-expanded="true"] { background: var(--accent); color: #fff; }
+.interpreta-nota { flex: 1; min-width: 220px; font-size: 11px; line-height: 1.5; color: var(--faint); }
+
+#smartPannello { margin-top: 4px; }
+.smart {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 14px 16px 16px; border-radius: 14px;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  background:
+    radial-gradient(420px 120px at 0% 0%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%),
+    var(--surface);
+  box-shadow: 0 14px 30px -22px rgba(168,34,85,.55);
+}
+.smart-testa { display: flex; align-items: center; gap: 10px; }
+.smart-tit {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 13px; font-weight: 600; color: var(--accent);
+}
+.smart-tit svg { width: 16px; height: 16px; }
+.smart-aff {
+  padding: 2px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 600; letter-spacing: .02em;
+}
+.smart-aff-alta  { color: var(--green); background: var(--green-bg); }
+.smart-aff-media { color: var(--amber); background: var(--amber-bg); }
+.smart-aff-bassa { color: var(--muted); background: var(--surface2); border: 1px solid var(--border); }
+.smart-x {
+  margin-left: auto; width: 26px; height: 26px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+  font-size: 16px; line-height: 1; transition: color .15s, border-color .15s, transform .2s;
+}
+.smart-x:hover { color: var(--accent); border-color: var(--accent); transform: rotate(90deg); }
+.smart-sub { margin: 0; font-size: 12px; line-height: 1.55; color: var(--muted); }
+.smart-sub b { color: var(--text); }
+
+.smart-campi { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; }
+.smart-campo { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.smart-lab {
+  font-size: 9.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint);
+}
+.smart .smart-campo input {
+  font-size: 13px; padding: 7px 10px; border-radius: 8px; background: var(--surface2);
+}
+.smart .smart-campo input:not(:placeholder-shown) {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); background: #fff;
+}
+.smart-evidenza {
+  font-size: 10.5px; line-height: 1.4; color: var(--faint); font-style: italic;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.smart-scelta {
+  display: inline-flex; gap: 3px; padding: 3px; border-radius: 10px; width: fit-content;
+  background: var(--surface2); border: 1px solid var(--border);
+}
+.smart-opz {
+  padding: 4px 12px; border: none; border-radius: 7px; cursor: pointer;
+  background: transparent; color: var(--muted);
+  font-family: var(--sans); font-size: 12px; font-weight: 500;
+  transition: background .18s, color .18s, box-shadow .18s;
+}
+.smart-opz:hover { color: var(--text); }
+.smart-opz.scelta { background: #fff; color: var(--accent); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+
+.smart-riconosciute { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 6px; }
+.smart-riconosciute .smart-lab { margin-right: 4px; }
+.smart-chip {
+  padding: 2px 9px; border-radius: 999px; font-size: 11px; color: var(--muted);
+  background: var(--surface2); border: 1px solid var(--border);
+}
+.smart-chip b { color: var(--accent); font-weight: 600; }
+.smart-chip.appreso { border-style: dashed; border-color: var(--accent); }
+
+/* Apprendi: si apre dentro la proposta, con la stessa comparsa a molla */
+.smart-apprendi { display: none; }
+.smart-apprendi.aperto {
+  display: block;
+  padding: 12px 14px; border-radius: 12px;
+  border: 1px dashed var(--accent); background: var(--accent-bg);
+  animation: smartApprendi .42s cubic-bezier(.22,1,.36,1) both;
+}
+@keyframes smartApprendi { from { opacity: 0; transform: translateY(-6px) scale(.985); } }
+.smart-app-tit { font-size: 12.5px; font-weight: 600; color: var(--accent); margin-bottom: 4px; }
+.smart-apprendi .smart-sub { margin-bottom: 8px; }
+.smart-parole { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 4px; }
+.smart-parola {
+  padding: 3px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border2); background: #fff; color: var(--text);
+  font-family: var(--sans); font-size: 11.5px;
+  transition: background .15s, color .15s, border-color .15s, transform .2s cubic-bezier(.34,1.56,.64,1);
+}
+.smart-parola:hover { border-color: var(--accent); color: var(--accent); }
+.smart-parola.scelta { background: var(--accent); border-color: var(--accent); color: #fff; transform: scale(1.04); }
+.smart-app-riga { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.smart .smart-app-riga input {
+  flex: 1; min-width: 160px; font-size: 12.5px; padding: 7px 10px; border-radius: 8px; background: #fff;
+}
+.smart .smart-app-riga input:disabled { opacity: .45; }
+
+.smart-azioni { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 2px; }
+.smart-link {
+  margin-left: auto; padding: 4px 2px; border: none; background: none; cursor: pointer;
+  font-family: var(--sans); font-size: 12px; color: var(--muted);
+}
+.smart-link:hover { color: var(--accent); text-decoration: underline; }
+
+/* i campi appena compilati da Interpreta si accendono per un attimo */
+@keyframes smartCompilato {
+  0%   { box-shadow: 0 0 0 0 rgba(168,34,85,.45); border-color: var(--accent); background: var(--accent-bg); }
+  70%  { box-shadow: 0 0 0 7px rgba(168,34,85,0); border-color: var(--accent); background: var(--accent-bg); }
+  100% { box-shadow: 0 0 0 0 rgba(168,34,85,0); }
+}
+.smart-compilato { animation: smartCompilato 2.4s ease-out; }
+
+@media (max-width: 760px) { .smart-campi { grid-template-columns: 1fr; } }
+body.reduce-motion .smart-apprendi.aperto, body.reduce-motion .smart-compilato { animation: none; }
+body.reduce-motion .btn-interpreta svg { transition: none; }
+
+/* ── Personalizzazione → Smart guess ─────────────────────────────── */
+.pg-prova textarea {
+  padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 10px; outline: none; resize: vertical;
+  font-family: var(--sans); font-size: 13px; line-height: 1.5; background: var(--surface); color: var(--text);
+  transition: border-color .15s, box-shadow .15s;
+}
+.pg-prova textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+.smart-apprese { display: flex; flex-direction: column; gap: 5px; }
+.smart-riga {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; align-items: center; gap: 8px;
+  padding: 6px 8px 6px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface2);
+  animation: panVoce .4s cubic-bezier(.22,1,.36,1) both;
+}
+.smart-riga-parola { font-size: 12.5px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.smart-riga-freccia { color: var(--faint); }
+.smart-riga-valore {
+  font-family: var(--sans); font-size: 12.5px; padding: 5px 9px; border-radius: 7px; outline: none;
+  border: 1px solid var(--border); background: #fff; color: var(--accent); font-weight: 600;
+}
+.smart-riga-valore:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+.smart-riga-meta { font-size: 12px; color: var(--red); font-weight: 600; }
+.smart-riga-x {
+  width: 26px; height: 26px; border-radius: 7px; cursor: pointer;
+  border: 1px solid transparent; background: none; color: var(--faint); font-size: 16px; line-height: 1;
+}
+.smart-riga-x:hover { color: var(--red); border-color: var(--border); background: #fff; }
+.smart-aggiungi { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.smart-aggiungi input {
+  flex: 1; min-width: 150px; font-family: var(--sans); font-size: 12.5px; padding: 7px 10px;
+  border: 1.5px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); outline: none;
+}
+.smart-aggiungi input:focus { border-color: var(--accent); background: #fff; }
+.smart-aggiungi input:disabled { opacity: .45; }
+.smart-dizionario { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px; }
+.smart-diz-voce {
+  display: flex; flex-direction: column; gap: 2px; padding: 7px 10px; border-radius: 9px;
+  border: 1px solid var(--border); background: var(--surface2);
+}
+.smart-diz-voce b { font-size: 12px; color: var(--text); }
+.smart-diz-voce span { font-size: 10.5px; line-height: 1.45; color: var(--faint); }
+.pers-parola-esame {
+  margin-left: 4px; padding-left: 6px; border-left: 1px solid var(--border);
+  font-size: 10px; color: var(--accent);
+}

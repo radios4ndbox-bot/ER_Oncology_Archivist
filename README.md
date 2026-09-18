@@ -20,6 +20,7 @@ preload.js               bridge contextIsolato → window.psApi
 src/index.html           markup (nessun gestore inline, CSP rigida)
 src/styles.css           fogli di stile
 src/app.js               logica applicativa
+src/interpreta.js        Interpreta: lettura del referto copiato dal PACS (senza DOM, testabile)
 src/safety.html          finestra separata della safety net (backup e chiavetta USB)
 src/safety.js            logica della safety net
 src/safety.css           stile della safety net
@@ -115,7 +116,11 @@ distribuito non può attivarsi, nemmeno passando `--dev`.
 
 `demo/ps_onco_data.json` contiene un archivio di **210 esami di pazienti
 inventati** (nomi, date e diagnosi generati), per mostrare il tool con
-archivio, statistiche e cronologia già popolati.
+archivio, statistiche e cronologia già popolati. È inventato ma
+verosimile: ogni richiesta del PS ha l'esame che di solito le si fa, e
+le diagnosi sono scritte come referti del PACS, così *Interpreta* ha
+qualcosa di vero su cui lavorare. Si rigenera con
+`node scripts/seed-dev-data.js 210 --demo`.
 
 ```
 npm run demo
@@ -303,6 +308,51 @@ rilevata in quel momento e scrivibile. La finestra della safety net, poi,
 ha accesso ai soli canali che le servono — stato, scelta della cartella,
 copia: `fs:writeText` e compagnia le sono chiusi, e un tentativo
 risponde *mittente IPC non autorizzato*.
+
+## Cronologia delle richieste
+
+Sotto *Richiesta del PS* la cronologia riconosce il quesito clinico
+(sinonimi, plurali e abbreviazioni compresi) e propone l'esame. L'esame
+tipico è **per singolo quesito**, non per categoria: dentro "Urologico"
+una colica renale va a **TC addome senza mdc**, un'ematuria a **Uro-TC**;
+una cefalea o un trauma cranico a **TC encefalo senza mdc**, una colica
+biliare o un ittero a **Ecografia addome**, un dolore toracico o una
+sospetta embolia ad **Angio-TC torace**, una melena ad **Angio-TC addome**.
+
+Dopo cinque casi in archivio conta quello che il reparto fa davvero; un
+esame fissato in *Personalizzazione → Categorie* vale sempre. È
+un'indicazione orientativa: la scelta resta del radiologo.
+
+## Interpreta — il referto del PACS compila il passo 3
+
+Sotto *Descrizione diagnosi* c'è **Interpreta**. Si incolla il referto
+copiato dal PACS, si preme il pulsante e sotto si apre una proposta:
+sede, dimensioni, metastasi (sì/no, dove) e tumore primitivo quando il
+referto lo dice, ciascuno con la frase da cui l'ha preso.
+
+* **Applica al modulo** scrive la proposta nei campi (solo quelli che ha
+  trovato: quanto scritto a mano non si cancella) e li evidenzia per un
+  attimo, per ricontrollarli;
+* **Procedi a mano** chiude la proposta senza toccare niente;
+* **Apprendi** apre la lista delle parole del referto che non conosce:
+  se ne sceglie una (o si scrive un'espressione), si dice se indica una
+  sede — e quale — o una metastasi, e la proposta si rilegge subito.
+
+Non è un modello statistico ma un dizionario di parole chiave con regole
+esplicite, perché chi lo usa deve poter capire perché ha proposto una
+cosa: le negazioni ("non lesioni focali epatiche") valgono fino alla
+virgola; una sede conta solo se nella sua frase c'è una lesione vera;
+"flessura epatica" è colon, non fegato; le frasi d'anamnesi ("noto
+carcinoma del colon") danno il primitivo, non la lesione di oggi; la
+misura è quella più vicina alla sede. `npm run check` lo prova su 13
+referti tipo e sui 48 referti dell'archivio demo.
+
+**Personalizzazione → Smart guess** mostra le sedi che conosce, permette
+di provare un referto, e di aggiungere, correggere o togliere le parole
+insegnate dal reparto. Vivono nel file condiviso, quindi le imparano
+entrambe le postazioni. Una postazione con una versione precedente del
+programma non le conosce: se modifica la personalizzazione le perde, per
+questo conviene aggiornare le due postazioni insieme.
 
 ## Primo avvio su una postazione
 
