@@ -5421,6 +5421,7 @@ function orientaSelect(wrap) {
 // ══════════════════════════════════════════════════════════════════
 const SUGG_MAX = 60;
 let sugg = { campo: null, voci: [], attiva: -1 };
+let suggInScelta = false;   // l'input che segue una scelta non riapre il menu
 
 function pannelloSugg() {
   let p = el('suggPannello');
@@ -5525,9 +5526,16 @@ function scegliSugg(valore) {
   if (!campo || valore == null) return;
   campo.value = valore;
   chiudiSugg();
-  // chi ascolta il campo (validazione, salvataggio) deve saperlo
-  campo.dispatchEvent(new Event('input', { bubbles: true }));
-  campo.dispatchEvent(new Event('change', { bubbles: true }));
+  // chi ascolta il campo (validazione, salvataggio) deve saperlo; ma quel
+  // input non deve riaprire il menu con le voci piu' lunghe ("Colon" ->
+  // "Colon discendente")
+  suggInScelta = true;
+  try {
+    campo.dispatchEvent(new Event('input', { bubbles: true }));
+    campo.dispatchEvent(new Event('change', { bubbles: true }));
+  } finally {
+    suggInScelta = false;
+  }
 }
 
 function muoviSugg(passo) {
@@ -5554,6 +5562,7 @@ function setupSuggerimenti() {
   });
   document.addEventListener('input', (ev) => {
     const c = ev.target;
+    if (suggInScelta) return;
     if (c && c.hasAttribute && c.hasAttribute('data-lista') && document.activeElement === c) apriSugg(c);
   });
   // un clic sul campo apre l'elenco completo, come la freccia di una tendina

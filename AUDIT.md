@@ -489,3 +489,32 @@ non riconosciute, parole insegnate — passa da `esc()` prima di diventare
 HTML; le parole insegnate lette dal file condiviso sono validate come il
 resto della personalizzazione.
 
+---
+
+# Revisione del 18 settembre 2026 — controllo completo dopo la 2.3.0
+
+Riletto tutto il codice cambiato dalla 2.1.0 (circa 3.700 righe: intro,
+safety net, Interpreta, cronologia, suggerimenti) cercando difetti e
+falle; le prove sono state rifatte sull'applicazione in esecuzione.
+
+| | gravità | difetto | correzione |
+|---|---|---|---|
+| R1 | media | la finestra della safety net chiedeva l'elenco delle chiavette ogni 2,5 s e ogni richiesta avviava PowerShell (mezzo secondo di CPU): su un PC lento le chiamate si sarebbero accavallate | PowerShell parte solo quando le lettere di unità cambiano o dopo un minuto, e mai due volte insieme; prima di scrivere su una chiavetta si rilegge sempre lo stato reale. Misurato: 6 richieste insieme in 2 ms |
+| R2 | bassa | un errore imprevisto nel giro del backup automatico sarebbe diventato un rifiuto di promessa senza gestione nel processo principale | intercettato e registrato; il giro dopo riprova |
+| R3 | bassa | scelta una voce dal menu dei suggerimenti, l'evento di input lo riapriva con le voci più lunghe ("Colon" → "Colon discendente") | l'input che segue una scelta non riapre il menu |
+
+Sicurezza, verificato:
+
+- dalla finestra della safety net `writeText`, `deleteFile`,
+  `selectDataFolder` e `readText` rispondono *mittente IPC non
+  autorizzato*;
+- la copia su chiavetta rifiuta un percorso al posto della lettera
+  (`C:\Windows`) e un disco fisso (`C:`);
+- nessuna concatenazione HTML senza `esc()` nel codice nuovo (ricerca
+  sulle righe aggiunte dalla 2.1.0); le parole insegnate lette dal file
+  condiviso sono validate come il resto della personalizzazione;
+- nessuna espressione regolare costruita da testo dell'utente;
+- `npm audit`: 0 vulnerabilità;
+- le tabelle della cronologia sono coerenti: ogni quesito ha una sola
+  categoria, ogni esame proposto per un quesito esiste.
+

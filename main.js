@@ -477,7 +477,41 @@ register('app:savePdf', async (defaultName) => {
 //  sono validate con una regex prima di diventare un percorso.
 // ══════════════════════════════════════════════════════════════════
 
-function trovaUnitaRimovibili() {
+/** Lettere di unita' presenti adesso. Costa pochi microsecondi, a
+ *  differenza di PowerShell: serve a capire se c'e' qualcosa di nuovo. */
+function lettereMontate() {
+  let firma = '';
+  for (let c = 67; c <= 90; c++) {           // da C: a Z:
+    const lettera = String.fromCharCode(c) + ':';
+    try { fs.accessSync(lettera + path.sep); firma += lettera; } catch (_) { /* assente */ }
+  }
+  return firma;
+}
+
+let cacheUnita = { firma: null, unita: [], quando: 0 };
+let unitaInCorso = null;
+
+/** Unita' rimovibili scrivibili. La finestra della safety net chiede
+ *  ogni due secondi e mezzo: avviare PowerShell ogni volta costava
+ *  mezzo secondo di CPU per giro, e su un PC lento le chiamate si
+ *  sarebbero accavallate. Ora si interroga PowerShell solo quando le
+ *  lettere presenti cambiano (una chiavetta inserita o tolta), o dopo
+ *  un minuto; e mai due volte insieme. */
+function trovaUnitaRimovibili(fresca) {
+  const firma = lettereMontate();
+  // prima di scrivere si guarda sempre com'e' adesso, non com'era
+  if (!fresca && firma === cacheUnita.firma && Date.now() - cacheUnita.quando < 60000) {
+    return Promise.resolve(cacheUnita.unita);
+  }
+  if (!unitaInCorso) {
+    unitaInCorso = enumeraUnitaRimovibili()
+      .then((unita) => { cacheUnita = { firma: firma, unita: unita, quando: Date.now() }; return unita; })
+      .finally(() => { unitaInCorso = null; });
+  }
+  return unitaInCorso;
+}
+
+function enumeraUnitaRimovibili() {
   return new Promise((resolve) => {
     if (process.platform !== 'win32') return resolve([]);
     execFile('powershell.exe', [
@@ -623,9 +657,12 @@ async function controllaBackup() {
 }
 
 function programmaBackup() {
+  // Un errore imprevisto non deve diventare un rifiuto senza gestione nel
+  // processo principale: si registra, e al giro dopo si riprova.
+  const giro = () => controllaBackup().catch((err) => console.error('[backup] giro non riuscito:', err.message));
   setTimeout(() => {
-    controllaBackup();
-    setInterval(controllaBackup, CONTROLLO_BACKUP);
+    giro();
+    setInterval(giro, CONTROLLO_BACKUP);
   }, PRIMO_CONTROLLO);
 }
 
@@ -652,7 +689,7 @@ async function copiaSuUsb(lettera) {
   if (typeof lettera !== 'string' || !/^[A-Z]:$/.test(lettera)) {
     return { stato: 'errore', messaggio: 'Unità non valida.' };
   }
-  const unita = await trovaUnitaRimovibili();
+  const unita = await trovaUnitaRimovibili(true);
   const scelta = unita.find((u) => u.lettera === lettera);
   if (!scelta) return { stato: 'nessuna-unita' };
 
@@ -664,6 +701,8 @@ async function copiaSuUsb(lettera) {
     await atomicWrite(destinazione, letto.contenuto);
   } catch (err) {
     return { stato: 'errore', messaggio: descrizioneErrore(err) };
+  } finally {
+    cacheUnita.firma = null;       // spazio libero cambiato: si rilegge
   }
   return { stato: 'ok', percorso: destinazione, unita: scelta.lettera,
            etichetta: scelta.etichetta, esami: contaEsami(letto.contenuto),
@@ -725,7 +764,7 @@ function apriFinestraSafety() {
 // Quelli aperti anche alla safety net sono i soli che la finestra di
 // servizio può chiamare: legge lo stato, sceglie la sua cartella, copia.
 // Dell'archivio non tocca niente.
-register('app:unitaRimovibili', async () => trovaUnitaRimovibili(), true);
+register('app:unitaRimovibili', async () => trovaUnitaRimovibili(false), true);
 register('app:safetyNet', async (lettera) => copiaSuUsb(lettera), true);
 register('app:apriSafety', async () => apriFinestraSafety());
 
