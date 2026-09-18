@@ -250,11 +250,6 @@ nav{background:var(--text);height:52px;display:flex;align-items:center;justify-c
 .meta-section-title{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.07em;color:var(--red);margin-bottom:.8rem;}
 .sottocat-section{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1rem;margin-bottom:1.2rem;}
 .sottocat-title{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:.8rem;}
-.sede-rapide{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;}
-.sede-btn{font-size:11px;padding:3px 9px;border-radius:20px;cursor:pointer;border:1px solid var(--border2);background:var(--surface2);color:var(--text);font-family:var(--sans);transition:background .1s;}
-.sede-btn:hover{background:var(--border2);}
-.sede-btn-meta{border-color:#F0C0C0;background:var(--red-bg);color:var(--red);}
-.sede-btn-meta:hover{background:#F5D0D0;}
 
 /* ══════════════ FOLLOW-UP ══════════════ */
 .fu-list{display:flex;flex-direction:column;gap:8px;margin-bottom:1rem;}
@@ -2813,3 +2808,36 @@ body.reduce-motion .btn-interpreta svg { transition: none; }
   margin-left: 4px; padding-left: 6px; border-left: 1px solid var(--border);
   font-size: 10px; color: var(--accent);
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   Suggerimenti dei campi di testo con lo stile delle tendine
+
+   I campi con un elenco di suggerimenti (sede, sede della metastasi,
+   tipo di esame scritto a mano, le sedi di Interpreta) usavano il menu
+   nativo di Windows, grigio e fuori dal disegno del tool. Ora hanno lo
+   stesso pannello dei menu a tendina. Il pannello e' uno solo, a
+   posizione fissa: le sezioni che si aprono a scomparsa tagliano quel
+   che sborda, e un menu dentro di loro verrebbe tagliato.
+   ══════════════════════════════════════════════════════════════════ */
+.sugg-pannello {
+  position: fixed; z-index: 1500;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 5px; border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--border);
+  box-shadow: 0 12px 28px -10px rgba(0,0,0,.26), 0 2px 5px rgba(0,0,0,.07);
+  max-height: 260px; overflow-y: auto;
+  opacity: 0; transform: translateY(-10px) scale(.97);
+  transform-origin: top center; pointer-events: none; visibility: hidden;
+  transition: opacity 180ms ease, transform 300ms cubic-bezier(.26,1.3,.46,.9), visibility 0s linear 300ms;
+}
+.sugg-pannello.verso-alto { transform: translateY(10px) scale(.97); transform-origin: bottom center; }
+.sugg-pannello.aperto {
+  opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; visibility: visible;
+  transition: opacity 180ms ease, transform 300ms cubic-bezier(.26,1.3,.46,.9), visibility 0s;
+}
+.sugg-pannello .sel-opzione { flex-shrink: 0; }
+.sugg-pannello .sel-opzione b { font-weight: 700; color: var(--accent); }
+.sugg-pannello .sel-opzione.attiva { background: var(--accent-bg); color: var(--accent); }
+.sugg-pannello .sel-opzione.attiva b { color: inherit; }
+body.reduce-motion .sugg-pannello { transition: none; }
+

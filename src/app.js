@@ -1970,16 +1970,12 @@ function updateSuggests() {
 
   renderCronologia();
   setHtml('tipoEsameList', tipi.filter((t) => !esameEscluso(t)).map((t) => '<option value="' + esc(t) + '"></option>').join(''));
-  setHtml('sedeList', sedi.map((s) => '<option value="' + esc(s) + '"></option>').join(''));
-  setHtml('metaSedeList', metaSedi.map((s) => '<option value="' + esc(s) + '"></option>').join(''));
+  // Le sedi piu' usate in archivio prima, poi le altre che Interpreta
+  // conosce: senza le pillole sotto il campo, e' il menu a proporle.
+  setHtml('sedeList', sediPerUso('sede').map((s) => '<option value="' + esc(s) + '"></option>').join(''));
+  setHtml('metaSedeList', sediPerUso('meta_sede').map((s) => '<option value="' + esc(s) + '"></option>').join(''));
 
   aggiornaSediSmart(sedi, metaSedi);
-  setHtml('sediRapide', sedi.map((s) =>
-    '<button type="button" class="sede-btn" data-act="pick" data-target="w_sede" data-value="' +
-    esc(s) + '">' + esc(s) + '</button>').join(''));
-  setHtml('metaSediRapide', metaSedi.map((s) =>
-    '<button type="button" class="sede-btn sede-btn-meta" data-act="pick" data-target="w_meta_sede" data-value="' +
-    esc(s) + '">' + esc(s) + '</button>').join(''));
 
   const fTipo = el('fTipo');
   if (fTipo) {
@@ -1991,6 +1987,23 @@ function updateSuggests() {
     sfTipo.innerHTML = '<option value="">Tutti i tipi</option>' + optionsHtml(tipi, sfTipo.value);
     refreshSelect('sfTipo');
   }
+}
+
+/** Sedi per il menu dei suggerimenti: prima quelle dell'archivio, dalla
+ *  piu' frequente, poi le altre conosciute da Interpreta e dal reparto. */
+function sediPerUso(campo) {
+  const conta = new Map();
+  DB.forEach((r) => {
+    const v = String(r[campo] || '').trim();
+    if (v) conta.set(v, (conta.get(v) || 0) + 1);
+  });
+  const usate = Array.from(conta.keys()).sort((a, b) => (conta.get(b) - conta.get(a)) || a.localeCompare(b, 'it'));
+  const viste = new Set(usate.map((v) => v.toLowerCase()));
+  const altre = Interpreta.nomiSedi()
+    .concat(paroleApprese().filter((w) => w.tipo === 'sede').map((w) => w.valore))
+    .filter((v) => { const k = v.toLowerCase(); if (viste.has(k)) return false; viste.add(k); return true; })
+    .sort((a, b) => a.localeCompare(b, 'it'));
+  return usate.concat(altre);
 }
 
 function setHtml(id, html) {
@@ -5320,6 +5333,7 @@ function avvolgiSelect(nativo) {
 
 function setupSelects() {
   document.querySelectorAll('select').forEach(avvolgiSelect);
+  setupSuggerimenti();
 
   document.addEventListener('click', () => toggleSelect(null, false));
   document.addEventListener('keydown', (ev) => {
@@ -5390,6 +5404,192 @@ function orientaSelect(wrap) {
   const inAlto = sotto < voluto && sopra > sotto;
   wrap.classList.toggle('verso-alto', inAlto);
   lista.style.maxHeight = Math.max(120, Math.min(280, inAlto ? sopra : sotto)) + 'px';
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  SUGGERIMENTI DEI CAMPI DI TESTO
+//  I campi con un <datalist> (sede, sede della metastasi, tipo di esame
+//  scritto a mano, le sedi di Interpreta) mostravano il menu nativo di
+//  Windows. Qui lo stesso elenco si apre con l'aspetto dei menu a
+//  tendina del tool, filtrato mentre si scrive e usabile da tastiera.
+//
+//  Il campo resta un campo libero: il menu suggerisce, non obbliga.
+//  L'attributo list si sposta in data-lista (anche sui campi creati
+//  dopo, al primo focus), cosi' il menu nativo non compare piu'.
+//  Il pannello e' uno solo, a posizione fissa, fuori da ogni sezione:
+//  le sezioni a scomparsa tagliano quello che sborda.
+// ══════════════════════════════════════════════════════════════════
+const SUGG_MAX = 60;
+let sugg = { campo: null, voci: [], attiva: -1 };
+
+function pannelloSugg() {
+  let p = el('suggPannello');
+  if (p) return p;
+  p = document.createElement('div');
+  p.id = 'suggPannello';
+  p.className = 'sugg-pannello';
+  p.setAttribute('role', 'listbox');
+  // il campo non deve perdere il focus quando si clicca una voce
+  p.addEventListener('mousedown', (ev) => ev.preventDefault());
+  p.addEventListener('click', (ev) => {
+    const voce = ev.target.closest('.sel-opzione');
+    if (voce) scegliSugg(voce.getAttribute('data-valore'));
+  });
+  document.body.appendChild(p);
+  return p;
+}
+
+/** Il campo passa dal datalist nativo al menu del tool. */
+function convertiSugg(campo) {
+  if (!campo || campo.tagName !== 'INPUT' || !campo.hasAttribute('list')) return;
+  campo.setAttribute('data-lista', campo.getAttribute('list'));
+  campo.removeAttribute('list');
+  campo.setAttribute('role', 'combobox');
+  campo.setAttribute('aria-autocomplete', 'list');
+  campo.setAttribute('aria-expanded', 'false');
+  campo.setAttribute('aria-controls', 'suggPannello');
+}
+
+function vociSugg(campo) {
+  const lista = el(campo.getAttribute('data-lista'));
+  const tutte = [];
+  const viste = new Set();
+  Array.prototype.forEach.call(lista ? lista.options : [], (o) => {
+    const v = String(o.value || '').trim();
+    if (v && !viste.has(v.toLowerCase())) { viste.add(v.toLowerCase()); tutte.push(v); }
+  });
+  const q = normalizzaTesto(campo.value);
+  if (!q) return tutte.slice(0, SUGG_MAX);
+  const inizio = [], dentro = [];
+  tutte.forEach((v) => {
+    const n = normalizzaTesto(v);
+    if (n === q) return;                      // e' gia' quello che c'e' scritto
+    if (n.indexOf(q) === 0) inizio.push(v);
+    else if (n.indexOf(q) !== -1) dentro.push(v);
+  });
+  return inizio.concat(dentro).slice(0, SUGG_MAX);
+}
+
+/** La parte gia' scritta si vede in grassetto dentro la voce. */
+function evidenziaSugg(voce, testo) {
+  const q = String(testo || '').trim().toLowerCase();
+  const i = q ? voce.toLowerCase().indexOf(q) : -1;
+  if (i === -1) return esc(voce);
+  return esc(voce.slice(0, i)) + '<b>' + esc(voce.slice(i, i + q.length)) + '</b>' + esc(voce.slice(i + q.length));
+}
+
+function apriSugg(campo) {
+  const voci = vociSugg(campo);
+  if (!voci.length) { chiudiSugg(); return; }
+  const p = pannelloSugg();
+  sugg = { campo: campo, voci: voci, attiva: -1 };
+  p.innerHTML = voci.map((v, i) =>
+    '<div class="sel-opzione" role="option" id="sugg-' + i + '" aria-selected="false" data-valore="' + esc(v) + '">' +
+    evidenziaSugg(v, campo.value) + '</div>').join('');
+  posizionaSugg();
+  p.classList.add('aperto');
+  campo.setAttribute('aria-expanded', 'true');
+}
+
+function posizionaSugg() {
+  const p = el('suggPannello');
+  if (!p || !sugg.campo) return;
+  const r = sugg.campo.getBoundingClientRect();
+  // campo uscito dallo schermo (pagina scorsa, sezione chiusa): si chiude
+  if (!r.width || r.bottom < 0 || r.top > window.innerHeight) { chiudiSugg(); return; }
+  const margine = 12;
+  const sotto = window.innerHeight - r.bottom - margine;
+  const sopra = r.top - margine;
+  const alto = Math.min(260, p.scrollHeight || 260);
+  const inAlto = sotto < alto && sopra > sotto;
+  p.classList.toggle('verso-alto', inAlto);
+  p.style.left = Math.round(r.left) + 'px';
+  p.style.width = Math.round(Math.max(r.width, 180)) + 'px';
+  p.style.maxHeight = Math.max(110, Math.min(260, inAlto ? sopra : sotto)) + 'px';
+  if (inAlto) { p.style.top = 'auto'; p.style.bottom = Math.round(window.innerHeight - r.top + 5) + 'px'; }
+  else { p.style.bottom = 'auto'; p.style.top = Math.round(r.bottom + 5) + 'px'; }
+}
+
+function chiudiSugg() {
+  const p = el('suggPannello');
+  if (p) p.classList.remove('aperto');
+  if (sugg.campo) {
+    sugg.campo.setAttribute('aria-expanded', 'false');
+    sugg.campo.removeAttribute('aria-activedescendant');
+  }
+  sugg = { campo: null, voci: [], attiva: -1 };
+}
+
+function scegliSugg(valore) {
+  const campo = sugg.campo;
+  if (!campo || valore == null) return;
+  campo.value = valore;
+  chiudiSugg();
+  // chi ascolta il campo (validazione, salvataggio) deve saperlo
+  campo.dispatchEvent(new Event('input', { bubbles: true }));
+  campo.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function muoviSugg(passo) {
+  const p = el('suggPannello');
+  if (!p || !sugg.voci.length) return;
+  sugg.attiva = (sugg.attiva + passo + sugg.voci.length) % sugg.voci.length;
+  p.querySelectorAll('.sel-opzione').forEach((v, i) => {
+    const su = i === sugg.attiva;
+    v.classList.toggle('attiva', su);
+    v.setAttribute('aria-selected', su ? 'true' : 'false');
+    if (su) v.scrollIntoView({ block: 'nearest' });
+  });
+  sugg.campo.setAttribute('aria-activedescendant', 'sugg-' + sugg.attiva);
+}
+
+function setupSuggerimenti() {
+  document.querySelectorAll('input[list]').forEach(convertiSugg);
+
+  // i campi creati dopo (Interpreta, personalizzazione) si convertono al
+  // primo focus, prima che il menu nativo possa aprirsi
+  document.addEventListener('focusin', (ev) => convertiSugg(ev.target));
+  document.addEventListener('focusout', (ev) => {
+    if (ev.target === sugg.campo) chiudiSugg();
+  });
+  document.addEventListener('input', (ev) => {
+    const c = ev.target;
+    if (c && c.hasAttribute && c.hasAttribute('data-lista') && document.activeElement === c) apriSugg(c);
+  });
+  // un clic sul campo apre l'elenco completo, come la freccia di una tendina
+  document.addEventListener('mousedown', (ev) => {
+    const c = ev.target;
+    if (c && c.hasAttribute && c.hasAttribute('data-lista')) {
+      convertiSugg(c);
+      setTimeout(() => { if (document.activeElement === c) apriSugg(c); }, 0);
+    }
+  });
+  // In cattura: quando il menu e' aperto, frecce, Invio ed Esc sono sue,
+  // e non devono arrivare ai tasti del resto della pagina (Esc chiuderebbe
+  // la finestra in cui sta il campo, Invio salverebbe una parola a meta').
+  document.addEventListener('keydown', (ev) => {
+    const c = ev.target;
+    if (!c || !c.hasAttribute || !c.hasAttribute('data-lista')) return;
+    const aperto = sugg.campo === c;
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      if (!aperto) apriSugg(c);
+      else muoviSugg(ev.key === 'ArrowDown' ? 1 : -1);
+    } else if (ev.key === 'Enter' && aperto && sugg.attiva >= 0) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      scegliSugg(sugg.voci[sugg.attiva]);
+    } else if (ev.key === 'Escape' && aperto) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      chiudiSugg();
+    } else if (ev.key === 'Tab' && aperto) {
+      chiudiSugg();
+    }
+  }, true);
+  window.addEventListener('resize', () => { if (sugg.campo) posizionaSugg(); });
+  // scorrimento della pagina o della finestra di personalizzazione
+  document.addEventListener('scroll', () => { if (sugg.campo) posizionaSugg(); }, true);
 }
 
 /** Da chiamare quando le opzioni di un select vengono ricostruite. */
@@ -6366,11 +6566,7 @@ const CLICK_ACTIONS = {
   'smart-aggiungi': () => aggiungiParolaSmart(),
   'smart-elimina': (t) => eliminaParolaSmart(parseInt(t.getAttribute('data-idx'), 10)),
   'smart-termine': (t) => usaTermineSmart(t.getAttribute('data-testo')),
-  'smart-ripristina': () => ripristinaSmart(),
-  'pick': (t) => {
-    const target = el(t.getAttribute('data-target'));
-    if (target) { target.value = t.getAttribute('data-value') || ''; }
-  }
+  'smart-ripristina': () => ripristinaSmart()
 };
 
 function wireEvents() {
