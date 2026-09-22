@@ -583,3 +583,8 @@ avviso in sezione e notifica all'apertura, rimozione dalla libreria.
 |---|---|
 | L6 | **Smart cleaning**: di ogni gruppo di quasi-doppioni tiene la richiesta piu' completa (quesiti riconosciuti, parole utili, lunghezza; a parita' di contenuto perde chi e' scritto TUTTO MAIUSCOLO o finisce con un punto) e toglie le altre. Quale resta si vede in verde prima di premere, e la conferma dice quante ne tiene e quante ne toglie. Resta possibile togliere a mano la singola voce |
 
+| | difetto | correzione |
+|---|---|---|
+| A6 | nel passo 3 la sezione si apriva **rosa** e diventava ambra mentre saliva (o viceversa): campionando l'apertura, lo sfondo passava da rgb(245,234,245) a rgb(253,243,220) nei 500 ms dell'apertura | a sezione chiusa la tinta si mette subito, senza transizione: aprendo, l'unico movimento è l'apertura. Il colore si anima solo quando si cambia esito a sezione già aperta |
+| A7 | apertura (.5s ease-out) e colori (.34s / .5s) avevano curve e durate diverse | una sola durata e una sola curva per tutti e due, in due variabili (`--t-apertura`, `--molla-apertura`) usate dal reveal, dai toggle e dalle tinte |
+

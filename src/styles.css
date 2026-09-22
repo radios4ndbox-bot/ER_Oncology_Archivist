@@ -231,7 +231,7 @@ nav{background:var(--text);height:52px;display:flex;align-items:center;justify-c
 /* Il colore della scelta si accende con la stessa lentezza con cui si
    apre la sezione sotto (mezzo secondo): a 120 ms scattava subito e
    sembrava staccato dall'apertura. */
-.toggle-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .34s ease-out,background-color .34s ease-out;}
+.toggle-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color var(--t-apertura) var(--molla-apertura),background-color var(--t-apertura) var(--molla-apertura);}
 .toggle-item:hover{border-color:var(--border2);}
 .toggle-item.active-yes{border-color:var(--onco);background:var(--onco-bg);}
 .toggle-item.active-inc{border-color:var(--amber);background:var(--amber-bg);}
@@ -1337,13 +1337,20 @@ body.reduce-motion #hexReveal { display: none; }
    sezione chiusa lascerebbe un buco. visibility, con il suo ritardo,
    toglie i campi chiusi dal tab quando la chiusura è finita.
    ══════════════════════════════════════════════════════════════════ */
+/* Apertura e colori del passo 3 hanno la stessa durata e la stessa
+   curva: --molla-apertura. Basta che una delle due sia diversa perché
+   si leggano come due movimenti staccati. */
+:root { --t-apertura: .44s; --molla-apertura: cubic-bezier(.22,1,.36,1); }
+
 .reveal-block {
   display: grid;
   grid-template-rows: 0fr;
   overflow: clip;
   overflow-clip-margin: 4px;          /* anelli di focus dei campi */
   visibility: hidden;
-  transition: grid-template-rows .5s ease-out, margin .5s ease-out, visibility 0s linear .5s;
+  transition: grid-template-rows var(--t-apertura) var(--molla-apertura),
+              margin var(--t-apertura) var(--molla-apertura),
+              visibility 0s linear var(--t-apertura);
 }
 .reveal-block:not(.aperto) { margin-top: 0; margin-bottom: 0; }
 .reveal-block > * {
@@ -1352,8 +1359,10 @@ body.reduce-motion #hexReveal { display: none; }
   opacity: 0;
   transform: translateY(1.25rem) scale(.98);
   transform-origin: top center;
-  transition: opacity .5s ease-out, transform .5s ease-out,
-              padding .5s ease-out, border-width .5s ease-out;
+  transition: opacity var(--t-apertura) var(--molla-apertura),
+              transform var(--t-apertura) var(--molla-apertura),
+              padding var(--t-apertura) var(--molla-apertura),
+              border-width var(--t-apertura) var(--molla-apertura);
 }
 /* padding e bordo non si comprimono con la traccia: senza questo la
    sezione chiusa lascerebbe il loro spessore come spazio vuoto */
@@ -1364,7 +1373,8 @@ body.reduce-motion #hexReveal { display: none; }
 .reveal-block.aperto {
   grid-template-rows: 1fr;
   visibility: visible;
-  transition: grid-template-rows .5s ease, margin .5s ease, visibility 0s;
+  transition: grid-template-rows var(--t-apertura) var(--molla-apertura),
+              margin var(--t-apertura) var(--molla-apertura), visibility 0s;
 }
 .reveal-block.aperto > * {
   opacity: 1;
@@ -2255,12 +2265,18 @@ body.reduce-motion .riga-entra { animation: none; }
 #oncoSection .onco-section,
 #oncoSection .sottocat-section,
 #oncoSection .meta-section {
-  transition: background-color .5s ease-out, border-color .5s ease-out;
+  transition: background-color var(--t-apertura) var(--molla-apertura),
+              border-color var(--t-apertura) var(--molla-apertura);
 }
 #oncoSection .onco-section-title,
 #oncoSection .sottocat-title,
 #oncoSection .toggle-label,
-#oncoSection .toggle-item[data-apre]::after { transition: color .5s ease-out; }
+#oncoSection .toggle-item[data-apre]::after { transition: color var(--t-apertura) var(--molla-apertura); }
+
+/* Un attimo senza transizioni: la tinta della sezione che sta per
+   aprirsi si mette subito, cosi' l'apertura e' l'unico movimento. */
+#oncoSection.tinta-immediata,
+#oncoSection.tinta-immediata * { transition: none !important; }
 #oncoSection.esito-sospetto .onco-section { background: var(--amber-bg); border-color: #E8D090; }
 #oncoSection.esito-sospetto .onco-section-title { color: var(--amber); }
 #oncoSection.esito-sospetto .toggle-item.active-yes { border-color: #D9A53A; background: #FFF8E6; }

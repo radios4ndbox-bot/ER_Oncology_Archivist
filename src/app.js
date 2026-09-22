@@ -1172,9 +1172,20 @@ function setOnco(v) {
   // quello, senza cambiare tinta a metà animazione.
   const sezione = el('oncoSection');
   if (sezione && v) {
+    // A sezione chiusa la tinta si mette subito, senza transizione.
+    // Animarla mentre la sezione si apre voleva dire vedere una scatola
+    // rosa che sale e diventa ambra per strada: due movimenti invece di
+    // uno. Aprendo, l'unica cosa che si muove è l'apertura; il colore
+    // si anima solo quando si cambia esito a sezione già aperta.
+    const chiusa = !sezione.classList.contains('aperto');
+    if (chiusa) sezione.classList.add('tinta-immediata');
     sezione.classList.toggle('esito-sospetto', v === 'sospetto');
     const titolo = sezione.querySelector('.onco-section-title');
     if (titolo) titolo.textContent = v === 'sospetto' ? 'Dettaglio reperto sospetto' : 'Dettaglio diagnosi';
+    if (chiusa) {
+      void sezione.offsetWidth;                  // la tinta è già quella giusta
+      sezione.classList.remove('tinta-immediata');
+    }
   }
   mostraSezione('oncoSection', v === 'si' || v === 'sospetto');
   if (!v) { setClassTumore(null); setMetastasi(null); }
