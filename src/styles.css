@@ -2346,14 +2346,6 @@ body.reduce-motion .crono-entra, body.reduce-motion .crono-cambia { animation: n
 }
 .crono-esame b { color: var(--text); font-weight: 600; }
 .crono-archivio { font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
-.crono-imposta {
-  margin-left: auto; padding: 4px 11px; border-radius: 999px; cursor: pointer;
-  border: 1px solid var(--accent); background: var(--accent-bg); color: var(--accent);
-  font-family: var(--sans); font-size: 11px; font-weight: 600;
-  transition: background .15s, color .15s;
-}
-.crono-imposta:hover { background: var(--accent); color: #fff; }
-.crono-ok { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--green); }
 
 .crono-cat {
   display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
@@ -2918,3 +2910,68 @@ body.reduce-motion .btn-interpreta svg { transition: none; }
 .sugg-pannello .sel-opzione.attiva b { color: inherit; }
 body.reduce-motion .sugg-pannello { transition: none; }
 
+/* ══════════════════════════════════════════════════════════════════
+   Libreria delle richieste — «Ricorda» e i quasi-duplicati
+
+   Il campo della richiesta del PS e' un campo di autofill: quello che
+   si scrive si puo' tenere per riusarlo. Le voci in libreria portano la
+   stella, e in Personalizzazione si vedono raggruppate per categoria,
+   con l'avviso quando due si somigliano troppo.
+   ══════════════════════════════════════════════════════════════════ */
+.crono-ricorda {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 11px 3px 9px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border2); background: var(--surface);
+  font-family: var(--sans); font-size: 11px; font-weight: 500; color: var(--muted);
+  transition: border-color .2s, color .2s, background .2s, transform .2s cubic-bezier(.34,1.56,.64,1);
+}
+.crono-ricorda:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+.crono-ricorda:active { transform: scale(.96); }
+.crono-ricorda:disabled, .crono-ricorda.fatta {
+  cursor: default; color: var(--accent); border-color: transparent; background: var(--accent-bg);
+}
+.crono-ricorda.fatta:hover { transform: none; }
+.crono-stella { font-size: 11px; line-height: 1; color: var(--accent); }
+.crono-avviso {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--amber); color: #fff; font-size: 9px; font-weight: 700;
+}
+.crono-voce.ricordata { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.crono-voce.ricordata .crono-stella { margin-right: 4px; }
+body.reduce-motion .crono-ricorda { transition: none; }
+
+/* elenco della libreria dentro la personalizzazione */
+.pers-parola.ricordata {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: #fff; color: var(--text); gap: 5px;
+}
+.pers-parola.ricordata .crono-stella { margin-right: 1px; }
+
+/* avviso dei quasi-duplicati, in cima alla sezione */
+.pg-cat-altre {
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 9px 11px; border-radius: 11px;
+  border: 1px dashed var(--border2); background: var(--surface2);
+}
+.pg-cat-altre .pg-cat-nome { color: var(--c, var(--muted)); }
+.pg-cat-altre .pers-parole { margin-top: 2px; }
+
+.pg-simili { display: none; }
+.pg-simili.pieno {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px; border-radius: 14px;
+  border: 1px solid #EBD9AC; background: var(--amber-bg);
+  animation: similiEntra .4s cubic-bezier(.22,1,.36,1) both;
+}
+@keyframes similiEntra { from { opacity: 0; transform: translateY(-6px); } }
+body.reduce-motion .pg-simili.pieno { animation: none; }
+.pg-simili-testa { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.pg-simili-tit { font-size: 12.5px; font-weight: 600; color: var(--amber); }
+.pg-simili-gruppo { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 7px; }
+.pg-simili-perche {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--amber); background: #fff; border: 1px solid #EBD9AC;
+  padding: 2px 8px; border-radius: 999px;
+}

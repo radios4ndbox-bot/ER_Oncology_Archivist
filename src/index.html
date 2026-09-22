@@ -973,8 +973,10 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
       <section class="pg-sezione" data-tab="categorie" hidden>
         <div class="pg-sez-testa">
           <h3>Categorie delle richieste</h3>
-          <p>La cronologia riconosce le parole chiave di una richiesta, la assegna a una categoria e
-          propone l'esame. Scegli una categoria per cambiarne l'esame o insegnarle nuove parole.</p>
+          <p>La cronologia riconosce le parole chiave di una richiesta e la assegna a una categoria.
+          Qui si gestiscono le parole chiave e le <strong>richieste ricordate</strong> con il tasto
+          <em>Ricorda</em> del passo 2: sono la libreria che riempie il campo la volta dopo.
+          L'esame indicato resta solo un'informazione — lo sceglie il radiologo.</p>
         </div>
         <div class="pg-prova">
           <label for="persProva">Prova una richiesta</label>
@@ -982,6 +984,7 @@ c35 -20 149 -81 253 -138 l189 -102 101 53 c56 29 165 88 244 131 78 43 147
                  placeholder="es. addominalgia con melena, calo ponderale">
           <div class="pg-prova-esito" id="persProvaEsito" aria-live="polite"></div>
         </div>
+        <div class="pg-simili" id="richiesteSimili" aria-live="polite"></div>
         <div class="pg-md">
           <div class="pg-cat-lista" id="categorieLista" role="tablist" aria-label="Categorie"></div>
           <div class="pg-cat-dettaglio" id="categoriaDettaglio"></div>

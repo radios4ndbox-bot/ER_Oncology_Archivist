@@ -1684,12 +1684,34 @@ function indiceCronologia() {
     }
   });
 
+  // Le richieste ricordate entrano nell'elenco come quelle dell'archivio:
+  // sono la libreria di autofill, e devono comparire anche se nessuno ha
+  // ancora registrato un esame con quelle parole.
+  ricordate().forEach((r) => {
+    const testo = String(r.testo || '').trim();
+    if (!testo) return;
+    const an = analizzaRichiesta(testo);
+    if (!an.concetti.length && !an.termini.length) return;
+    let g = gruppi.get(an.chiave);
+    if (!g) {
+      g = { chiave: an.chiave, concetti: an.concetti, termini: an.termini, varianti: new Map(),
+            conteggio: 0, ultima: 0, testo: testo, categoria: categoriaDi(an.concetti) };
+      gruppi.set(an.chiave, g);
+    }
+    g.ricordata = true;
+    g.testoRicordato = testo;
+    g.ultima = Math.max(g.ultima, r.quando || 0);
+  });
+
   const df = new Map();
   const lista = Array.from(gruppi.values());
   lista.forEach((g) => {
     // si propone la forma scritta più spesso
     let migliore = 0;
     g.varianti.forEach((n, t) => { if (n > migliore) { migliore = n; g.testo = t; } });
+    // se e' in libreria vince la forma ricordata: e' quella che il
+    // reparto ha scelto di riusare
+    if (g.testoRicordato) g.testo = g.testoRicordato;
     g.normale = normalizzaTesto(g.testo);
     g.concetti.forEach((c) => df.set('c:' + c, (df.get('c:' + c) || 0) + 1));
     g.termini.forEach((t) => df.set('t:' + t, (df.get('t:' + t) || 0) + 1));
@@ -1734,6 +1756,8 @@ function suggerimentiRichiesta(testo) {
     // recenza: fino a sei mesi pesa, poi non conta più
     const eta = adesso - (g.ultima || 0);
     punti += 0.3 * Math.max(0, 1 - eta / (180 * 86400000));
+    // in libreria: qualcuno l'ha scelta apposta perche' torna utile
+    if (g.ricordata) punti += vuoto ? 0.8 : 0.5;
     voci.push({ g: g, punti: punti });
   });
   voci.sort((x, y) => y.punti - x.punti || y.g.conteggio - x.g.conteggio);
@@ -1823,11 +1847,29 @@ function etichettaCategoria(c) {
   return '<span class="crono-cat" style="--c:' + c.colore + '">' + esc(c.nome) + '</span>';
 }
 
+/** «Ricorda»: mette la richiesta scritta adesso nella libreria di
+ *  autofill. Se c'e' gia', il pulsante lo dice e non fa niente. */
+function bottoneRicorda(testo) {
+  const gia = inLibreria(testo);
+  const vicine = gia ? 0 : similiA(testo).length;
+  return '<button type="button" class="crono-ricorda' + (gia ? ' fatta' : '') +
+    '" data-act="crono-ricorda"' + (gia ? ' disabled' : '') +
+    ' title="' + (gia
+      ? 'Questa richiesta è già nella libreria'
+      : 'Tieni questa richiesta per riusarla: la ritrovi qui e in Personalizzazione' +
+        (vicine ? ' · ce n’è già una quasi uguale' : '')) + '">' +
+    '<span class="crono-stella" aria-hidden="true">' + (gia ? '★' : '☆') + '</span>' +
+    (gia ? 'In libreria' : 'Ricorda') +
+    (vicine ? '<span class="crono-avviso" aria-hidden="true">!</span>' : '') +
+    '</button>';
+}
+
 function chipRichiesta(v, classe) {
-  const e = esameConsigliato(v.g.categoria, v.g.concetti);
   return '<button type="button" class="crono-voce' + (classe ? ' ' + classe : '') +
-    '" data-act="richiesta-usa" data-testo="' + esc(v.g.testo) + '" title="Usa questa richiesta' +
-    (e ? ' · esame tipico: ' + esc(e.scelto) : '') + '">' +
+    (v.g.ricordata ? ' ricordata' : '') +
+    '" data-act="richiesta-usa" data-testo="' + esc(v.g.testo) + '" title="' +
+    (v.g.ricordata ? 'In libreria · ' : '') + 'Usa questa richiesta">' +
+    (v.g.ricordata ? '<span class="crono-stella" aria-hidden="true">★</span>' : '') +
     '<span class="crono-testo">' + esc(v.g.testo) + '</span>' +
     (v.g.conteggio > 1 ? '<span class="crono-n">×' + v.g.conteggio + '</span>' : '') +
     '</button>';
@@ -1856,7 +1898,11 @@ function renderCronologia() {
   const campo = el('w_richiesta');
   if (!box || !campo) return;
   const s = suggerimentiRichiesta(campo.value);
-  if (!s.voci.length && !s.analisi.concetti.length) { scriviCronologia(box, ''); return; }
+  const testoScritto = String(campo.value || '').trim();
+  // con qualcosa di scritto il riquadro resta comunque: e' li' che sta
+  // «Ricorda», anche quando in archivio non c'e' niente di simile
+  const daRicordare = normalizzaTesto(testoScritto).length >= 3;
+  if (!s.voci.length && !s.analisi.concetti.length && !daRicordare) { scriviCronologia(box, ''); return; }
 
   const aperta = cronoAperta();
   box.classList.toggle('crono-aperta', aperta);
@@ -1865,25 +1911,20 @@ function renderCronologia() {
     ? 'più usate'
     : (n ? n + (n === 1 ? ' simile' : ' simili') : 'nessuna simile');
 
-  // esame suggerito per quanto è scritto nel campo
+  // A che categoria somiglia la richiesta, e cosa si e' fatto di solito
+  // in casi simili. È solo un'informazione: il tipo di esame lo sceglie
+  // il radiologo, e da qui non si imposta piu' niente.
   const categoria = s.analisi.concetti.length ? categoriaDi(s.analisi.concetti) : null;
   const esame = esameConsigliato(categoria, s.analisi.concetti);
-  const tipoAttuale = val('w_tipo_esame');
   let rigaEsame = '';
   if (esame) {
-    const giaImpostato = normalizzaTesto(tipoAttuale) === normalizzaTesto(esame.scelto);
-    rigaEsame = '<div class="crono-esame" title="Indicazione orientativa: la scelta dell’esame resta del radiologo">' +
+    rigaEsame = '<div class="crono-esame" title="Solo un’informazione: il tipo di esame lo sceglie il radiologo">' +
       etichettaCategoria(categoria) +
-      '<span>' + (esame.fisso ? 'esame del reparto' : 'esame tipico') + ' <b>' +
-        esc(esame.fisso ? esame.scelto : esame.tipico) + '</b></span>' +
+      '<span>di solito <b>' + esc(esame.fisso ? esame.scelto : esame.tipico) + '</b></span>' +
       (esame.archivio
         ? '<span class="crono-archivio">in archivio ' + esc(esame.archivio.tipo) + ' ' +
           pct(esame.archivio.n, esame.archivio.tot, 0) + ' su ' + esame.archivio.tot + '</span>'
         : '') +
-      (giaImpostato
-        ? '<span class="crono-ok">✓ impostato</span>'
-        : '<button type="button" class="crono-imposta" data-act="crono-esame" data-tipo="' + esc(esame.scelto) +
-          '">Imposta ' + esc(esame.scelto) + '</button>') +
       '</div>';
   }
 
@@ -1923,6 +1964,7 @@ function renderCronologia() {
         : '') +
       // a menu chiuso resta a portata di click la corrispondenza migliore
       (!s.vuoto && n ? '<span class="crono-rapida">' + chipRichiesta(s.voci[0], 'crono-migliore') + '</span>' : '') +
+      (daRicordare ? bottoneRicorda(testoScritto) : '') +
     '</div>' +
     rigaEsame +
     '<div class="crono-corpo' + (aperta ? ' aperto' : '') + '" id="cronoCorpo">' +
@@ -1932,31 +1974,108 @@ function renderCronologia() {
     '</div>');
 }
 
-/** Imposta il tipo di esame del passo 2: dall'elenco se c'è, altrimenti
- *  come testo libero. */
-function impostaTipoEsame(tipo) {
-  if (!tipo) return;
-  const sel = el('w_tipo_sel');
-  const campo = el('w_tipo_esame');
-  const opzione = sel && Array.prototype.find.call(sel.options,
-    (o) => o.value && normalizzaTesto(o.value) === normalizzaTesto(tipo));
-  if (opzione) {
-    modalitaTipoLibera(false);
-    sel.value = opzione.value;
-    sel.dispatchEvent(new Event('change', { bubbles: true }));
-  } else if (campo) {
-    modalitaTipoLibera(true);
-    campo.value = tipo;
-  }
-  liveValidate2();
-  renderCronologia();
-  notify('Tipo di esame impostato: ' + tipo);
+// ══════════════════════════════════════════════════════════════════
+//  LIBRERIA DELLE RICHIESTE — l'autofill del campo "Richiesta del PS"
+//
+//  «Ricorda» mette la richiesta scritta adesso in una libreria condivisa
+//  fra le postazioni: la volta dopo basta sceglierla dalla cronologia.
+//  Non decide niente sull'esame — quello lo sceglie il radiologo — e non
+//  tocca l'archivio: e' solo un modo per non riscrivere ogni volta le
+//  stesse frasi.
+// ══════════════════════════════════════════════════════════════════
+function ricordate() {
+  return personalizzazione.richieste || [];
 }
 
-let timerCrono = null;
-function pianificaCronologia() {
-  clearTimeout(timerCrono);
-  timerCrono = setTimeout(renderCronologia, 120);
+function inLibreria(testo) {
+  const n = normalizzaTesto(testo);
+  return n ? ricordate().some((r) => normalizzaTesto(r.testo) === n) : false;
+}
+
+function ricordaRichiesta() {
+  const campo = el('w_richiesta');
+  if (!campo) return;
+  const testo = String(campo.value || '').trim().replace(/\s+/g, ' ').slice(0, 300);
+  if (normalizzaTesto(testo).length < 3) {
+    notify('Scrivi prima la richiesta del PS.');
+    campo.focus();
+    return;
+  }
+  if (inLibreria(testo)) { notify('Questa richiesta è già in libreria.'); return; }
+  if (ricordate().length >= RICHIESTE_MAX) {
+    notify('Libreria piena: ' + RICHIESTE_MAX + ' richieste. Togline qualcuna da Personalizzazione.');
+    return;
+  }
+  salvaPersonalizzazione((p) => p.richieste.push({ testo: testo, quando: Date.now() }));
+  const cat = categoriaDi(analizzaRichiesta(testo).concetti);
+  const vicine = similiA(testo).length;
+  notify('Ricordata' + (cat !== CATEGORIA_ALTRO ? ' in ' + cat.nome : '') + '.' +
+    (vicine ? ' Ce n’è già una quasi uguale: vedi Personalizzazione → Categorie.' : ''));
+  cronoHtml = '';
+  renderCronologia();
+}
+
+function dimenticaRichiesta(i) {
+  const r = ricordate()[i];
+  if (!r) return;
+  salvaPersonalizzazione((p) => p.richieste.splice(i, 1));
+  notify('Tolta dalla libreria: ' + r.testo);
+  cronoHtml = '';
+  renderCronologia();
+}
+
+/** Due richieste si somigliano troppo se cambiano solo maiuscole e
+ *  punteggiatura, se dicono le stesse cose (stessi concetti e stesse
+ *  parole rimaste), o se le parole in comune sono almeno il 70%. */
+function somiglianza(a, b) {
+  if (a.n === b.n) return 'solo maiuscole o punteggiatura';
+  if (a.chiave && a.chiave === b.chiave) return 'stessi quesiti e stesse parole';
+  const unione = new Set(a.parole);
+  b.parole.forEach((p) => unione.add(p));
+  let comuni = 0;
+  a.parole.forEach((p) => { if (b.parole.has(p)) comuni++; });
+  if (!unione.size) return null;
+  const quota = comuni / unione.size;
+  return quota >= 0.7 ? 'stesse parole tranne ' + (unione.size - comuni) : null;
+}
+
+function vociLibreria() {
+  return ricordate().map((r, i) => {
+    const an = analizzaRichiesta(r.testo);
+    return {
+      i: i, testo: r.testo, n: normalizzaTesto(r.testo),
+      parole: new Set(paroleChiave(r.testo)), chiave: an.chiave,
+      categoria: an.concetti.length ? categoriaDi(an.concetti) : CATEGORIA_ALTRO
+    };
+  });
+}
+
+/** Le voci della libreria che somigliano a un testo. */
+function similiA(testo) {
+  const an = analizzaRichiesta(testo);
+  const a = { n: normalizzaTesto(testo), parole: new Set(paroleChiave(testo)), chiave: an.chiave };
+  return vociLibreria().filter((b) => b.n !== a.n && somiglianza(a, b));
+}
+
+/** Gruppi di richieste ricordate quasi uguali fra loro. */
+function richiesteSimili() {
+  const voci = vociLibreria();
+  const gruppi = [];
+  const preso = new Set();
+  voci.forEach((a) => {
+    if (preso.has(a.i)) return;
+    const vicine = [];
+    voci.forEach((b) => {
+      if (b.i === a.i || preso.has(b.i)) return;
+      const perche = somiglianza(a, b);
+      if (perche) vicine.push({ voce: b, perche: perche });
+    });
+    if (!vicine.length) return;
+    preso.add(a.i);
+    vicine.forEach((v) => preso.add(v.voce.i));
+    gruppi.push({ prima: a, vicine: vicine, perche: vicine[0].perche });
+  });
+  return gruppi;
 }
 
 function usaRichiesta(testo) {
@@ -4144,9 +4263,10 @@ async function ripristinaTipiEsame() {
 // ══════════════════════════════════════════════════════════════════
 const PAROLE_UTENTE_MAX = 200;
 const SMART_MAX = 300;
+const RICHIESTE_MAX = 400;
 
 function personalizzazioneVuota() {
-  return { updatedAt: 0, esamiCategoria: {}, parole: [], smart: [] };
+  return { updatedAt: 0, esamiCategoria: {}, parole: [], smart: [], richieste: [] };
 }
 
 /** Il file è condiviso e non fidato: solo categorie esistenti, testi brevi. */
@@ -4164,6 +4284,14 @@ function normalizzaPersonalizzazione(raw) {
     raw.parole.slice(0, PAROLE_UTENTE_MAX).forEach((w) => {
       if (w && typeof w.testo === 'string' && w.testo.trim() && ids.indexOf(w.categoria) !== -1) {
         p.parole.push({ testo: str(w.testo.trim(), 60), categoria: w.categoria });
+      }
+    });
+  }
+  // la libreria delle richieste ricordate: testo e quando e' stata messa
+  if (Array.isArray(raw.richieste)) {
+    raw.richieste.slice(0, RICHIESTE_MAX).forEach((r) => {
+      if (r && typeof r.testo === 'string' && r.testo.trim()) {
+        p.richieste.push({ testo: str(r.testo.trim(), 300), quando: num(r.quando) });
       }
     });
   }
@@ -4191,7 +4319,8 @@ function salvaPersonalizzazione(modifica) {
     updatedAt: Date.now(),
     esamiCategoria: Object.assign({}, personalizzazione.esamiCategoria),
     parole: personalizzazione.parole.slice(),
-    smart: (personalizzazione.smart || []).slice()
+    smart: (personalizzazione.smart || []).slice(),
+    richieste: (personalizzazione.richieste || []).slice()
   };
   modifica(p);
   personalizzazione = p;
@@ -4231,6 +4360,16 @@ function apriPersonalizzazione(tab) {
 function mostraTabPersonalizzazione(tab, senzaAnimazione) {
   if (tab !== 'tipi' && tab !== 'categorie' && tab !== 'smart') return;
   const cambia = tab !== persTab;
+  // chi apre le categorie deve sapere se in libreria ci sono doppioni:
+  // l'avviso e' in cima alla sezione, ma da solo si nota poco
+  if (tab === 'categorie') {
+    const n = richiesteSimili().length;
+    if (n) {
+      notify(n === 1
+        ? 'In libreria c’è una richiesta quasi uguale a un’altra: l’avviso è in cima alla sezione.'
+        : 'In libreria ci sono ' + n + ' gruppi di richieste quasi uguali: l’avviso è in cima alla sezione.');
+    }
+  }
   persTab = tab;
   const o = el('modPersonalizza');
   if (!o) return;
@@ -4274,17 +4413,38 @@ function renderCategorieRichieste(animaDettaglio) {
   const categorie = categorieEffettive().categorie;
   if (!categoriaPredefinita(persCategoria)) persCategoria = categorie[0].id;
 
+  const libreria = vociLibreria();
   lista.innerHTML = categorie.map((c) => {
     const e = esameConsigliato(c);
     const aggiunte = personalizzazione.parole.filter((w) => w.categoria === c.id).length;
+    const ricordate = libreria.filter((v) => v.categoria.id === c.id).length;
     const scelta = c.id === persCategoria;
     return '<button type="button" class="pg-cat' + (scelta ? ' scelta' : '') + '" role="tab" aria-selected="' +
         scelta + '" data-act="pers-categoria" data-cat="' + c.id + '" style="--c:' + c.colore + '">' +
       '<span class="pg-cat-nome">' + esc(c.nome) + '</span>' +
-      '<span class="pg-cat-conta">' + c.concetti.length + (aggiunte ? ' · +' + aggiunte : '') + '</span>' +
+      '<span class="pg-cat-conta">' + c.concetti.length + (aggiunte ? ' · +' + aggiunte : '') +
+        (ricordate ? ' · ★' + ricordate : '') + '</span>' +
       '<span class="pg-cat-esame">' + esc(e ? e.scelto : '—') + (c.esameFisso ? '' : ' · auto') + '</span>' +
     '</button>';
   }).join('');
+
+  // Le ricordate che nessuna categoria riconosce finirebbero fuori da
+  // tutte le liste: restano qui sotto, dove si possono togliere.
+  const senzaCategoria = libreria.filter((v) => v.categoria === CATEGORIA_ALTRO);
+  if (senzaCategoria.length) {
+    lista.insertAdjacentHTML('beforeend',
+      '<div class="pg-cat-altre" style="--c:' + CATEGORIA_ALTRO.colore + '">' +
+        '<span class="pg-cat-nome">' + esc(CATEGORIA_ALTRO.nome) + '</span>' +
+        '<span class="pg-nota">Ricordate che nessuna parola chiave riconosce.</span>' +
+        '<div class="pers-parole">' + senzaCategoria.map((v) =>
+          '<span class="pers-parola ricordata"><span class="crono-stella" aria-hidden="true">★</span>' +
+          esc(v.testo) + '<button type="button" data-act="richiesta-dimentica" data-idx="' + v.i +
+          '" aria-label="Togli dalla libreria ' + esc(v.testo) + '">&times;</button></span>').join('') +
+        '</div>' +
+      '</div>');
+  }
+
+  renderRichiesteSimili();
 
   const c = categorie.find((x) => x.id === persCategoria);
   const base = categoriaPredefinita(c.id);
@@ -4332,6 +4492,20 @@ function renderCategorieRichieste(animaDettaglio) {
       '<div class="pg-nota">Riconosciute anche nei loro sinonimi (per esempio affanno per dispnea).</div>' +
     '</div>' +
     '<div class="pg-campo">' +
+      '<div class="pers-etichetta">Richieste ricordate in questa categoria</div>' +
+      '<div class="pers-parole">' + (() => {
+        const sue = libreria.filter((v) => v.categoria.id === c.id);
+        if (!sue.length) {
+          return '<span class="pg-vuoto">Nessuna. Si aggiungono con <b>Ricorda</b>, sotto la richiesta del PS.</span>';
+        }
+        return sue.map((v) => '<span class="pers-parola ricordata"><span class="crono-stella" aria-hidden="true">★</span>' +
+          esc(v.testo) + '<button type="button" data-act="richiesta-dimentica" data-idx="' + v.i +
+          '" aria-label="Togli dalla libreria ' + esc(v.testo) + '">&times;</button></span>').join('');
+      })() + '</div>' +
+      '<div class="pg-nota">Compaiono nella cronologia con la stella e riempiono il campo con un clic. ' +
+      'Non hanno effetto sul tipo di esame.</div>' +
+    '</div>' +
+    '<div class="pg-campo">' +
       '<div class="pers-etichetta">Parole chiave del reparto</div>' +
       '<div class="pers-parole">' + (aggiunte.length
         ? aggiunte.map((x) => '<span class="pers-parola utente">' + esc(x.w.testo) +
@@ -4355,6 +4529,31 @@ function renderCategorieRichieste(animaDettaglio) {
     dettaglio.classList.add('pg-entra');
   }
   renderProva();
+}
+
+/** Avviso dei quasi-duplicati: due richieste ricordate che cambiano
+ *  solo per maiuscole, punteggiatura o una parola sono due voci che
+ *  fanno lo stesso lavoro, e la seconda volta non si sa quale scegliere.
+ *  Si vede aprendo la sezione, con il motivo scritto accanto. */
+function renderRichiesteSimili() {
+  const box = el('richiesteSimili');
+  if (!box) return;
+  const gruppi = richiesteSimili();
+  if (!gruppi.length) { box.innerHTML = ''; box.classList.remove('pieno'); return; }
+  box.classList.add('pieno');
+  const voce = (v) => '<span class="pers-parola ricordata">' + esc(v.testo) +
+    '<button type="button" data-act="richiesta-dimentica" data-idx="' + v.i +
+    '" aria-label="Togli dalla libreria ' + esc(v.testo) + '">&times;</button></span>';
+  box.innerHTML =
+    '<div class="pg-simili-testa">' +
+      '<span class="pg-simili-tit">' + gruppi.length +
+        (gruppi.length === 1 ? ' richiesta quasi uguale a un’altra' : ' gruppi di richieste quasi uguali') + '</span>' +
+      '<span class="pg-nota">Tienine una sola: nella cronologia sarebbero due voci per la stessa cosa.</span>' +
+    '</div>' +
+    gruppi.map((g) => '<div class="pg-simili-gruppo">' +
+      '<span class="pg-simili-perche">' + esc(g.perche) + '</span>' +
+      voce(g.prima) + g.vicine.map((x) => voce(x.voce)).join('') +
+    '</div>').join('');
 }
 
 /** Prova dal vivo: cosa riconosce la cronologia in una richiesta. */
@@ -6641,7 +6840,8 @@ const CLICK_ACTIONS = {
   'pers-parola-aggiungi': (t) => aggiungiParolaChiave(t.getAttribute('data-cat')),
   'pers-parola-elimina': (t) => eliminaParolaChiave(parseInt(t.getAttribute('data-idx'), 10)),
   'pers-ripristina': () => ripristinaCategorie(),
-  'crono-esame': (t) => impostaTipoEsame(t.getAttribute('data-tipo')),
+  'crono-ricorda': () => ricordaRichiesta(),
+  'richiesta-dimentica': (t) => dimenticaRichiesta(parseInt(t.getAttribute('data-idx'), 10)),
   'interpreta': () => interpretaDiagnosi(),
   'smart-chiudi': () => chiudiSmart(),
   'smart-applica': () => applicaSmart(),
@@ -6713,7 +6913,10 @@ function wireEvents() {
       aggiungiParolaChiave(ev.target.getAttribute('data-cat'));
     }
   });
-  on('w_richiesta', 'input', () => { liveValidate2(); pianificaCronologia(); });
+  // ad ogni modifica del testo, subito: con l'attesa di un decimo di
+  // secondo restava a schermo il suggerimento di prima
+  on('w_richiesta', 'input', () => { liveValidate2(); renderCronologia(); });
+  on('w_richiesta', 'change', renderCronologia);
 
   ['fOnco', 'fPrima', 'fClassTumore', 'fMeta', 'fSesso', 'fTipo'].forEach((id) => on(id, 'change', applyFilters));
   on('fSearch', 'input', applyFilters);

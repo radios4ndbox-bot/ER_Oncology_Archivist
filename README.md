@@ -328,19 +328,34 @@ ha accesso ai soli canali che le servono — stato, scelta della cartella,
 copia: `fs:writeText` e compagnia le sono chiusi, e un tentativo
 risponde *mittente IPC non autorizzato*.
 
-## Cronologia delle richieste
+## Cronologia delle richieste — la libreria di autofill
 
-Sotto *Richiesta del PS* la cronologia riconosce il quesito clinico
-(sinonimi, plurali e abbreviazioni compresi) e propone l'esame. L'esame
-tipico è **per singolo quesito**, non per categoria: dentro "Urologico"
-una colica renale va a **TC addome senza mdc**, un'ematuria a **Uro-TC**;
-una cefalea o un trauma cranico a **TC encefalo senza mdc**, una colica
-biliare o un ittero a **Ecografia addome**, un dolore toracico o una
-sospetta embolia ad **Angio-TC torace**, una melena ad **Angio-TC addome**.
+Il campo *Richiesta del PS* si riempie da solo. Sotto al campo la
+cronologia mostra le richieste già registrate in archivio e quelle che
+il reparto ha messo in libreria: un clic e il campo è compilato. Si
+aggiorna a ogni lettera battuta.
 
-Dopo cinque casi in archivio conta quello che il reparto fa davvero; un
-esame fissato in *Personalizzazione → Categorie* vale sempre. È
-un'indicazione orientativa: la scelta resta del radiologo.
+**Ricorda.** Il pulsante accanto alla cronologia tiene la richiesta
+scritta in quel momento: la volta dopo si ritrova fra i suggerimenti,
+con la stella. La libreria sta nel file condiviso, quindi vale per
+entrambe le postazioni, e si rigestisce in *Personalizzazione →
+Categorie delle richieste*, dove ogni categoria mostra le proprie
+richieste ricordate (quelle che nessuna parola chiave riconosce stanno
+in fondo all'elenco, sotto *Altre richieste*).
+
+**Doppioni.** Due richieste che cambiano solo per maiuscole,
+punteggiatura o una parola sono due voci che fanno lo stesso lavoro.
+Il programma se ne accorge e lo dice: quando si salva una richiesta
+simile a una già in libreria, e aprendo *Categorie delle richieste*,
+dove l'avviso in cima elenca i gruppi con il motivo (*solo maiuscole o
+punteggiatura*, *stesse parole tranne 1*…) e permette di togliere quelle
+di troppo.
+
+**Il tipo di esame non dipende dalla richiesta.** La cronologia mostra a
+che categoria somiglia il quesito e che esame si è fatto di solito in
+casi simili — colica renale, in archivio TC addome senza mdc nell'81%
+dei casi — ma è solo un'informazione: non imposta niente, e la scelta
+resta del radiologo.
 
 ## Interpreta — il referto del PACS compila il passo 3
 

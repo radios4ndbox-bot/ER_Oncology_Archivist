@@ -562,3 +562,20 @@ sposta da 3 px a 40 px con la sua transizione, tinta della spiegazione
 che passa dal viola delle diagnosi all'ambra dei sospetti, nessuna
 eccezione in console.
 
+---
+
+# 22 settembre 2026 — la richiesta del PS diventa un autofill
+
+| | modifica |
+|---|---|
+| L1 | pulsante **Ricorda** sotto la richiesta del PS: mette la frase scritta in una libreria condivisa (fino a 400 voci, nel file dell'archivio come il resto della personalizzazione). Le voci in libreria compaiono nella cronologia con la stella e riempiono il campo con un clic |
+| L2 | **doppioni**: due ricordate che cambiano solo per maiuscole, punteggiatura, o che hanno il 70% delle parole in comune, vengono segnalate — al salvataggio e aprendo *Categorie delle richieste*, con il motivo scritto accanto e il pulsante per toglierle |
+| L3 | **niente piu' «Imposta TC…»**: la richiesta non detta il tipo di esame. La riga resta informativa (categoria, esame tipico, cosa dice l'archivio) e non agisce piu' sul modulo; la funzione che impostava il tipo di esame e' stata tolta |
+| L4 | la cronologia si aggiorna **ad ogni modifica del testo**: prima aspettava un decimo di secondo e, fra una battuta e l'altra, restava a schermo il suggerimento precedente |
+| L5 | le ricordate che nessuna parola chiave riconosce finivano fuori da tutte le categorie: ora hanno il loro blocco in fondo all'elenco |
+
+Verificato sull'applicazione: salvataggio e doppio salvataggio, voce
+ricordata che ricompare con la stella e riempie il campo, riconoscimento
+di un duplicato di sole maiuscole e di uno che cambia una parola,
+avviso in sezione e notifica all'apertura, rimozione dalla libreria.
+
