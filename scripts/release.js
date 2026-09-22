@@ -30,9 +30,12 @@ execFileSync(process.execPath, [path.join(__dirname, 'check.js')], { stdio: 'inh
 
 if (!SENZA_BUILD) {
   passo('Build portable + installer');
+  // Si chiama direttamente il programma di electron-builder con node:
+  // lanciare npx.cmd da uno script fallisce su Windows (EINVAL: Node
+  // non avvia piu' i .cmd senza shell), e una shell qui non serve.
+  const cli = require.resolve('electron-builder/out/cli/cli.js');
   // gli stessi argomenti della pipeline: nessuna pubblicazione automatica
-  const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-  execFileSync(npx, ['electron-builder', '--win', 'portable', 'nsis', '--publish', 'never'],
+  execFileSync(process.execPath, [cli, '--win', 'portable', 'nsis', '--publish', 'never'],
     { cwd: ROOT, stdio: 'inherit' });
 }
 
