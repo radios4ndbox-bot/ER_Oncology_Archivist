@@ -579,3 +579,7 @@ ricordata che ricompare con la stella e riempie il campo, riconoscimento
 di un duplicato di sole maiuscole e di uno che cambia una parola,
 avviso in sezione e notifica all'apertura, rimozione dalla libreria.
 
+| | modifica |
+|---|---|
+| L6 | **Smart cleaning**: di ogni gruppo di quasi-doppioni tiene la richiesta piu' completa (quesiti riconosciuti, parole utili, lunghezza; a parita' di contenuto perde chi e' scritto TUTTO MAIUSCOLO o finisce con un punto) e toglie le altre. Quale resta si vede in verde prima di premere, e la conferma dice quante ne tiene e quante ne toglie. Resta possibile togliere a mano la singola voce |
+

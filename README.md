@@ -348,8 +348,16 @@ punteggiatura o una parola sono due voci che fanno lo stesso lavoro.
 Il programma se ne accorge e lo dice: quando si salva una richiesta
 simile a una già in libreria, e aprendo *Categorie delle richieste*,
 dove l'avviso in cima elenca i gruppi con il motivo (*solo maiuscole o
-punteggiatura*, *stesse parole tranne 1*…) e permette di togliere quelle
-di troppo.
+punteggiatura*, *stesse parole tranne 1*…).
+
+Da lì si può togliere a mano la voce di troppo con la ×, oppure premere
+**Smart cleaning**: di ogni gruppo tiene la richiesta più completa —
+quella che fa riconoscere più quesiti, porta più parole utili ed è
+scritta meglio (a parità di contenuto, niente TUTTO MAIUSCOLO né punto
+finale) — e toglie le altre. Quale resterebbe si vede in verde già
+prima di premere, e il programma chiede conferma dicendo quante ne
+tiene e quante ne toglie. Gli esami già registrati non vengono toccati:
+questa è solo la libreria dei suggerimenti.
 
 **Il tipo di esame non dipende dalla richiesta.** La cronologia mostra a
 che categoria somiglia il quesito e che esame si è fatto di solito in

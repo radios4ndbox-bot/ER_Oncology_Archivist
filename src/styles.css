@@ -2969,7 +2969,23 @@ body.reduce-motion .crono-ricorda { transition: none; }
 body.reduce-motion .pg-simili.pieno { animation: none; }
 .pg-simili-testa { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .pg-simili-tit { font-size: 12.5px; font-weight: 600; color: var(--amber); }
+.pg-simili-testa .pg-nota { flex: 1; min-width: 200px; }
+.pg-pulisci {
+  display: inline-flex; align-items: center; gap: 7px; margin-left: auto; flex-shrink: 0;
+}
+.pg-pulisci-n {
+  font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 999px;
+  background: rgba(255,255,255,.22);
+}
 .pg-simili-gruppo { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 7px; }
+/* quella che il programma terrebbe: si vede prima di premere */
+.pers-parola.migliore {
+  border-color: var(--green); background: var(--green-bg); color: var(--green); font-weight: 600;
+}
+.pers-parola-nota {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: .06em; text-transform: uppercase;
+  opacity: .85; margin-left: 2px;
+}
 .pg-simili-perche {
   font-family: var(--mono); font-size: 9.5px; letter-spacing: .04em; text-transform: uppercase;
   color: var(--amber); background: #fff; border: 1px solid #EBD9AC;

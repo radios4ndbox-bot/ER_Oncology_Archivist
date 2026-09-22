@@ -2043,11 +2043,64 @@ function vociLibreria() {
   return ricordate().map((r, i) => {
     const an = analizzaRichiesta(r.testo);
     return {
-      i: i, testo: r.testo, n: normalizzaTesto(r.testo),
-      parole: new Set(paroleChiave(r.testo)), chiave: an.chiave,
+      i: i, testo: r.testo, n: normalizzaTesto(r.testo), quando: r.quando || 0,
+      parole: new Set(paroleChiave(r.testo)), chiave: an.chiave, concetti: an.concetti,
       categoria: an.concetti.length ? categoriaDi(an.concetti) : CATEGORIA_ALTRO
     };
   });
+}
+
+/** Quanto e' "completa" una richiesta: quanti quesiti clinici fa
+ *  riconoscere, quante parole utili porta, quanto e' distesa. Serve a
+ *  scegliere quale tenere fra due che dicono la stessa cosa.
+ *  A parita' di contenuto vince la forma scritta meglio: TUTTO
+ *  MAIUSCOLO si rilegge peggio, e un punto finale e' solo rumore. */
+function completezza(v) {
+  let punti = v.concetti.length * 3 + v.parole.size + Math.min(v.testo.length, 240) / 120;
+  const lettere = v.testo.replace(/[^\p{L}]/gu, '');
+  if (lettere.length >= 4 && lettere === lettere.toUpperCase()) punti -= 0.5;
+  if (/[.,;:]$/.test(v.testo.trim())) punti -= 0.1;
+  return punti;
+}
+
+/** La piu' completa di un gruppo; a parita', la piu' recente. */
+function piuCompleta(voci) {
+  return voci.slice().sort((a, b) => (completezza(b) - completezza(a)) || (b.quando - a.quando))[0];
+}
+
+/** Smart cleaning: di ogni gruppo di quasi-doppioni tiene la piu'
+ *  completa e toglie le altre. Si vede prima cosa resta: e' la
+ *  libreria del reparto, non si cancella niente alla cieca. */
+async function pulisciDoppioni() {
+  const gruppi = richiesteSimili();
+  if (!gruppi.length) { notify('Non ci sono doppioni da togliere.'); return; }
+
+  const tenere = [];
+  const togliere = [];
+  gruppi.forEach((g) => {
+    const voci = [g.prima].concat(g.vicine.map((x) => x.voce));
+    const migliore = piuCompleta(voci);
+    tenere.push(migliore);
+    voci.forEach((v) => { if (v.i !== migliore.i) togliere.push(v); });
+  });
+
+  const esempi = tenere.slice(0, 3).map((v) => '«' + v.testo + '»').join(', ');
+  const ok = await conferma({
+    tipo: 'avviso',
+    titolo: 'Pulizia automatica dei doppioni?',
+    messaggio: 'Di ogni gruppo resta la richiesta più completa: ne tengo ' + tenere.length +
+      ' e ne tolgo ' + togliere.length + (togliere.length === 1 ? '' : '') + '.',
+    dettaglio: 'Restano ' + esempi + (tenere.length > 3 ? ' e altre.' : '.') +
+      ' Le richieste già registrate negli esami non si toccano: questa è solo la libreria dei suggerimenti.',
+    conferma: 'Pulisci'
+  });
+  if (!ok) return;
+
+  const fuori = new Set(togliere.map((v) => v.i));
+  salvaPersonalizzazione((p) => { p.richieste = p.richieste.filter((_r, i) => !fuori.has(i)); });
+  notify(togliere.length + (togliere.length === 1 ? ' richiesta tolta' : ' richieste tolte') + ' dalla libreria.');
+  cronoHtml = '';
+  renderCronologia();
 }
 
 /** Le voci della libreria che somigliano a un testo. */
@@ -4541,19 +4594,29 @@ function renderRichiesteSimili() {
   const gruppi = richiesteSimili();
   if (!gruppi.length) { box.innerHTML = ''; box.classList.remove('pieno'); return; }
   box.classList.add('pieno');
-  const voce = (v) => '<span class="pers-parola ricordata">' + esc(v.testo) +
+  const voce = (v, migliore) => '<span class="pers-parola ricordata' + (migliore ? ' migliore' : '') + '">' +
+    esc(v.testo) +
+    (migliore ? '<small class="pers-parola-nota">la più completa</small>' : '') +
     '<button type="button" data-act="richiesta-dimentica" data-idx="' + v.i +
     '" aria-label="Togli dalla libreria ' + esc(v.testo) + '">&times;</button></span>';
+  const daTogliere = gruppi.reduce((n, g) => n + g.vicine.length, 0);
   box.innerHTML =
     '<div class="pg-simili-testa">' +
       '<span class="pg-simili-tit">' + gruppi.length +
         (gruppi.length === 1 ? ' richiesta quasi uguale a un’altra' : ' gruppi di richieste quasi uguali') + '</span>' +
-      '<span class="pg-nota">Tienine una sola: nella cronologia sarebbero due voci per la stessa cosa.</span>' +
+      '<span class="pg-nota">Togli a mano quelle di troppo con la ×, oppure lascia scegliere al programma: ' +
+        'di ogni gruppo tiene la più completa.</span>' +
+      '<button type="button" class="btn btn-primary btn-sm pg-pulisci" data-act="richieste-pulisci">' +
+        '✨ Smart cleaning<span class="pg-pulisci-n">−' + daTogliere + '</span></button>' +
     '</div>' +
-    gruppi.map((g) => '<div class="pg-simili-gruppo">' +
-      '<span class="pg-simili-perche">' + esc(g.perche) + '</span>' +
-      voce(g.prima) + g.vicine.map((x) => voce(x.voce)).join('') +
-    '</div>').join('');
+    gruppi.map((g) => {
+      const voci = [g.prima].concat(g.vicine.map((x) => x.voce));
+      const migliore = piuCompleta(voci);
+      return '<div class="pg-simili-gruppo">' +
+        '<span class="pg-simili-perche">' + esc(g.perche) + '</span>' +
+        voci.map((v) => voce(v, v.i === migliore.i)).join('') +
+      '</div>';
+    }).join('');
 }
 
 /** Prova dal vivo: cosa riconosce la cronologia in una richiesta. */
@@ -6842,6 +6905,7 @@ const CLICK_ACTIONS = {
   'pers-ripristina': () => ripristinaCategorie(),
   'crono-ricorda': () => ricordaRichiesta(),
   'richiesta-dimentica': (t) => dimenticaRichiesta(parseInt(t.getAttribute('data-idx'), 10)),
+  'richieste-pulisci': () => pulisciDoppioni(),
   'interpreta': () => interpretaDiagnosi(),
   'smart-chiudi': () => chiudiSmart(),
   'smart-applica': () => applicaSmart(),
