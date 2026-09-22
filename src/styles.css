@@ -228,7 +228,10 @@ nav{background:var(--text);height:52px;display:flex;align-items:center;justify-c
 
 /* ══════════════ TOGGLE ══════════════ */
 .toggle-group{display:flex;flex-direction:column;gap:10px;}
-.toggle-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .12s,background .12s;}
+/* Il colore della scelta si accende con la stessa lentezza con cui si
+   apre la sezione sotto (mezzo secondo): a 120 ms scattava subito e
+   sembrava staccato dall'apertura. */
+.toggle-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .34s ease-out,background-color .34s ease-out;}
 .toggle-item:hover{border-color:var(--border2);}
 .toggle-item.active-yes{border-color:var(--onco);background:var(--onco-bg);}
 .toggle-item.active-inc{border-color:var(--amber);background:var(--amber-bg);}
@@ -1899,26 +1902,40 @@ body.reduce-motion .views-port.sale { animation: none; }
 }
 
 /* spiegazione dell'elemento scelto: si apre come le sezioni del passo 3 */
+/* Riquadro e contenuto si muovono con la stessa curva: prima la
+   scatola si apriva con una curva e il testo entrava con un'altra, e i
+   due movimenti si leggevano staccati. */
 .graf-dettaglio {
   display: grid; grid-template-rows: 0fr; margin-top: 0;
   overflow: clip; overflow-clip-margin: 4px; visibility: hidden;
-  transition: grid-template-rows .45s ease-out, margin-top .45s ease-out, visibility 0s linear .45s;
+  transition: grid-template-rows .44s cubic-bezier(.22,1,.36,1),
+              margin-top .44s cubic-bezier(.22,1,.36,1), visibility 0s linear .44s;
 }
 .graf-dettaglio.aperto {
   grid-template-rows: 1fr; margin-top: 12px; visibility: visible;
-  transition: grid-template-rows .45s ease, margin-top .45s ease, visibility 0s;
+  transition: grid-template-rows .44s cubic-bezier(.22,1,.36,1),
+              margin-top .44s cubic-bezier(.22,1,.36,1), visibility 0s;
 }
+/* La spiegazione prende la tinta dell'elemento su cui si e' cliccato:
+   --c arriva dal colore dello spicchio o della barra scelta. */
 .det-corpo {
   min-height: 0;
-  background: var(--accent-bg); border: 1px solid #EFC9DA; border-radius: 9px;
+  background: color-mix(in srgb, var(--c, var(--accent)) 9%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--c, var(--accent)) 28%, var(--border));
+  border-radius: 9px;
   padding: 10px 14px 11px;
-  transition: padding .45s ease, border-width .45s ease;
+  transition: padding .44s cubic-bezier(.22,1,.36,1), border-width .44s cubic-bezier(.22,1,.36,1),
+              background-color .4s ease, border-color .4s ease, opacity .15s ease, transform .15s ease;
 }
+/* cambio di elemento a riquadro gia' aperto: il testo sfuma, cambia e
+   rientra, cosi' il salto di altezza non si vede */
+.graf-dettaglio.in-cambio > .det-corpo { opacity: 0; transform: translateY(4px); }
 .graf-dettaglio:not(.aperto) > .det-corpo {
   padding-top: 0; padding-bottom: 0; border-top-width: 0; border-bottom-width: 0;
 }
-.graf-dettaglio.aperto .det-corpo { animation: detEntra .4s cubic-bezier(.22,1,.36,1) both; }
+.graf-dettaglio.aperto .det-corpo { animation: detEntra .44s cubic-bezier(.22,1,.36,1) .06s both; }
 @keyframes detEntra { from { opacity: 0; transform: translateY(8px); } }
+body.reduce-motion .graf-dettaglio.aperto .det-corpo { animation: none; }
 .det-testa { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .det-testa strong { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
 .det-punto { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
@@ -2231,8 +2248,19 @@ body.reduce-motion .riga-entra { animation: none; }
 .toggle-item[data-apre].active-inc::after { color: var(--amber); }
 
 /* reperto sospetto: la sezione prende il colore del suo toggle */
-#oncoSection .onco-section { transition: background-color .35s ease, border-color .35s ease; }
-#oncoSection .onco-section-title { transition: color .35s ease; }
+/* Rosa o ambra: la tinta cambia insieme all'apertura, stessa durata e
+   stessa curva del reveal (.5s ease-out), non piu' 350 ms per conto suo.
+   Le sezioni interne seguono la stessa regola, cosi' tutto il blocco
+   vira insieme invece che a pezzi. */
+#oncoSection .onco-section,
+#oncoSection .sottocat-section,
+#oncoSection .meta-section {
+  transition: background-color .5s ease-out, border-color .5s ease-out;
+}
+#oncoSection .onco-section-title,
+#oncoSection .sottocat-title,
+#oncoSection .toggle-label,
+#oncoSection .toggle-item[data-apre]::after { transition: color .5s ease-out; }
 #oncoSection.esito-sospetto .onco-section { background: var(--amber-bg); border-color: #E8D090; }
 #oncoSection.esito-sospetto .onco-section-title { color: var(--amber); }
 #oncoSection.esito-sospetto .toggle-item.active-yes { border-color: #D9A53A; background: #FFF8E6; }
@@ -2245,6 +2273,14 @@ body.reduce-motion .riga-entra { animation: none; }
    ══════════════════════════════════════════════════════════════════ */
 .crono { margin-top: 8px; }
 .crono:empty { display: none; }
+/* Il riquadro dei suggerimenti compare in dissolvenza, e mentre si
+   scrive cambia con una dissolvenza piu' breve: prima ogni lettera
+   battuta lo faceva ricomparire di scatto. */
+@keyframes cronoEntra { from { opacity: 0; transform: translateY(-5px); } }
+@keyframes cronoCambia { from { opacity: .3; } }
+.crono-entra { animation: cronoEntra .34s cubic-bezier(.22,1,.36,1) both; }
+.crono-cambia { animation: cronoCambia .22s ease-out both; }
+body.reduce-motion .crono-entra, body.reduce-motion .crono-cambia { animation: none; }
 .crono-testa { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 7px; }
 .crono-tit {
   display: inline-flex; align-items: center; gap: 5px;
@@ -2698,17 +2734,56 @@ body.reduce-motion .overlay-dialogo .dlg-icona { animation: none; }
 }
 
 .smart-scelta {
+  position: relative;
   display: inline-flex; gap: 3px; padding: 3px; border-radius: 10px; width: fit-content;
   background: var(--surface2); border: 1px solid var(--border);
 }
+/* Il fondino bianco della voce scelta e' un elemento a parte e scorre da
+   una voce all'altra: cambiare lo sfondo dei due pulsanti lo faceva
+   saltare da una parte all'altra senza passare in mezzo. */
+.smart-cursore {
+  position: absolute; top: 3px; bottom: 3px; left: 0;
+  width: var(--cursore-w, 0px);
+  transform: translateX(var(--cursore-x, 0px));
+  border-radius: 7px; background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,.12);
+  pointer-events: none;
+  transition: transform .42s cubic-bezier(.22,1,.36,1),
+              width .42s cubic-bezier(.22,1,.36,1), opacity .2s ease;
+}
+.smart-scelta.senza-cursore .smart-cursore { opacity: 0; }
+body.reduce-motion .smart-cursore { transition: none; }
 .smart-opz {
+  position: relative; z-index: 1;
   padding: 4px 12px; border: none; border-radius: 7px; cursor: pointer;
   background: transparent; color: var(--muted);
   font-family: var(--sans); font-size: 12px; font-weight: 500;
-  transition: background .18s, color .18s, box-shadow .18s;
+  transition: color .24s ease;
 }
 .smart-opz:hover { color: var(--text); }
-.smart-opz.scelta { background: #fff; color: var(--accent); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+/* lo sfondo lo mette il cursore che scorre, qui resta solo il colore */
+.smart-opz.scelta { color: var(--accent); }
+
+/* I campi della metastasi si aprono e si chiudono come le sezioni del
+   passo 3, invece di comparire e sparire spostando tutto il resto. */
+.smart-extra {
+  grid-column: 1 / -1;
+  display: grid; grid-template-rows: 0fr;
+  overflow: clip; overflow-clip-margin: 4px;
+  visibility: hidden; opacity: 0;
+  transition: grid-template-rows .44s cubic-bezier(.22,1,.36,1),
+              opacity .26s ease, visibility 0s linear .44s;
+}
+.smart-extra.aperto {
+  grid-template-rows: 1fr; visibility: visible; opacity: 1;
+  transition: grid-template-rows .44s cubic-bezier(.22,1,.36,1),
+              opacity .3s ease .08s, visibility 0s;
+}
+.smart-extra-riga {
+  min-height: 0;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px;
+}
+body.reduce-motion .smart-extra { transition: none; }
 
 .smart-riconosciute { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 6px; }
 .smart-riconosciute .smart-lab { margin-right: 4px; }
@@ -2760,7 +2835,9 @@ body.reduce-motion .overlay-dialogo .dlg-icona { animation: none; }
 }
 .smart-compilato { animation: smartCompilato 2.4s ease-out; }
 
-@media (max-width: 760px) { .smart-campi { grid-template-columns: 1fr; } }
+@media (max-width: 760px) {
+  .smart-campi, .smart-extra-riga { grid-template-columns: 1fr; }
+}
 body.reduce-motion .smart-apprendi.aperto, body.reduce-motion .smart-compilato { animation: none; }
 body.reduce-motion .btn-interpreta svg { transition: none; }
 

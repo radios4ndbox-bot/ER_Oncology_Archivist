@@ -1806,6 +1806,9 @@ function cronoAperta() {
 
 /** Apre o chiude il menu senza ridisegnarlo: così l'altezza si anima. */
 function apriCronologia() {
+  // il menu si apre senza ridisegnare: il contenuto memorizzato non
+  // corrisponde piu' allo stato a schermo, e il prossimo giro lo rifa'
+  cronoHtml = '';
   const aperta = !cronoAperta();
   try { localStorage.setItem(CRONO_STATO_KEY, aperta ? '1' : '0'); } catch (_) {}
   const corpo = el('cronoCorpo');
@@ -1830,12 +1833,30 @@ function chipRichiesta(v, classe) {
     '</button>';
 }
 
+/** Ultimo contenuto scritto nel riquadro: serve a non ridisegnarlo
+ *  quando non e' cambiato niente, e a sapere se sta comparendo adesso. */
+let cronoHtml = '';
+
+/** Il riquadro compare in dissolvenza invece che di colpo, e cambia con
+ *  una dissolvenza piu' breve mentre si scrive: senza, ad ogni lettera
+ *  battuta i suggerimenti apparivano di scatto. */
+function scriviCronologia(box, html) {
+  if (html === cronoHtml) return;
+  const entra = !cronoHtml && html;
+  cronoHtml = html;
+  box.innerHTML = html;
+  if (!html) return;
+  box.classList.remove('crono-entra', 'crono-cambia');
+  void box.offsetWidth;
+  if (!PREFS.reduceMotion) box.classList.add(entra ? 'crono-entra' : 'crono-cambia');
+}
+
 function renderCronologia() {
   const box = el('richiestaCrono');
   const campo = el('w_richiesta');
   if (!box || !campo) return;
   const s = suggerimentiRichiesta(campo.value);
-  if (!s.voci.length && !s.analisi.concetti.length) { box.innerHTML = ''; return; }
+  if (!s.voci.length && !s.analisi.concetti.length) { scriviCronologia(box, ''); return; }
 
   const aperta = cronoAperta();
   box.classList.toggle('crono-aperta', aperta);
@@ -1890,7 +1911,7 @@ function renderCronologia() {
     '</div>';
   }).join('');
 
-  box.innerHTML =
+  scriviCronologia(box,
     '<div class="crono-testa">' +
       '<button type="button" class="crono-apri" data-act="crono-apri" aria-controls="cronoCorpo" aria-expanded="' +
         (aperta ? 'true' : 'false') + '">' +
@@ -1908,7 +1929,7 @@ function renderCronologia() {
       '<div class="crono-interno">' +
         (gruppi || '<div class="crono-vuota">Nessuna richiesta simile in archivio.</div>') +
       '</div>' +
-    '</div>';
+    '</div>');
 }
 
 /** Imposta il tipo di esame del passo 2: dall'elenco se c'è, altrimenti
@@ -3334,16 +3355,34 @@ function applicaScelta(graf) {
 
   const det = el('det-' + graf);
   if (!det) return;
-  if (k === null) { det.classList.remove('aperto'); return; }
+  if (k === null) { det.classList.remove('aperto', 'in-cambio'); return; }
   const d = dettaglioGrafico(GRAF_ALIAS[graf] || graf, k, getStatsSubset());
-  det.innerHTML =
+  const html =
     '<div class="det-corpo"><div class="det-testa">' +
       '<span class="det-punto" style="background:' + d.colore + '"></span>' +
       '<strong>' + esc(d.titolo) + '</strong>' +
       '<button type="button" class="det-chiudi" data-act="grafico-chiudi" data-graf="' + graf +
         '" aria-label="Chiudi la spiegazione">&times;</button>' +
     '</div><p>' + esc(d.testo) + '</p></div>';
-  det.classList.add('aperto');
+  scriviDettaglio(det, html, d.colore);
+}
+
+/** La spiegazione si apre con il colore dell'elemento che si e' scelto,
+ *  e se e' gia' aperta cambia in dissolvenza: sostituire il testo di
+ *  colpo, mentre il riquadro si adatta alla nuova altezza, si leggeva
+ *  come due movimenti scollegati. */
+function scriviDettaglio(det, html, colore) {
+  const cambia = det.classList.contains('aperto') && !PREFS.reduceMotion;
+  const scrivi = () => {
+    det.style.setProperty('--c', colore || 'var(--accent)');
+    det.innerHTML = html;
+    det.classList.remove('in-cambio');
+    det.classList.add('aperto');
+  };
+  if (!cambia) { scrivi(); return; }
+  det.classList.add('in-cambio');
+  clearTimeout(det.__timerCambio);
+  det.__timerCambio = setTimeout(scrivi, 150);
 }
 
 function chiudiSceltaGrafico(graf) {
@@ -4507,6 +4546,9 @@ function renderSmart() {
   const segmento = (v, testo) => '<button type="button" class="smart-opz' + (smart.metastasi === v ? ' scelta' : '') +
     '" data-act="smart-meta" data-val="' + v + '" role="radio" aria-checked="' + (smart.metastasi === v) + '">' +
     testo + '</button>';
+  // il cursore bianco scorre da una voce all'altra: e' un elemento a
+  // parte, altrimenti il colore salterebbe di scatto fra i due pulsanti
+  const cursore = '<span class="smart-cursore" aria-hidden="true"></span>';
 
   const riconosciute = [];
   smart.riconosciute.forEach((r) => {
@@ -4534,16 +4576,20 @@ function renderSmart() {
       campoSmart('sede', 'Sede / organo', smart.sede, 'smartSediList', smart.evidenze.sede) +
       campoSmart('dimensioni', 'Dimensioni', smart.dimensioni) +
       '<div class="smart-campo"><span class="smart-lab">Metastasi</span>' +
-        '<div class="smart-scelta" role="radiogroup" aria-label="Metastasi">' +
-          segmento('si', 'Sì') + segmento('no', 'No') + segmento('', 'Non so') +
+        '<div class="smart-scelta" role="radiogroup" aria-label="Metastasi" data-gruppo="meta">' +
+          cursore + segmento('si', 'Sì') + segmento('no', 'No') + segmento('', 'Non so') +
         '</div>' +
         (smart.evidenze.metastasi ? '<span class="smart-evidenza" title="' + esc(smart.evidenze.metastasi) + '">«' +
           esc(smart.evidenze.metastasi) + '»</span>' : '') +
       '</div>' +
-      (metaSi
-        ? campoSmart('metaSede', 'Sede della metastasi', smart.metaSede, 'smartSediList') +
-          campoSmart('primitivo', 'Tumore primitivo', smart.primitivo)
-        : '') +
+      // i due campi restano sempre nel documento e si aprono a
+      // scomparsa: comparire e sparire di colpo spostava tutto il resto
+      '<div class="smart-extra' + (metaSi ? ' aperto' : '') + '" id="smartExtra">' +
+        '<div class="smart-extra-riga">' +
+          campoSmart('metaSede', 'Sede della metastasi', smart.metaSede, 'smartSediList') +
+          campoSmart('primitivo', 'Tumore primitivo', smart.primitivo) +
+        '</div>' +
+      '</div>' +
     '</div>' +
     (riconosciute.length
       ? '<div class="smart-riconosciute"><span class="smart-lab">Ho riconosciuto</span>' +
@@ -4564,7 +4610,8 @@ function renderSmart() {
       '</div>' +
       '<div class="smart-app-riga">' +
         '<span class="smart-lab">significa</span>' +
-        '<div class="smart-scelta" role="radiogroup" aria-label="Cosa indica">' +
+        '<div class="smart-scelta" role="radiogroup" aria-label="Cosa indica" data-gruppo="apprendi">' +
+          cursore +
           '<button type="button" class="smart-opz' + (smartTipoApprendi === 'sede' ? ' scelta' : '') +
             '" data-act="smart-app-tipo" data-tipo="sede" role="radio" aria-checked="' + (smartTipoApprendi === 'sede') +
             '">una sede</button>' +
@@ -4585,6 +4632,23 @@ function renderSmart() {
         '" aria-controls="smartApprendi">Apprendi</button>' +
       '<button type="button" class="smart-link" data-act="smart-chiudi">Procedi a mano</button>' +
     '</div>';
+
+  // i cursori si posizionano a impaginazione fatta
+  requestAnimationFrame(() => box.querySelectorAll('.smart-scelta').forEach(posizionaCursore));
+}
+
+/** Porta il cursore del toggle sotto la voce scelta. Le misure si
+ *  leggono dal flusso (offsetLeft), non dallo schermo: il pannello puo'
+ *  essere ancora dentro una sezione che si sta aprendo. */
+function posizionaCursore(gruppo) {
+  if (!gruppo) return;
+  const scelta = gruppo.querySelector('.smart-opz.scelta');
+  const cursore = gruppo.querySelector('.smart-cursore');
+  if (!cursore) return;
+  if (!scelta) { gruppo.classList.add('senza-cursore'); return; }
+  gruppo.classList.remove('senza-cursore');
+  gruppo.style.setProperty('--cursore-x', scelta.offsetLeft + 'px');
+  gruppo.style.setProperty('--cursore-w', scelta.offsetWidth + 'px');
 }
 
 /** I campi della proposta si possono correggere prima di applicarli. */
@@ -4598,7 +4662,19 @@ function aggiornaCampoSmart(ev) {
 function scegliMetastasiSmart(v) {
   if (!smart) return;
   smart.metastasi = v || null;
-  renderSmart();
+  // niente ridisegno: il cursore deve poter scorrere, e i campi della
+  // metastasi aprirsi, invece di ricomparire da zero
+  const gruppo = document.querySelector('.smart-scelta[data-gruppo="meta"]');
+  if (gruppo) {
+    gruppo.querySelectorAll('.smart-opz').forEach((b) => {
+      const suo = (b.getAttribute('data-val') || '') === (smart.metastasi || '');
+      b.classList.toggle('scelta', suo);
+      b.setAttribute('aria-checked', suo ? 'true' : 'false');
+    });
+    posizionaCursore(gruppo);
+  }
+  const extra = el('smartExtra');
+  if (extra) extra.classList.toggle('aperto', smart.metastasi === 'si');
 }
 
 function apriApprendi() {
@@ -4631,6 +4707,7 @@ function tipoApprendiSmart(tipo) {
     b.classList.toggle('scelta', su);
     b.setAttribute('aria-checked', su ? 'true' : 'false');
   });
+  posizionaCursore(document.querySelector('.smart-scelta[data-gruppo="apprendi"]'));
   const s = el('smartSignificato');
   if (s) s.disabled = smartTipoApprendi === 'metastasi';
 }
@@ -4733,6 +4810,7 @@ function aggiornaSediSmart(sedi, metaSedi) {
 function renderSmartGuess() {
   aggiornaContatoriPersonalizzazione();
   aggiornaSediSmart();
+  requestAnimationFrame(() => posizionaCursore(document.querySelector('.smart-scelta[data-gruppo="nuova"]')));
   const lista = el('smartApprese');
   if (lista) {
     const apprese = paroleApprese();
@@ -4790,6 +4868,7 @@ function tipoNuovaSmart(tipo) {
     b.classList.toggle('scelta', su);
     b.setAttribute('aria-checked', su ? 'true' : 'false');
   });
+  posizionaCursore(document.querySelector('.smart-scelta[data-gruppo="nuova"]'));
   const s = el('smartNuovaSede');
   if (s) s.disabled = smartTipoNuovo === 'metastasi';
 }

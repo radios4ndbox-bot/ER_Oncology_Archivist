@@ -86,7 +86,7 @@ const idsJs = new Set([
   ...[...app.matchAll(/\b(?:val|rawVal|setHtml)\('([A-Za-z_]\w*)'/g)].map((m) => m[1])
 ]);
 // id creati dal JavaScript stesso, non presenti nel markup statico
-const idsDinamici = new Set(['notaEdit', 'cronoCorpo', 'smartApprendi', 'smartSignificato', 'smartEspressione',
+const idsDinamici = new Set(['notaEdit', 'cronoCorpo', 'smartApprendi', 'smartSignificato', 'smartEspressione', 'smartExtra',
   'suggPannello']);
 const mancanti = [...idsJs].filter((id) => !idsHtml.has(id) && !idsDinamici.has(id));
 esito(mancanti.length === 0, 'ogni id usato dal JS esiste', mancanti.join(', '));

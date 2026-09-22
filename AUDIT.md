@@ -545,3 +545,20 @@ Attenzione in reparto: le due postazioni vanno aggiornate insieme. Una
 versione precedente continuerebbe a leggere e scrivere sul nome vecchio,
 e i due archivi divergerebbero.
 
+---
+
+# 22 settembre 2026 — animazioni in sincrono
+
+| | difetto | correzione |
+|---|---|---|
+| A1 | i suggerimenti della richiesta del PS comparivano di scatto, e ad ogni lettera battuta il riquadro veniva riscritto | compare in dissolvenza e cambia con una dissolvenza breve; se il contenuto non cambia non viene nemmeno riscritto |
+| A2 | nel toggle Metastasi di Smart guess il fondino bianco saltava da una voce all'altra, e i campi della metastasi comparivano e sparivano spostando il resto | il fondino è un cursore che scorre (stessa molla del resto del tool) e i due campi si aprono a scomparsa; il pannello non viene più ridisegnato ad ogni scelta |
+| A3 | nel passo 3 la tinta rosa/ambra cambiava in 350 ms mentre la sezione si apriva in 500 ms, e i riquadri interni viravano ognuno per conto suo | colore e apertura hanno la stessa durata e la stessa curva, sezione, sottosezioni e toggle insieme |
+| A4 | la spiegazione di un grafico si apriva con una curva e il testo entrava con un'altra; cambiando elemento il testo veniva sostituito di colpo mentre il riquadro cambiava altezza | stessa curva per riquadro e contenuto, e a riquadro già aperto il testo sfuma, cambia e rientra |
+| A5 | la spiegazione era sempre rosa, qualunque elemento si fosse scelto | prende la tinta dell'elemento cliccato (spicchio, barra, cella) |
+
+Verificato sull'applicazione: classi e durate a schermo, cursore che si
+sposta da 3 px a 40 px con la sua transizione, tinta della spiegazione
+che passa dal viola delle diagnosi all'ambra dei sospetti, nessuna
+eccezione in console.
+
