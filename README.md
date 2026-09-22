@@ -421,6 +421,12 @@ selezione corrente dell'archivio, filtri compresi.
 * **PDF** — report di presentazione con KPI e grafici del periodo scelto
   nelle statistiche
 
+I nomi proposti seguono quello dell'archivio: `ER OA Archivio.xlsx`,
+`ER OA Archivio anonimo.xlsx`, `ER OA Archivio.csv`,
+`ER OA Archivio anonimo.csv`, `ER OA Report.pdf`,
+`ER OA Presentazione.pptx`. Restano modificabili nella finestra di
+salvataggio.
+
 Excel e PDF sono generati in locale: nessuna libreria scaricata da
 Internet, nessun dato che esce dalla macchina. Il file viene proposto in
 una normale finestra "Salva con nome".

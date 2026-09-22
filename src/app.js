@@ -2400,7 +2400,7 @@ async function exportExcel(anonymous) {
       { name: 'Statistiche', rows: statsSheet(src) }
     ]);
     const ok = await sendFile(
-      anonymous ? 'ps_onco_anonimo.xlsx' : 'ps_onco_archivio.xlsx',
+      anonymous ? 'ER OA Archivio anonimo.xlsx' : 'ER OA Archivio.xlsx',
       window.XlsxWriter.toBase64(file)
     );
     if (ok) notify('Excel esportato (' + src.length + ' esami' + (anonymous ? ', anonimo' : '') + ').');
@@ -2429,7 +2429,7 @@ async function exportCSV(anonymous) {
     src.forEach((r) => { lines.push(exportRow(r, anonymous).map(csvCell).join(';')); });
     const BOM = String.fromCharCode(0xFEFF);
     const ok = await sendFile(
-      anonymous ? 'ps_onco_anonimo.csv' : 'ps_onco_archivio.csv',
+      anonymous ? 'ER OA Archivio anonimo.csv' : 'ER OA Archivio.csv',
       utf8ToBase64(BOM + lines.join(CRLF) + CRLF)
     );
     if (ok) notify('CSV esportato (' + src.length + ' esami).');
@@ -2715,7 +2715,7 @@ async function exportPPTX() {
     });
 
     const file = P.build(dia);
-    const ok = await sendFile('ps_onco_presentazione.pptx', window.ZipWriter.toBase64(file));
+    const ok = await sendFile('ER OA Presentazione.pptx', window.ZipWriter.toBase64(file));
     if (ok) notify('Presentazione esportata (' + dia.length + ' diapositive).');
   } catch (e) {
     notify('Errore export PowerPoint: ' + e.message);
@@ -2863,7 +2863,7 @@ async function exportPDF() {
   root.innerHTML = buildReport(set);
   document.body.classList.add('printing');
   try {
-    const saved = await API.savePdf('ps_onco_report.pdf');
+    const saved = await API.savePdf('ER OA Report.pdf');
     if (saved) notify('Report PDF salvato.');
   } catch (e) {
     notify('Errore export PDF: ' + e.message);
