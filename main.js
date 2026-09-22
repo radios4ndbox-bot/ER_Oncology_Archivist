@@ -20,8 +20,11 @@ const url = require('url');
 const { execFile } = require('child_process');
 
 // ── Costanti ──────────────────────────────────────────────────────
-const DATA_FILE = 'ps_onco_data.json';
-const LOCK_FILE = 'ps_onco.lock';
+const DATA_FILE = 'ER OA Archive.json';
+const LOCK_FILE = 'ER OA Archive.lock';
+/** Nomi usati fino alla 2.3.0: si migrano da soli alla prima apertura. */
+const DATA_FILE_VECCHIO = 'ps_onco_data.json';
+const LOCK_FILE_VECCHIO = 'ps_onco.lock';
 /** Unici nomi file che il renderer può nominare. Nessun path, nessun
  *  separatore: il path traversal è strutturalmente impossibile. */
 const ALLOWED_FILES = new Set([DATA_FILE, LOCK_FILE]);
@@ -135,6 +138,32 @@ function writeConfig(cfg) {
   } catch (err) {
     console.error('[config] scrittura fallita:', err.message);
   }
+}
+
+/** Fino alla 2.3.0 l'archivio si chiamava ps_onco_data.json. Aprendo una
+ *  cartella che ha ancora il nome vecchio, il file viene rinominato: uno
+ *  solo, con il nome nuovo, invece di due copie che poi divergono.
+ *  Se il nome nuovo c'e' gia', non si tocca niente. */
+function migraNomiFile(cartella) {
+  if (!cartella) return;
+  try {
+    const nuovo = path.join(cartella, DATA_FILE);
+    const vecchio = path.join(cartella, DATA_FILE_VECCHIO);
+    if (fs.existsSync(vecchio) && !fs.existsSync(nuovo)) {
+      fs.renameSync(vecchio, nuovo);
+      console.log('[dati] archivio rinominato: ' + DATA_FILE_VECCHIO + ' -> ' + DATA_FILE);
+    }
+  } catch (err) {
+    // niente di grave: si continua con il nome nuovo, il vecchio resta li'
+    console.error('[dati] rinomina dell\u2019archivio non riuscita:', err.message);
+  }
+  try {
+    // un lock con il nome vecchio, se nessuno lo aggiorna piu', e' solo
+    // un residuo: lo si toglie di mezzo (due minuti sono molto piu' del
+    // battito con cui le postazioni lo rinfrescano)
+    const lockVecchio = path.join(cartella, LOCK_FILE_VECCHIO);
+    if (Date.now() - fs.statSync(lockVecchio).mtimeMs > 120000) fs.unlinkSync(lockVecchio);
+  } catch (_) { /* nessun lock vecchio */ }
 }
 
 /** La cartella deve esistere, essere una directory ed essere scrivibile. */
@@ -361,6 +390,7 @@ register('fs:selectDataFolder', async () => {
   const folder = validateFolder(res.filePaths[0]);
   // l'avviso lo mostra il renderer, con le finestre del tool
   if (!folder) return { stato: 'non-valida' };
+  migraNomiFile(folder);
   dataFolder = folder;
   salvaConfig();
   return folder;
@@ -902,6 +932,7 @@ function useDevDataFolder() {
   }
   const ok = validateFolder(dir);
   if (ok) {
+    migraNomiFile(ok);
     dataFolder = ok;
     configProva = true;
     // da qui in poi si legge e si scrive la configurazione di prova
@@ -948,6 +979,7 @@ if (!app.requestSingleInstanceLock()) {
 
     const cfg = readConfig();
     dataFolder = validateFolder(cfg.dataFolder);
+    migraNomiFile(dataFolder);
     backupFolder = validateFolder(cfg.backupFolder);
     ultimoBackup = Number(cfg.ultimoBackup) || 0;
     ultimoAvvisoBackup = Number(cfg.ultimoAvvisoBackup) || 0;

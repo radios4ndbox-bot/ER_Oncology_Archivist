@@ -518,3 +518,30 @@ Sicurezza, verificato:
 - le tabelle della cronologia sono coerenti: ogni quesito ha una sola
   categoria, ogni esame proposto per un quesito esiste.
 
+---
+
+# 22 settembre 2026 — il file dell'archivio si chiama ER OA Archive
+
+L'archivio creato dal programma passa da `ps_onco_data.json` a
+**`ER OA Archive.json`**, e il file di presenza da `ps_onco.lock` a
+`ER OA Archive.lock`.
+
+La migrazione è automatica e non duplica niente: aprendo una cartella
+che ha ancora il nome vecchio, il file viene **rinominato** (non
+copiato), così non restano due archivi che poi divergono. Se il nome
+nuovo esiste già, non si tocca niente; se la rinomina non riesce
+(permessi, file aperto) si registra l'errore e si continua, senza
+perdere nulla. Un lock con il nome vecchio più fermo di due minuti
+viene tolto perché è solo un residuo.
+
+Vale anche per la cartella scelta dopo, non solo per quella
+configurata: la rinomina passa da `fs:selectDataFolder`.
+
+Verificato sull'applicazione: cartella con i nomi vecchi → all'avvio il
+file è rinominato, i 210 esami si leggono tutti, il lock nuovo viene
+creato e un salvataggio scrive sul nome nuovo.
+
+Attenzione in reparto: le due postazioni vanno aggiornate insieme. Una
+versione precedente continuerebbe a leggere e scrivere sul nome vecchio,
+e i due archivi divergerebbero.
+

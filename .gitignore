@@ -5,6 +5,8 @@ out/
 
 # dati clinici e ambiente di sviluppo: mai nel repository
 dev-data/
+ER OA Archive.json
+ER OA Archive.lock
 ps_onco_data.json
 ps_onco.lock
 psonco-config.json
@@ -20,4 +22,4 @@ psonco-config.json
 Thumbs.db
 
 # archivio dimostrativo: solo pazienti inventati (npm run demo)
-!demo/ps_onco_data.json
+!demo/ER OA Archive.json

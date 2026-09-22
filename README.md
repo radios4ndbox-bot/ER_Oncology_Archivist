@@ -133,7 +133,7 @@ distribuito non può attivarsi, nemmeno passando `--dev`.
 
 ### Demo dimostrativa
 
-`demo/ps_onco_data.json` contiene un archivio di **210 esami di pazienti
+`demo/ER OA Archive.json` contiene un archivio di **210 esami di pazienti
 inventati** (nomi, date e diagnosi generati), per mostrare il tool con
 archivio, statistiche e cronologia già popolati. È inventato ma
 verosimile: ogni richiesta del PS ha l'esame che di solito le si fa, e
@@ -384,8 +384,14 @@ Nella cartella dati l'app crea due file:
 
 | file | contenuto |
 |---|---|
-| `ps_onco_data.json` | l'archivio |
-| `ps_onco.lock` | presenza dell'altra postazione (informativo) |
+| `ER OA Archive.json` | l'archivio |
+| `ER OA Archive.lock` | presenza dell'altra postazione (informativo) |
+
+Fino alla 2.3.0 i due file si chiamavano `ps_onco_data.json` e
+`ps_onco.lock`: aprendo una cartella che ha ancora il nome vecchio,
+l'archivio viene **rinominato da solo** al primo avvio. Non c'e' niente
+da fare a mano, ma le due postazioni vanno aggiornate insieme: una
+versione precedente continuerebbe a scrivere sul nome vecchio.
 
 ## Lavoro simultaneo dalle due postazioni
 

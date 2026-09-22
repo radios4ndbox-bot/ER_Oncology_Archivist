@@ -111,7 +111,7 @@ esito(main.indexOf('showMessageBox') === -1, 'nessun showMessageBox nel processo
 
 // 8d. l'archivio demo è leggibile e contiene solo pazienti inventati
 try {
-  const demo = JSON.parse(leggi('demo/ps_onco_data.json'));
+  const demo = JSON.parse(leggi('demo/ER OA Archive.json'));
   const solo = Array.isArray(demo.records) && demo.records.length > 0 &&
     demo.records.every((r) => /^seed-\d+$/.test(r.id));
   esito(solo, 'archivio demo valido e solo generato', (demo.records || []).length + ' esami');

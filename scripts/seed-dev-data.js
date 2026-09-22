@@ -24,8 +24,8 @@ const DEMO = process.argv.indexOf('--demo') !== -1;
 const numeroArg = process.argv.slice(2).find((a) => /^\d+$/.test(a));
 const QUANTI = Math.min(Math.max(parseInt(numeroArg, 10) || (DEMO ? 210 : 120), 1), 5000);
 const FILE = DEMO
-  ? path.join(__dirname, '..', 'demo', 'ps_onco_data.json')
-  : path.join(__dirname, '..', 'dev-data', 'ps_onco_data.json');
+  ? path.join(__dirname, '..', 'demo', 'ER OA Archive.json')
+  : path.join(__dirname, '..', 'dev-data', 'ER OA Archive.json');
 
 const COGNOMI = ['Rossi', 'Bianchi', 'Ferrari', 'Esposito', 'Romano', 'Colombo', 'Ricci',
   'Marino', 'Greco', 'Bruno', 'Gallo', 'Conti', 'De Luca', 'Costa', 'Giordano',

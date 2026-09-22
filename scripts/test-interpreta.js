@@ -81,7 +81,7 @@ function prova(silenzioso) {
   // ritrovarci le stesse sedi e misure salvate nei campi
   let demoTot = 0, demoOk = 0;
   try {
-    const demo = require(path.join(__dirname, '..', 'demo', 'ps_onco_data.json'));
+    const demo = require(path.join(__dirname, '..', 'demo', 'ER OA Archive.json'));
     demo.records.filter((r) => r.diagnosi).forEach((r) => {
       demoTot++;
       const x = I.interpreta(r.diagnosi, []);
