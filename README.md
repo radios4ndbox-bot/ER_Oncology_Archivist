@@ -69,6 +69,25 @@ Il tag deve corrispondere alla `version` di `package.json`: se non
 combaciano la pipeline si ferma, per non pubblicare una release `v2.1.0`
 che contiene eseguibili `2.0.0`.
 
+### Release senza le Actions
+
+Se lo spazio delle Actions e' esaurito — o serve una copia subito — la
+release si prepara in locale:
+
+```bash
+npm run release
+```
+
+Esegue gli stessi passi della pipeline (controlli, build di portable e
+installer, checksum) e lascia in `dist/` i file da allegare a mano:
+i due `.exe`, `SHA256SUMS.txt` e `note-release.md` gia' scritte.
+Poi, sul repository: **Releases → Draft a new release**, si sceglie il
+tag, si trascinano i file e si pubblica. Gli allegati di una release non
+consumano lo spazio delle Actions.
+
+Con `-- --senza-build` riusa gli eseguibili gia' presenti in `dist/`,
+senza ricompilare.
+
 ### Sviluppo in locale
 
 **Non serve passare da GitHub per provare una modifica.** Electron è già

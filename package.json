@@ -12,7 +12,8 @@
     "demo": "node scripts/demo.js",
     "seed": "node scripts/seed-dev-data.js",
     "check": "node scripts/check.js",
-    "dist": "electron-builder --win portable nsis"
+    "dist": "electron-builder --win portable nsis",
+    "release": "node scripts/release.js"
   },
   "devDependencies": {
     "electron": "^44.4.0",
