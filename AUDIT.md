@@ -588,3 +588,49 @@ avviso in sezione e notifica all'apertura, rimozione dalla libreria.
 | A6 | nel passo 3 la sezione si apriva **rosa** e diventava ambra mentre saliva (o viceversa): campionando l'apertura, lo sfondo passava da rgb(245,234,245) a rgb(253,243,220) nei 500 ms dell'apertura | a sezione chiusa la tinta si mette subito, senza transizione: aprendo, l'unico movimento è l'apertura. Il colore si anima solo quando si cambia esito a sezione già aperta |
 | A7 | apertura (.5s ease-out) e colori (.34s / .5s) avevano curve e durate diverse | una sola durata e una sola curva per tutti e due, in due variabili (`--t-apertura`, `--molla-apertura`) usate dal reveal, dai toggle e dalle tinte |
 
+
+---
+
+# 23 settembre 2026 — controllo totale prima della demo
+
+Lettura di tutto il codice piu' una sessione di prova sull'applicazione
+impacchettata (2.4.0), compreso un primo avvio con profilo pulito.
+
+## Sicurezza — nessuna falla trovata
+
+| ambito | esito |
+|---|---|
+| confine del processo principale | `contextIsolation` on, `nodeIntegration` off, `sandbox` on, `webSecurity` on su tutte e due le finestre; `setWindowOpenHandler` nega sempre, `will-navigate` ammette solo `file:` dentro `src/`, `will-attach-webview` bloccato, permessi del browser negati in richiesta e in verifica |
+| IPC | ogni canale controlla chi lo chiama; alla safety net sono aperti i soli canali che le servono, mai quelli dell'archivio (controllato anche da `npm run check`) |
+| percorsi | lettura e scrittura solo sui nomi in allowlist dentro la cartella dati; `deleteFile` arriva solo al lock; la cartella si accetta solo se esiste ed e' scrivibile |
+| chiavetta USB | la lettera passa da `/^[A-Z]:$/` e deve comparire nell'elenco delle unita' rimovibili appena riletto; la copia e' sempre `backup_ER_OA.json` sulla radice |
+| HTML iniettato | cognome paziente `<img src=x onerror=...>` salvato, cercato, aperto in dettaglio ed esportato: nessuna esecuzione, nessun `<img>` nel DOM, in tabella e nel dettaglio resta testo |
+| export | CSV protetto dalle formule (`=`, `+`, `-`, `@`, tab, CR vengono preceduti da un apice); il report HTML non contiene `<script>`; xlsx scrive tutto come stringa |
+| dipendenze | `npm audit`: 0 vulnerabilita' |
+
+## Difetti trovati e corretti
+
+| | difetto | correzione |
+|---|---|---|
+| A8 | cancellare una richiesta ricordata, una parola chiave o una parola dello smart guess usava **la posizione nell'elenco**: fra il disegno della lista e il clic, l'altra postazione puo' aver cambiato la personalizzazione, e l'indice di prima avrebbe puntato a un'altra voce — cancellandola al posto di quella scelta | si cerca per contenuto (`togliVoce`), e se la voce non c'e' piu' lo si dice invece di togliere a caso. Vale anche per lo smart cleaning, che ora filtra per testo |
+| A9 | «Ricorda» chiede ad ogni lettera battuta se esiste gia' qualcosa di simile, e ogni volta rianalizzava tutta la libreria (fino a 400 frasi) | l'analisi si tiene in cache finche' la personalizzazione non cambia |
+| A10 | con la schermata di benvenuto ancora aperta (nessuna cartella dati) lo stato restava fermo su «avvio», cioe' diceva una cosa non vera su dati che non erano scritti da nessuna parte | lo stato diventa «solo in memoria». La schermata di benvenuto copre tutta la finestra e nessun elemento e' sopra di lei, quindi dall'interfaccia non si arrivava comunque a inserire un esame |
+| A11 | nella safety net, due clic su due chiavette diverse prima di rispondere alla conferma lasciavano la prima domanda appesa su una promessa che nessuno risolveva piu' | la domanda precedente si chiude con un no |
+
+## Verifiche sull'applicazione impacchettata
+
+24 prove di fila sul percorso della demo, nessuna eccezione e nessun
+errore in console: inserimento completo dell'esame, Interpreta con
+apprendimento di una parola nuova, ricerca, filtri, statistiche,
+Ricorda con doppione riconosciuto, smart cleaning, personalizzazione,
+safety net, chiusura con modifiche pendenti.
+
+Interpreta regge 30.800 caratteri in 23 ms; testo vuoto, solo
+punteggiatura e uno `<script>` incollato non rompono niente.
+Export generati e pesati senza aprire finestre: xlsx 209 KB, anonimo
+163 KB, CSV 34 KB, pptx 852 KB, report HTML 102 KB.
+
+Primo avvio con profilo pulito: parte la schermata di benvenuto, la
+safety net dice «cartella dati non configurata» e non copia niente.
+
+Nessun dato dell'archivio reale e' stato toccato durante le prove.

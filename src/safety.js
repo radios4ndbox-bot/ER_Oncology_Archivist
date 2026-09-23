@@ -51,6 +51,14 @@ function avvisa(testo) {
 function conferma(opzioni) {
   const velo = el('velo');
   if (!velo) return Promise.resolve(false);
+  // Due clic su due chiavette diverse prima di rispondere: la domanda
+  // precedente si chiude con un no, altrimenti chi l'aspettava resterebbe
+  // fermo per sempre su un await che nessuno risolve piu'.
+  if (rispostaConferma) {
+    const vecchia = rispostaConferma;
+    rispostaConferma = null;
+    vecchia(false);
+  }
   el('confTitolo').textContent = opzioni.titolo || 'Conferma';
   el('confTesto').textContent = opzioni.testo || '';
   el('confDettaglio').textContent = opzioni.dettaglio || '';

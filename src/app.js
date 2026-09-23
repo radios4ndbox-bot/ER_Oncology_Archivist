@@ -664,6 +664,10 @@ function persistDB() {
 async function doPersist() {
   if (!IS_ELECTRON || !storageReady) {
     // Modalità browser / sola lettura: i dati restano solo in memoria.
+    // In sola lettura lo stato lo dice già; senza cartella dati (schermata
+    // di benvenuto ancora aperta) lo stato resterebbe fermo su «avvio»,
+    // cioè direbbe una cosa non vera su dati non scritti da nessuna parte.
+    if (IS_ELECTRON && !readOnly) setStatus('offline', '● solo in memoria');
     refreshViews();
     return;
   }
@@ -2026,11 +2030,23 @@ function ricordaRichiesta() {
   renderCronologia();
 }
 
+/** Toglie da un elenco della personalizzazione la voce indicata.
+ *  Si cerca per contenuto e non per posizione: fra il disegno
+ *  dell'elenco e il clic, l'altra postazione puo' aver cambiato la
+ *  personalizzazione, e l'indice di prima punterebbe a un'altra voce. */
+function togliVoce(elenco, voce, campi) {
+  const i = elenco.findIndex((v) => campi.every((c) => v[c] === voce[c]));
+  if (i === -1) return false;
+  elenco.splice(i, 1);
+  return true;
+}
+
 function dimenticaRichiesta(i) {
   const r = ricordate()[i];
   if (!r) return;
-  salvaPersonalizzazione((p) => p.richieste.splice(i, 1));
-  notify('Tolta dalla libreria: ' + r.testo);
+  let tolta = false;
+  salvaPersonalizzazione((p) => { tolta = togliVoce(p.richieste, r, ['testo']); });
+  notify(tolta ? 'Tolta dalla libreria: ' + r.testo : 'Quella richiesta non è più in libreria.');
   cronoHtml = '';
   renderCronologia();
 }
@@ -2050,8 +2066,16 @@ function somiglianza(a, b) {
   return quota >= 0.7 ? 'stesse parole tranne ' + (unione.size - comuni) : null;
 }
 
+let cacheLibreria = { firma: null, voci: [] };
+
+/** Le richieste ricordate, ognuna gia' analizzata. Il risultato si
+ *  tiene finche' la personalizzazione non cambia: «Ricorda» chiede se
+ *  c'e' gia' qualcosa di simile ad ogni lettera battuta, e rifare
+ *  l'analisi di quattrocento frasi ogni volta si sentirebbe. */
 function vociLibreria() {
-  return ricordate().map((r, i) => {
+  const firma = (personalizzazione.updatedAt || 0) + ':' + ricordate().length;
+  if (cacheLibreria.firma === firma) return cacheLibreria.voci;
+  const voci = ricordate().map((r, i) => {
     const an = analizzaRichiesta(r.testo);
     return {
       i: i, testo: r.testo, n: normalizzaTesto(r.testo), quando: r.quando || 0,
@@ -2059,6 +2083,8 @@ function vociLibreria() {
       categoria: an.concetti.length ? categoriaDi(an.concetti) : CATEGORIA_ALTRO
     };
   });
+  cacheLibreria = { firma: firma, voci: voci };
+  return voci;
 }
 
 /** Quanto e' "completa" una richiesta: quanti quesiti clinici fa
@@ -2107,9 +2133,16 @@ async function pulisciDoppioni() {
   });
   if (!ok) return;
 
-  const fuori = new Set(togliere.map((v) => v.i));
-  salvaPersonalizzazione((p) => { p.richieste = p.richieste.filter((_r, i) => !fuori.has(i)); });
-  notify(togliere.length + (togliere.length === 1 ? ' richiesta tolta' : ' richieste tolte') + ' dalla libreria.');
+  // Per contenuto e non per posizione: fra la domanda di conferma e la
+  // risposta, l'altra postazione puo' aver cambiato la libreria.
+  const fuori = new Set(togliere.map((v) => v.testo));
+  let tolte = 0;
+  salvaPersonalizzazione((p) => {
+    const restano = p.richieste.filter((r) => !fuori.has(r.testo));
+    tolte = p.richieste.length - restano.length;
+    p.richieste = restano;
+  });
+  notify(tolte + (tolte === 1 ? ' richiesta tolta' : ' richieste tolte') + ' dalla libreria.');
   cronoHtml = '';
   renderCronologia();
 }
@@ -4721,10 +4754,11 @@ function aggiungiParolaChiave(id) {
 }
 
 function eliminaParolaChiave(i) {
-  if (!(i >= 0 && i < personalizzazione.parole.length)) return;
-  const testo = personalizzazione.parole[i].testo;
-  salvaPersonalizzazione((p) => p.parole.splice(i, 1));
-  notify('Rimossa: ' + testo);
+  const w = personalizzazione.parole[i];
+  if (!w) return;
+  let tolta = false;
+  salvaPersonalizzazione((p) => { tolta = togliVoce(p.parole, w, ['testo', 'categoria']); });
+  notify(tolta ? 'Rimossa: ' + w.testo : 'Quella parola non c’è più.');
 }
 
 async function ripristinaCategorie() {
@@ -5178,8 +5212,9 @@ function correggiParolaSmart(i, valore) {
 function eliminaParolaSmart(i) {
   const w = paroleApprese()[i];
   if (!w) return;
-  salvaPersonalizzazione((p) => p.smart.splice(i, 1));
-  notify('Dimenticata: «' + w.testo + '»');
+  let tolta = false;
+  salvaPersonalizzazione((p) => { tolta = togliVoce(p.smart, w, ['testo', 'tipo']); });
+  notify(tolta ? 'Dimenticata: «' + w.testo + '»' : 'Quella parola non c’è più.');
 }
 
 function usaTermineSmart(testo) {
