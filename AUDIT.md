@@ -594,7 +594,9 @@ avviso in sezione e notifica all'apertura, rimozione dalla libreria.
 # 23 settembre 2026 — controllo totale prima della demo
 
 Lettura di tutto il codice piu' una sessione di prova sull'applicazione
-impacchettata (2.4.0), compreso un primo avvio con profilo pulito.
+impacchettata, compreso un primo avvio con profilo pulito. Le quattro
+correzioni qui sotto sono uscite nella **2.4.1**: la 2.4.0 pubblicata
+non le conteneva.
 
 ## Sicurezza — nessuna falla trovata
 
