@@ -40,7 +40,8 @@ delle impostazioni di sicurezza in `main.js`. Se uno fallisce non si compila.
 ### Build di prova
 
 *Actions → Build Windows → Run workflow*. Al termine si scarica l'artifact
-**`ER-Oncology-Archivist-Windows`** (serve essere loggati su GitHub).
+**`ER-Oncology-Archivist-Windows`** (serve essere loggati su GitHub):
+contiene portable, installer, `SHA256SUMS.txt` e l'archivio demo.
 
 Gli eseguibili pesano ~100 MB l'uno e lo spazio artifact incluso nel piano
 è 500 MB, quindi l'artifact resta disponibile **un giorno**: scaricalo
@@ -133,13 +134,26 @@ distribuito non può attivarsi, nemmeno passando `--dev`.
 
 ### Demo dimostrativa
 
-`demo/ER OA Archive.json` contiene un archivio di **210 esami di pazienti
-inventati** (nomi, date e diagnosi generati), per mostrare il tool con
+`demo/ER OA Archive.json` contiene un archivio di **420 esami di pazienti
+inventati** (nomi, date e diagnosi generati) che copre **un anno intero**,
+dal 1° ottobre 2025 al 30 settembre 2026, per mostrare il tool con
 archivio, statistiche e cronologia già popolati. È inventato ma
-verosimile: ogni richiesta del PS ha l'esame che di solito le si fa, e
-le diagnosi sono scritte come referti del PACS, così *Interpreta* ha
-qualcosa di vero su cui lavorare. Si rigenera con
-`node scripts/seed-dev-data.js 210 --demo`.
+verosimile:
+
+* ogni richiesta del PS ha l'esame che di solito le si fa, e la stagione
+  conta (d'inverno più dispnee e febbri, d'estate più coliche e traumi);
+* le diagnosi sono scritte come referti del PACS — anche quelle non
+  oncologiche (calcoli, embolie, polmoniti, fratture), così *Interpreta*
+  ha qualcosa di vero su cui lavorare e si vede che non trova tumori dove
+  non ci sono;
+* ~25 sedi diverse, metastasi, sospetti, primi riscontri con patologie
+  associate, esiti istologici nel follow-up di anatomia patologica;
+* una parte dei pazienti oncologici **torna in PS** nei mesi successivi
+  (progressione, compressione midollare, frattura patologica, embolia,
+  sindrome cavale, febbre in neutropenia), con la diagnosi già nota.
+
+Si rigenera con `node scripts/seed-dev-data.js 420 --demo` (deterministico:
+stessi dati ad ogni lancio).
 
 ```
 npm run demo
@@ -150,6 +164,14 @@ che c'era) e avvia l'app su quella cartella, anche se sulla postazione è
 configurata una cartella dati vera. Il file in `demo/` non viene mai
 modificato: ogni demo riparte dagli stessi dati. `npm run check` verifica
 che contenga solo esami generati.
+
+**Demo dal setup, senza Node.** La build manuale (*Actions → Build
+Windows → Run workflow*) mette nell'artifact, accanto agli eseguibili,
+anche l'archivio demo `ER OA Archive.json`. Si copia il file in una
+cartella vuota (per esempio `Documenti\Demo ER OA`), si avvia il
+programma e, alla scelta della cartella dati, si indica quella cartella.
+Mai la cartella di rete del reparto: la demo scriverebbe sull'archivio
+vero.
 
 ### Icona
 
@@ -387,7 +409,7 @@ virgola; una sede conta solo se nella sua frase c'è una lesione vera;
 "flessura epatica" è colon, non fegato; le frasi d'anamnesi ("noto
 carcinoma del colon") danno il primitivo, non la lesione di oggi; la
 misura è quella più vicina alla sede. `npm run check` lo prova su 13
-referti tipo e sui 48 referti dell'archivio demo.
+referti tipo e su tutti i referti dell'archivio demo.
 
 **Personalizzazione → Smart guess** mostra le sedi che conosce, permette
 di provare un referto, e di aggiungere, correggere o togliere le parole

@@ -73,6 +73,15 @@ jobs:
       # caricano solo quando servono davvero e per il tempo minimo: il job
       # release li scarica subito dopo e li allega alla release, che non
       # consuma lo spazio delle Actions.
+      # Nella build manuale l'archivio demo (pazienti inventati) viaggia
+      # con il setup: chi presenta il programma lo mette in una cartella e
+      # la sceglie come cartella dati, senza bisogno di Node sul PC. Resta
+      # fuori dalle release, che allegano solo gli eseguibili.
+      - name: Archivio demo (solo build manuale)
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: Copy-Item "demo/ER OA Archive.json" dist/
+
       - name: Eseguibili (solo tag o build manuale)
         if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
@@ -81,6 +90,7 @@ jobs:
           path: |
             dist/*.exe
             dist/SHA256SUMS.txt
+            dist/ER OA Archive.json
           if-no-files-found: error
           # gli .exe sono gia' compressi: rizipparli e' solo tempo perso
           compression-level: 0
