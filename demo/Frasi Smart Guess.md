@@ -1,0 +1,120 @@
+# Frasi per la demo di Smart Guess / Interpreta
+
+Referti inventati, scritti come quelli copiati dal PACS. Si incollano in
+**Interpreta** (passo 3, sotto *Descrizione diagnosi*) oppure in
+*Personalizzazione → Smart guess → Prova un referto*.
+
+Sotto ogni referto c'è la proposta che ne ricava il programma, verificata
+sulla versione 2.4.1.
+
+**Ordine consigliato per la presentazione:** 1 → 2 → 4 → 3 → 9 → 12.
+Mostra metastasi, anamnesi, il tranello, le negazioni, un esame negativo e
+l'apprendimento.
+
+---
+
+## 1. Primitivo con metastasi (per aprire)
+
+```
+Nel lobo superiore del polmone destro si osserva formazione solida a margini spiculati di 34 x 27 mm, sospetta per neoplasia primitiva. Multiple lesioni ipodense epatiche di verosimile natura secondaria, la maggiore di 18 mm al VII segmento. Non versamento pleurico.
+```
+
+→ **Polmone · 34 x 27 mm · metastasi sì (Fegato)** · affidabilità alta
+
+## 2. Primitivo già noto dall'anamnesi
+
+```
+In paziente con noto adenocarcinoma del colon sigmoideo, si apprezzano plurime lesioni epatiche ipodense, compatibili con localizzazioni secondarie, la maggiore di 4,2 cm nel VI segmento.
+```
+
+→ **Fegato · 4,2 cm · metastasi sì · primitivo: Adenocarcinoma del colon**.
+Il colon citato in anamnesi è il primitivo, non la lesione di oggi.
+
+## 3. Negazioni, nessun tumore
+
+```
+Non lesioni focali epatiche. Pancreas di dimensioni regolari, senza formazioni espansive. Calcolo dell'uretere lombare sinistro di 6 mm con idronefrosi di II grado.
+```
+
+→ **nessuna sede, nessuna misura**. Le frasi negate non contano e i 6 mm
+del calcolo non diventano una lesione.
+
+## 4. Il tranello della "flessura epatica"
+
+```
+Ispessimento parietale stenosante della flessura epatica del colon di 38 mm, sospetto per neoplasia. Fegato di normali dimensioni, senza lesioni focali.
+```
+
+→ **Colon · 38 mm · metastasi no**. "Epatica" qui non vuol dire fegato.
+
+## 5. Pancreas con ittero
+
+```
+Formazione ipodensa della testa del pancreas di 3,1 cm con dilatazione a monte del Wirsung e delle vie biliari intraepatiche. Non adenopatie. Fegato senza lesioni focali.
+```
+
+→ **Pancreas · 3,1 cm · metastasi no**
+
+## 6. Encefalo
+
+```
+In sede frontale sinistra si osserva lesione espansiva di 27 mm con edema perilesionale e modesto effetto massa sul ventricolo laterale. Non emorragie in atto.
+```
+
+→ **Encefalo · 27 mm · metastasi no**
+
+## 7. Compressione midollare in paziente con tumore noto
+
+```
+Noto carcinoma della prostata. Lesione osteolitica del soma vertebrale D9 di verosimile natura secondaria di 32 mm, con invasione del canale vertebrale.
+```
+
+→ **Osso · 32 mm · metastasi sì · primitivo: Carcinoma della prostata**
+
+## 8. Rene
+
+```
+Massa renale sinistra solida disomogenea di 52 x 44 mm, sospetta per eteroplasia. Non trombosi della vena renale. Surreni nella norma.
+```
+
+→ **Rene · 52 x 44 mm · metastasi no**
+
+## 9. Embolia polmonare, nessun tumore
+
+```
+Difetti di riempimento endoluminali delle arterie polmonari lobari bilaterali, compatibili con embolia polmonare. Non lesioni parenchimali polmonari.
+```
+
+→ **nessuna proposta oncologica**: il programma non vede tumori ovunque.
+
+## 10. Conclusioni a fine referto
+
+```
+Esame eseguito prima e dopo mdc. Ispessimento parietale irregolare dell'antro gastrico. Linfonodi perigastrici aumentati di volume. Conclusioni: neoplasia dello stomaco con spessore massimo di 22 mm.
+```
+
+→ **Stomaco · 22 mm**. Fra stomaco e linfonodi vince lo stomaco, perché è
+quello citato nelle conclusioni.
+
+## 11. Mammella con metastasi ossee
+
+```
+Formazione nodulare solida della mammella destra di 24 mm, sospetta. Lesioni osteolitiche vertebrali di verosimile natura secondaria, la maggiore di 15 mm.
+```
+
+→ **Mammella · 24 mm · metastasi sì (Osso)**
+
+## 12. Apprendi (per il finale)
+
+```
+Voluminosa massa solida dello spazio retroperitoneale di 9 cm, che disloca le anse intestinali.
+```
+
+1. Al primo passaggio trova la misura (**9 cm**) ma **non la sede**.
+2. Premi **Apprendi**, scegli la parola **"retroperitoneale"** e assegnala
+   alla sede **Parti molli**.
+3. La proposta si rilegge da sola: **Parti molli · 9 cm** · affidabilità alta.
+
+La parola insegnata resta salvata nel file dell'archivio. Sull'archivio demo
+non è un problema; se la provi su quello vero, la togli da
+*Personalizzazione → Smart guess*.
