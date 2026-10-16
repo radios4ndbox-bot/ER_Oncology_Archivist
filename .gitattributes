@@ -13,3 +13,6 @@
 *.ico  binary
 *.png  binary
 *.bmp  binary
+
+# Testi da aprire con il Blocco note: fine riga Windows.
+*.txt  text eol=crlf
