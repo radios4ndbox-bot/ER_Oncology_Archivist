@@ -945,6 +945,50 @@ function useDevDataFolder() {
 }
 
 // ══════════════════════════════════════════════════════════════════
+//  AGGIORNAMENTI DEL PROGRAMMA
+// ══════════════════════════════════════════════════════════════════
+/* Solo nel programma installato: la nuova versione si scarica dalle
+   Release di GitHub (latest.yml) e si installa alla chiusura, mai mentre
+   si lavora — l'archivio è già salvato quando l'installazione parte,
+   perché la finestra si chiude solo dopo che il renderer ha scaricato i
+   salvataggi. Se qualcosa non va (rete, proxy dell'ospedale, criteri del
+   PC, Release mancante) non succede nulla e il programma resta quello
+   che è. La versione portatile non si aggiorna. */
+const CONTROLLO_AGGIORNAMENTI = 4 * 60 * 60 * 1000;
+
+function aggiornaProgramma() {
+  if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_DIR) return;
+  try {
+    const { autoUpdater } = require('electron-updater');
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.on('error', (err) => console.error('[aggiornamenti]', err && err.message));
+    autoUpdater.on('update-downloaded', (info) => {
+      try {
+        if (!Notification.isSupported()) return;
+        const n = new Notification({
+          title: 'Aggiornamento pronto',
+          body: 'La versione ' + info.version + ' di ER Oncology Archivist si installa da sola ' +
+                'alla chiusura del programma.',
+          icon: fs.existsSync(ICONA) ? ICONA : undefined
+        });
+        n.on('click', () => {
+          if (!mainWindow) return;
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          mainWindow.focus();
+        });
+        n.show();
+      } catch (_) { /* l'avviso non è indispensabile */ }
+    });
+    const cerca = () => { autoUpdater.checkForUpdates().catch(() => {}); };
+    cerca();
+    setInterval(cerca, CONTROLLO_AGGIORNAMENTI);
+  } catch (err) {
+    console.error('[aggiornamenti] non disponibili:', err.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 //  AVVIO
 // ══════════════════════════════════════════════════════════════════
 if (!app.requestSingleInstanceLock()) {
@@ -991,6 +1035,7 @@ if (!app.requestSingleInstanceLock()) {
     // un'applicazione Electron non installata.
     if (process.platform === 'win32') app.setAppUserModelId('it.eroncologyarchivist.app');
     programmaBackup();
+    aggiornaProgramma();
     if (DEV_MODE) watchSources();
 
     app.on('activate', () => {

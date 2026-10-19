@@ -5,6 +5,14 @@ on:
     branches: [ main ]
     tags: [ 'v*' ]
   workflow_dispatch:
+    inputs:
+      rilascia:
+        # Il push dei tag non sempre e' possibile (alcuni ambienti lo
+        # rifiutano): con questa spunta la Release v<versione di
+        # package.json> la crea il workflow stesso.
+        description: 'Pubblica una Release con la versione di package.json'
+        type: boolean
+        default: false
 
 jobs:
   verifica:
@@ -36,6 +44,8 @@ jobs:
   build:
     needs: verifica
     runs-on: windows-latest
+    outputs:
+      versione: ${{ steps.versione.outputs.v }}
     # Solo lettura: npm ci esegue gli script di installazione delle
     # dipendenze, che non devono mai trovarsi accanto a un token capace di
     # scrivere sul repository o di pubblicare release.
@@ -54,7 +64,27 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Build portable + installer
+        # --publish never: la Release la crea il job release, con il suo
+        # token. electron-builder scrive comunque latest.yml e .blockmap,
+        # perche' package.json ha la configurazione "publish".
         run: npx electron-builder --win portable nsis --publish never
+
+      - name: Versione
+        id: versione
+        shell: bash
+        run: echo "v=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: latest.yml indica l'installer
+        # Il programma installato si aggiorna leggendo latest.yml: se
+        # indicasse il portable, o un'altra versione, i PC del reparto
+        # scaricherebbero il file sbagliato.
+        shell: bash
+        run: |
+          v="${{ steps.versione.outputs.v }}"
+          cat dist/latest.yml
+          grep -q "^version: $v$" dist/latest.yml || { echo "::error::latest.yml non e' della versione $v"; exit 1; }
+          grep -q "^path: ER-Oncology-Archivist-$v-setup.exe$" dist/latest.yml || { echo "::error::latest.yml non indica l'installer"; exit 1; }
+          test -f "dist/ER-Oncology-Archivist-$v-setup.exe.blockmap" || { echo "::error::manca il .blockmap dell'installer"; exit 1; }
 
       - name: Checksum SHA-256
         # Gli eseguibili non sono firmati: il checksum e' l'unico modo che
@@ -90,6 +120,8 @@ jobs:
           path: |
             dist/*.exe
             dist/SHA256SUMS.txt
+            dist/latest.yml
+            dist/*.blockmap
             dist/ER OA Archive.json
           if-no-files-found: error
           # gli .exe sono gia' compressi: rizipparli e' solo tempo perso
@@ -111,7 +143,7 @@ jobs:
     # Job separato: riceve solo gli eseguibili già compilati, non installa
     # nulla, e soltanto qui il token può scrivere.
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.rilascia
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -122,21 +154,35 @@ jobs:
           path: dist
 
       - name: Release scaricabile
-        # Si attiva solo sui tag v*. Usa la gh CLI gia' presente sul runner:
-        # nessuna action di terze parti nella catena di build.
+        # Si attiva sui tag v* e con "rilascia". Usa la gh CLI gia' presente
+        # sul runner: nessuna action di terze parti nella catena di build.
+        # latest.yml e .blockmap servono al programma installato per
+        # aggiornarsi; --latest perche' l'aggiornamento legge l'ultima Release.
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # con un tag e' il tag stesso; con "rilascia" lo si ricava dalla
+          # versione di package.json, cosi' non possono divergere
+          TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}', needs.build.outputs.versione) }}
         run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::la Release $TAG esiste gia': aumenta version in package.json"
+            exit 1
+          fi
           {
-            echo "## ER Oncology Archivist ${GITHUB_REF_NAME}"
+            echo "## ER Oncology Archivist ${TAG}"
             echo
             echo "**Quale file scaricare**"
             echo
             echo "| file | quando usarlo |"
             echo "|---|---|"
-            echo "| \`...-portable.exe\` | copialo sulla share e lancialo. Nessuna installazione, nessun diritto di amministratore. |"
-            echo "| \`...-setup.exe\` | installazione classica, se preferisci il collegamento nel menu Start. |"
+            echo "| \`...-setup.exe\` | **l'installer da usare in reparto.** Si installa per l'utente, senza diritti di amministratore, e da quel momento il programma si aggiorna da solo. |"
+            echo "| \`...-portable.exe\` | parte senza installazione (per esempio dalla share), ma **non si aggiorna da solo**. |"
+            echo "| \`latest.yml\`, \`.blockmap\` | non vanno scaricati: servono al programma installato per trovare e scaricare gli aggiornamenti. |"
+            echo
+            echo "**Aggiornamenti.** Il programma installato controlla all'avvio e poi ogni 4 ore;"
+            echo "la nuova versione si scarica in background e si installa alla chiusura, mai mentre si lavora."
+            echo "Le impostazioni della postazione e l'archivio non vengono toccati."
             echo
             echo "**Gli eseguibili non sono firmati.** Al primo avvio Windows SmartScreen"
             echo "mostra \"Windows ha protetto il PC\": *Ulteriori informazioni* -> *Esegui comunque*."
@@ -149,7 +195,8 @@ jobs:
             echo "In PowerShell: \`Get-FileHash .\\nomefile.exe -Algorithm SHA256\`"
           } > note-release.md
 
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-            dist/*.exe dist/SHA256SUMS.txt \
-            --title "ER Oncology Archivist ${GITHUB_REF_NAME}" \
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --latest \
+            dist/*.exe dist/*.blockmap dist/latest.yml dist/SHA256SUMS.txt \
+            --title "ER Oncology Archivist ${TAG}" \
             --notes-file note-release.md

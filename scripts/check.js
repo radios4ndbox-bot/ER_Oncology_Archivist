@@ -160,5 +160,15 @@ const lock = JSON.parse(leggi('package-lock.json'));
 esito(pkg.version === lock.version, 'versione allineata col lockfile',
   pkg.version + ' / ' + lock.version);
 
+// 10. aggiornamento automatico: il programma installato cerca le nuove
+//     versioni nelle Release di questo repository. Un "publish" sbagliato
+//     manderebbe i PC del reparto a cercarle altrove (o da nessuna parte).
+const pub = ((pkg.build || {}).publish || [])[0] || {};
+esito(pub.provider === 'github' && pub.owner === 'radios4ndbox-bot' && pub.repo === 'ER_Oncology_Archivist',
+  'aggiornamenti dalle Release di ER_Oncology_Archivist', pub.owner + '/' + pub.repo);
+esito(!!(pkg.dependencies || {})['electron-updater'], 'electron-updater fra le dipendenze del programma');
+esito(/function aggiornaProgramma\(\) \{\s*if \(!app\.isPackaged \|\| process\.env\.PORTABLE_EXECUTABLE_DIR\) return;/.test(main),
+  'aggiornamenti solo nel programma installato (mai in sviluppo né nel portable)');
+
 console.log('\n' + (errori ? errori + ' controlli falliti\n' : 'Tutto a posto\n'));
 process.exit(errori ? 1 : 0);
