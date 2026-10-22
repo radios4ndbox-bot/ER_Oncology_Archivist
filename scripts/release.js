@@ -64,8 +64,9 @@ const note = [
   '',
   '| file | quando usarlo |',
   '|---|---|',
-  '| `...-portable.exe` | copialo sulla share e lancialo. Nessuna installazione, nessun diritto di amministratore. |',
-  '| `...-setup.exe` | installazione classica, se preferisci il collegamento nel menu Start. |',
+  '| `...-setup.exe` | **l\'installer da usare in reparto.** Si installa per l\'utente e da quel momento si aggiorna da solo. |',
+  '| `...-portable.exe` | parte senza installazione, ma **non si aggiorna da solo**. |',
+  '| `latest.yml`, `.blockmap` | non vanno scaricati: servono al programma installato per aggiornarsi. |',
   '',
   '**Gli eseguibili non sono firmati.** Al primo avvio Windows SmartScreen mostra',
   '"Windows ha protetto il PC": *Ulteriori informazioni* -> *Esegui comunque*.',
@@ -81,9 +82,16 @@ const noteFile = path.join(DIST, 'note-release.md');
 fs.writeFileSync(noteFile, note + '\n', 'utf8');
 
 passo('Pronto');
+// latest.yml e .blockmap: il programma installato li legge dall'ultima
+// Release per aggiornarsi. Senza, i PC del reparto restano alla versione
+// che hanno.
+const aggiornamento = ['latest.yml', 'ER-Oncology-Archivist-' + versione + '-setup.exe.blockmap'];
+const mancanti = aggiornamento.filter((f) => !fs.existsSync(path.join(DIST, f)));
+if (mancanti.length) console.log('ATTENZIONE: mancano ' + mancanti.join(', ') + ': senza, i PC non si aggiornano.');
 console.log('In dist/ ci sono i file da allegare alla release v' + versione + ':');
-esebili.concat(['SHA256SUMS.txt', 'note-release.md']).forEach((f) => console.log('  dist/' + f));
+esebili.concat(aggiornamento, ['SHA256SUMS.txt', 'note-release.md'])
+  .forEach((f) => console.log('  dist/' + f));
 console.log('\nPer pubblicarli su GitHub senza le Actions:');
-console.log('  1. git tag v' + versione + ' && git push origin v' + versione);
-console.log('  2. sul repository: Releases → Draft a new release → tag v' + versione);
-console.log('  3. trascina i file qui sopra, incolla dist/note-release.md e pubblica');
+console.log('  1. sul repository: Releases → Draft a new release → nuovo tag v' + versione + ' su main');
+console.log('  2. trascina i file qui sopra (latest.yml e .blockmap compresi), incolla dist/note-release.md');
+console.log('  3. lascia spuntato "Set as the latest release" e pubblica');

@@ -40,7 +40,8 @@ delle impostazioni di sicurezza in `main.js`. Se uno fallisce non si compila.
 ### Build di prova
 
 *Actions → Build Windows → Run workflow*. Al termine si scarica l'artifact
-**`ER-Oncology-Archivist-Windows`** (serve essere loggati su GitHub).
+**`ER-Oncology-Archivist-Windows`** (serve essere loggati su GitHub):
+contiene portable, installer, `SHA256SUMS.txt` e l'archivio demo.
 
 Gli eseguibili pesano ~100 MB l'uno e lo spazio artifact incluso nel piano
 è 500 MB, quindi l'artifact resta disponibile **un giorno**: scaricalo
@@ -52,22 +53,27 @@ scadenza.
 ### Release scaricabile
 
 Per pubblicare una versione che il reparto possa scaricare con un link
-diretto, basta creare un tag `v<versione>`:
+diretto — e che i PC con il programma installato ricevano da soli:
 
-```bash
-npm version 2.0.1 --no-git-tag-version   # allinea package.json
-git commit -am "Versione 2.0.1"
-git tag v2.0.1
-git push origin main --tags
-```
+1. aumenta `version` in `package.json` (per esempio a 2.5.1) e uniscila
+   in `main`; per allineare anche il lockfile:
+   `npm version 2.5.1 --no-git-tag-version`;
+2. su GitHub apri **Actions → Build Windows → Run workflow**, scegli
+   `main`, spunta **rilascia** e avvia.
 
-Il workflow compila e crea da solo la **Release** con allegati il portable,
-l'installer e il file `SHA256SUMS.txt`. Gli allegati non pesano sul
-repository e non hanno il limite dei 100 MB dei file versionati.
+Il workflow compila e crea da solo la **Release `v<versione>`**, segnata
+come ultima versione, con allegati l'installer, il portable,
+`latest.yml`, il `.blockmap` dell'installer e `SHA256SUMS.txt`. Prima di
+pubblicare controlla che `latest.yml` indichi l'installer della versione
+giusta. Se la Release di quella versione esiste già si ferma: va
+aumentata `version`. Gli allegati non pesano sul repository e non hanno
+il limite dei 100 MB dei file versionati.
 
-Il tag deve corrispondere alla `version` di `package.json`: se non
-combaciano la pipeline si ferma, per non pubblicare una release `v2.1.0`
-che contiene eseguibili `2.0.0`.
+In alternativa funziona ancora il tag `v<versione>` (`git tag v2.5.1 &&
+git push origin v2.5.1`), quando il push dei tag è permesso. Il tag deve
+corrispondere alla `version` di `package.json`: se non combaciano la
+pipeline si ferma, per non pubblicare una release `v2.6.0` che contiene
+eseguibili `2.5.0`.
 
 ### Release senza le Actions
 
@@ -133,13 +139,26 @@ distribuito non può attivarsi, nemmeno passando `--dev`.
 
 ### Demo dimostrativa
 
-`demo/ER OA Archive.json` contiene un archivio di **210 esami di pazienti
-inventati** (nomi, date e diagnosi generati), per mostrare il tool con
+`demo/ER OA Archive.json` contiene un archivio di **420 esami di pazienti
+inventati** (nomi, date e diagnosi generati) che copre **un anno intero**,
+dal 1° ottobre 2025 al 30 settembre 2026, per mostrare il tool con
 archivio, statistiche e cronologia già popolati. È inventato ma
-verosimile: ogni richiesta del PS ha l'esame che di solito le si fa, e
-le diagnosi sono scritte come referti del PACS, così *Interpreta* ha
-qualcosa di vero su cui lavorare. Si rigenera con
-`node scripts/seed-dev-data.js 210 --demo`.
+verosimile:
+
+* ogni richiesta del PS ha l'esame che di solito le si fa, e la stagione
+  conta (d'inverno più dispnee e febbri, d'estate più coliche e traumi);
+* le diagnosi sono scritte come referti del PACS — anche quelle non
+  oncologiche (calcoli, embolie, polmoniti, fratture), così *Interpreta*
+  ha qualcosa di vero su cui lavorare e si vede che non trova tumori dove
+  non ci sono;
+* ~25 sedi diverse, metastasi, sospetti, primi riscontri con patologie
+  associate, esiti istologici nel follow-up di anatomia patologica;
+* una parte dei pazienti oncologici **torna in PS** nei mesi successivi
+  (progressione, compressione midollare, frattura patologica, embolia,
+  sindrome cavale, febbre in neutropenia), con la diagnosi già nota.
+
+Si rigenera con `node scripts/seed-dev-data.js 420 --demo` (deterministico:
+stessi dati ad ogni lancio).
 
 ```
 npm run demo
@@ -151,6 +170,14 @@ configurata una cartella dati vera. Il file in `demo/` non viene mai
 modificato: ogni demo riparte dagli stessi dati. `npm run check` verifica
 che contenga solo esami generati.
 
+**Demo dal setup, senza Node.** La build manuale (*Actions → Build
+Windows → Run workflow*) mette nell'artifact, accanto agli eseguibili,
+anche l'archivio demo `ER OA Archive.json`. Si copia il file in una
+cartella vuota (per esempio `Documenti\Demo ER OA`), si avvia il
+programma e, alla scelta della cartella dati, si indica quella cartella.
+Mai la cartella di rete del reparto: la demo scriverebbe sull'archivio
+vero.
+
 ### Icona
 
 Copiare l'icona in `build/icon.ico` (ICO, almeno 256×256). electron-builder
@@ -159,21 +186,60 @@ la rileva da sola: **non** va aggiunta nessuna chiave `icon` in
 
 ## Distribuzione
 
-Gli eseguibili **non sono firmati**: al primo avvio Windows SmartScreen
-mostra "Windows ha protetto il PC" e serve *Ulteriori informazioni →
-Esegui comunque*. Funziona anche senza diritti di amministratore, ma
-conviene avvisare il personale. Se l'IT dispone di un certificato di code
-signing aziendale, si può configurare in `build.win` di `package.json`.
+### Installazione in reparto
 
-Per il reparto la strada più semplice è il **portable**: si copia sulla
-share e si lancia da lì, senza installare nulla sui PC.
+Il link da dare al reparto e all'informatica è quello dell'ultima
+Release, che non richiede di accedere a GitHub e scarica l'installer
+direttamente, senza `.zip`:
 
-Il `SHA256SUMS.txt` allegato alla release serve a verificare il file
-scaricato:
+<https://github.com/radios4ndbox-bot/ER_Oncology_Archivist/releases/latest>
+
+| file | a cosa serve |
+|---|---|
+| `ER-Oncology-Archivist-<versione>-setup.exe` | **l'installer da usare in reparto.** Si installa per l'utente, senza diritti di amministratore, e da quel momento si aggiorna da solo |
+| `ER-Oncology-Archivist-<versione>-portable.exe` | parte senza installazione (anche dalla share), ma **non si aggiorna da solo** |
+| `latest.yml`, `.blockmap` | non vanno scaricati: il programma installato li legge per aggiornarsi |
+| `SHA256SUMS.txt` | per verificare il file scaricato |
 
 ```powershell
-Get-FileHash .\ER-Oncology-Archivist-2.0.0-portable.exe -Algorithm SHA256
+Get-FileHash .\ER-Oncology-Archivist-2.5.0-setup.exe -Algorithm SHA256
 ```
+
+Gli eseguibili **non sono firmati**: al primo avvio Windows SmartScreen
+mostra "Windows ha protetto il PC" e serve *Ulteriori informazioni →
+Esegui comunque*. Conviene avvisare il personale. Se l'IT dispone di un
+certificato di code signing aziendale, si può configurare in `build.win`
+di `package.json`.
+
+Le impostazioni della postazione (cartella dati, backup) stanno in
+`AppData` e l'archivio sulla cartella condivisa: installazione e
+aggiornamenti non li toccano. Chi usava il portable o una versione
+installata fino alla 2.4.1 installa la nuova versione **una volta a
+mano**; dalla 2.5.0 in poi gli aggiornamenti arrivano da soli.
+
+### Aggiornamenti automatici
+
+Dalla 2.5.0 il programma **installato** cerca una nuova versione
+nell'ultima Release di questo repository all'avvio e poi ogni 4 ore
+(`electron-updater`, che legge `latest.yml`). La scarica in background
+e la installa **alla chiusura del programma**, mai mentre si lavora:
+la finestra si chiude solo dopo che i salvataggi in sospeso sono finiti
+sull'archivio. Quando l'aggiornamento è pronto compare un avviso di
+Windows.
+
+Se la rete, il proxy dell'ospedale o i criteri del PC bloccano
+`github.com`, non succede nulla: il programma resta alla versione che ha
+e funziona come prima. In quel caso l'informatica può distribuire
+l'installer nuovo come un qualsiasi altro programma.
+
+Non si aggiornano mai da soli il portable e l'app avviata da `npm start`
+o `npm run dev`.
+
+**Da provare prima dell'uso in reparto.** L'aggiornamento automatico si
+può verificare davvero solo al passaggio da una versione pubblicata alla
+successiva: installare la 2.5.0 su un PC di prova, pubblicare una 2.5.1,
+riaprire il programma, chiuderlo e controllare che alla riapertura sia
+2.5.1.
 
 ## Intro
 
@@ -387,7 +453,7 @@ virgola; una sede conta solo se nella sua frase c'è una lesione vera;
 "flessura epatica" è colon, non fegato; le frasi d'anamnesi ("noto
 carcinoma del colon") danno il primitivo, non la lesione di oggi; la
 misura è quella più vicina alla sede. `npm run check` lo prova su 13
-referti tipo e sui 48 referti dell'archivio demo.
+referti tipo e su tutti i referti dell'archivio demo.
 
 **Personalizzazione → Smart guess** mostra le sedi che conosce, permette
 di provare un referto, e di aggiungere, correggere o togliere le parole
